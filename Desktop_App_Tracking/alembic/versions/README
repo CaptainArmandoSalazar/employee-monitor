@@ -1,0 +1,10 @@
+Migration versions go here.
+
+Generate a new migration after changing models:
+    alembic revision --autogenerate -m "describe your change"
+
+Apply all pending migrations:
+    alembic upgrade head
+
+Rollback one step:
+    alembic downgrade -1

@@ -1,32 +1,84 @@
-# Node
+# ── Node / Electron ───────────────────────────────────────
 node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.pnpm-debug.log*
+package-lock.json
 
-# Electron build
+# Electron build output
 dist/
+out/
+release/
+build/
 
-# Python
+# TypeScript compiled output
+*.js.map
+*.d.ts
+# Keep your own .d.ts if you have any in src — remove line above if so
+
+# ── Python / FastAPI ──────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
+*.pyw
+.Python
 
-# Environment
+# Virtual environments
+venv/
+.venv/
+env/
+.env_dir/
+
+# Pytest
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Alembic — keep migrations, ignore only the compiled cache
+alembic/__pycache__/
+
+# ── Environment & Secrets ─────────────────────────────────
 .env
 .env.*
+!.env.example
 
-# OS
+# ── Database ──────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+test.db
+
+# ── Session files (written by the Electron app) ───────────
+.employee_monitor_session.json
+
+# ── OS ────────────────────────────────────────────────────
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
 Thumbs.db
+ehthumbs.db
+Desktop.ini
 
-# Logs
-logs
+# ── Logs ──────────────────────────────────────────────────
+logs/
 *.log
+*.log.*
 
-# Temporary files
+# ── Temporary files ───────────────────────────────────────
 *.tmp
 *.swp
+*.swo
+*~
 
-# Ignore text files if not needed
-*.txt
+# ── IDE / Editor ──────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln

@@ -1,45 +1,51 @@
 {
-  "name": "employee-monitor",
-  "version": "2.0.0",
-  "description": "Employee Monitoring Desktop Application",
+  "name": "employee-monitor-desktop",
+  "version": "1.0.0",
+  "description": "Employee Monitoring Desktop App",
   "main": "dist/main/main.js",
   "scripts": {
-    "build": "tsc -p tsconfig.main.json",
+    "build": "tsc",
     "start": "npm run build && electron .",
-    "dev": "concurrently \"tsc -w -p tsconfig.main.json\" \"electron .\"",
+    "dev": "concurrently \"tsc --watch\" \"wait-on dist/main/main.js && electron . --dev\"",
+    "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder"
   },
+  "keywords": [],
+  "author": "AvDevs",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "concurrently": "^8.2.2",
+    "electron": "^28.2.0",
+    "electron-builder": "^24.9.1",
+    "typescript": "^5.3.3",
+    "wait-on": "^7.2.0"
+  },
+  "dependencies": {
+    "node-fetch": "^2.7.0",
+    "uuid": "^9.0.0"
+  },
   "build": {
-    "appId": "com.company.employeemonitor",
+    "appId": "com.avdevs.employeemonitor",
     "productName": "Employee Monitor",
     "directories": {
       "output": "release"
     },
     "files": [
       "dist/**/*",
-      "src/renderer/**/*",
-      "resources/**/*"
+      "src/renderer/**/*"
     ],
-    "mac": {
-      "category": "public.app-category.business"
-    },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icon.icns"
     },
     "linux": {
-      "target": "AppImage"
+      "target": "AppImage",
+      "icon": "assets/icon.png"
     }
-  },
-  "dependencies": {
-    "active-win": "^8.2.1",
-    "electron-store": "^8.1.0",
-    "node-fetch": "^2.7.0"
-  },
-  "devDependencies": {
-    "@types/node": "^20.19.37",
-    "concurrently": "^8.2.2",
-    "electron": "^28.0.0",
-    "electron-builder": "^24.9.1",
-    "typescript": "^5.3.3"
   }
 }

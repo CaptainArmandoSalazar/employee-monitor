@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com;" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Employee Monitor — Login</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+<div class="login-page">
+
+  <!-- Custom titlebar -->
+  <div class="titlebar">
+    <div class="titlebar-logo">
+      <span class="dot"></span>
+      Employee Monitor
+    </div>
+    <div class="titlebar-controls">
+      <button class="win-btn" id="btn-minimize" title="Minimize">&#x2212;</button>
+      <button class="win-btn close" id="btn-close" title="Close">&#x2715;</button>
+    </div>
+  </div>
+
+  <!-- Login body -->
+  <div class="login-body">
+    <div class="login-card">
+
+      <div class="login-brand">
+        <div class="brand-icon">🖥️</div>
+        <h1>Employee Monitor</h1>
+        <p>Sign in to start your work session</p>
+      </div>
+
+      <div id="login-alert" class="alert alert-error hidden">
+        <span>⚠️</span>
+        <span id="login-alert-msg"></span>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="email">Email Address</label>
+        <div class="input-wrap">
+          <span class="input-icon">✉</span>
+          <input
+            class="form-input"
+            type="email"
+            id="email"
+            placeholder="you@company.com"
+            autocomplete="email"
+            autofocus
+          />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="password">Password</label>
+        <div class="input-wrap">
+          <span class="input-icon">🔒</span>
+          <input
+            class="form-input"
+            type="password"
+            id="password"
+            placeholder="Enter your password"
+            autocomplete="current-password"
+          />
+        </div>
+      </div>
+
+      <button class="btn btn-primary btn-block btn-lg" id="btn-login">
+        <span id="login-btn-text">Sign In</span>
+        <span id="login-spinner" class="spinner hidden"></span>
+      </button>
+
+      <p style="text-align:center; margin-top:20px; font-size:12px; color:var(--text-muted)">
+        AvDevs Employee Monitoring System v1.0
+      </p>
+    </div>
+  </div>
+
+</div>
+
+<script src="js/login.js"></script>
+</body>
+</html>

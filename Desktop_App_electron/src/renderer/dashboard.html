@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com;" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Employee Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css" />
+  <style>
+    /* ── Extra page styles ── */
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 12px;
+    }
+    .detail-tile {
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 16px;
+      cursor: default;
+    }
+    .detail-tile.clickable {
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+    }
+    .detail-tile.clickable:hover {
+      border-color: var(--accent);
+      background: var(--bg-hover);
+    }
+    .detail-tile-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+    .detail-tile-value {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .detail-tile-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* Back button */
+    .back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-family: var(--font);
+      padding: 6px 14px;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .back-btn:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+      border-color: var(--border-light);
+    }
+
+    /* Sub-page overlay */
+    .subpage {
+      display: none;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .subpage.active {
+      display: flex;
+    }
+
+    /* Section dividers in session detail */
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-layout">
+
+  <!-- ── Titlebar ──────────────────────────────────────── -->
+  <div class="titlebar">
+    <div class="titlebar-logo">
+      <span class="dot" id="status-dot"></span>
+      Employee Monitor
+    </div>
+    <div style="flex:1"></div>
+    <div class="titlebar-controls">
+      <button class="win-btn" id="btn-minimize">&#x2212;</button>
+      <button class="win-btn close" id="btn-close">&#x2715;</button>
+    </div>
+  </div>
+
+  <div class="app-body">
+
+    <!-- ── Sidebar ───────────────────────────────────────── -->
+    <nav class="sidebar">
+      <div class="sidebar-user">
+        <div class="avatar" id="sidebar-avatar">?</div>
+        <div class="user-info">
+          <div class="user-name" id="sidebar-name">Loading…</div>
+          <div class="user-role" id="sidebar-role">—</div>
+        </div>
+      </div>
+
+      <!-- Common nav -->
+      <div class="nav-section-label">Workspace</div>
+      <button class="nav-item active" data-page="overview">
+        <span class="nav-icon">🏠</span> Overview
+      </button>
+      <button class="nav-item" data-page="my-sessions">
+        <span class="nav-icon">📅</span> My Sessions
+      </button>
+
+      <!-- Admin nav -->
+      <div class="nav-section-label admin-only hidden">Admin</div>
+      <button class="nav-item admin-only hidden" data-page="admins">
+        <span class="nav-icon">🛡️</span> Admins
+      </button>
+      <button class="nav-item admin-only hidden" data-page="employees">
+        <span class="nav-icon">👥</span> Employees
+      </button>
+      <button class="nav-item admin-only hidden" data-page="settings">
+        <span class="nav-icon">⚙️</span> Settings
+      </button>
+
+      <div class="sidebar-bottom">
+        <button class="nav-item" id="btn-logout">
+          <span class="nav-icon">🚪</span> Sign Out
+        </button>
+      </div>
+    </nav>
+
+    <!-- ── Main content area ────────────────────────────── -->
+    <main class="main-content">
+
+      <!-- ══════════════ OVERVIEW PAGE ══════════════ -->
+      <div class="page-view active" id="page-overview">
+
+        <div class="page-header">
+          <div>
+            <div class="page-title" id="greeting">Good morning</div>
+            <div class="page-subtitle" id="overview-date">—</div>
+          </div>
+        </div>
+
+        <!-- Session card -->
+        <div class="session-card" style="flex-direction:column;gap:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:24px;width:100%">
+            <div>
+              <div class="flex items-center gap-2" style="margin-bottom:6px">
+                <span class="session-status-dot" id="session-dot"></span>
+                <span style="font-size:13px;color:var(--text-secondary)" id="session-status-text">Not clocked in</span>
+              </div>
+              <div class="session-timer" id="session-timer">00:00:00</div>
+              <div class="session-meta" id="session-meta">Clock in to start tracking</div>
+            </div>
+            <div class="session-actions">
+              <div id="clock-in-loading" class="clock-in-loading hidden">
+                <span class="spinner"></span>
+                <span>Gathering location &amp; device info…</span>
+              </div>
+              <button class="btn btn-success btn-lg" id="btn-clock-in">▶ Clock In</button>
+              <button class="btn btn-danger btn-lg hidden" id="btn-clock-out">■ Clock Out</button>
+            </div>
+          </div>
+
+          <!-- Clock-in detail panel -->
+          <div id="clockin-details" class="hidden" style="width:100%;border-top:1px solid var(--border);padding-top:14px">
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px">📍 Location</div>
+                <div style="font-size:13px;font-weight:600;color:var(--text-primary)" id="di-location">—</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px" id="di-latlon">—</div>
+              </div>
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px">🌐 IP Address</div>
+                <div style="font-size:13px;font-weight:600;color:var(--text-primary);font-family:var(--font-mono)" id="di-ip">—</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px" id="di-connection">—</div>
+              </div>
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px">📶 Network</div>
+                <div style="font-size:13px;font-weight:600;color:var(--text-primary)" id="di-ssid">—</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px" id="di-mac">—</div>
+              </div>
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px">💻 Device</div>
+                <div style="font-size:13px;font-weight:600;color:var(--text-primary)" id="di-device-name">—</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px" id="di-os">—</div>
+              </div>
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px">⚙️ CPU</div>
+                <div style="font-size:12px;font-weight:600;color:var(--text-primary)" id="di-cpu">—</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px" id="di-ram">—</div>
+              </div>
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px">💾 Storage</div>
+                <div style="font-size:13px;font-weight:600;color:var(--text-primary)" id="di-storage">—</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px" id="di-speed">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stats row -->
+        <div class="stats-grid">
+          <div class="stat-card accent">
+            <div class="stat-label">Active Time</div>
+            <div class="stat-value" id="stat-active">0h 0m</div>
+            <div class="stat-sub">Today</div>
+          </div>
+          <div class="stat-card warning">
+            <div class="stat-label">Idle Time</div>
+            <div class="stat-value" id="stat-idle">0h 0m</div>
+            <div class="stat-sub">Today</div>
+          </div>
+          <div class="stat-card success">
+            <div class="stat-label">Keystrokes</div>
+            <div class="stat-value" id="stat-keys">0</div>
+            <div class="stat-sub">This session</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Sessions</div>
+            <div class="stat-value" id="stat-sessions">0</div>
+            <div class="stat-sub">Total today</div>
+          </div>
+        </div>
+
+        <!-- Recent sessions -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Recent Sessions</div>
+              <div class="card-subtitle">Your last 5 work sessions</div>
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="switchPage('my-sessions')">View All →</button>
+          </div>
+          <div class="table-wrap">
+            <table id="recent-sessions-table">
+              <thead><tr>
+                <th>Date</th>
+                <th>Clock In</th>
+                <th>Clock Out</th>
+                <th>Active Time</th>
+                <th>Status</th>
+              </tr></thead>
+              <tbody id="recent-sessions-body">
+                <tr><td colspan="5"><div class="empty-state"><span class="empty-icon">📋</span><span class="empty-title">No sessions yet</span></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div><!-- /overview -->
+
+
+      <!-- ══════════════ MY SESSIONS PAGE ══════════════ -->
+      <div class="page-view" id="page-my-sessions">
+
+        <!-- List sub-page -->
+        <div class="subpage active" id="my-sessions-list">
+          <div class="page-header">
+            <div>
+              <div class="page-title">My Sessions</div>
+              <div class="page-subtitle">Your complete work history</div>
+            </div>
+            <div class="page-actions">
+              <input class="filter-input" type="date" id="my-session-filter-date" />
+              <button class="btn btn-ghost btn-sm" id="btn-refresh-my-sessions">↻ Refresh</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Date</th>
+                <th>Clock In</th>
+                <th>Clock Out</th>
+                <th>Active Time</th>
+                <th>Idle Time</th>
+                <th>Location</th>
+                <th>Keystrokes</th>
+                <th>Status</th>
+                <th>View</th>
+              </tr></thead>
+              <tbody id="my-sessions-body">
+                <tr><td colspan="9"><div class="empty-state"><span class="empty-icon">⏳</span><span class="empty-title">Loading sessions…</span></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Session detail sub-page -->
+        <div class="subpage" id="my-session-detail">
+          <!-- populated by JS -->
+        </div>
+
+        <!-- Keystrokes raw sub-page -->
+        <div class="subpage" id="my-session-keystrokes">
+          <!-- populated by JS -->
+        </div>
+
+        <!-- Network speed sub-page -->
+        <div class="subpage" id="my-session-netspeed">
+          <!-- populated by JS -->
+        </div>
+
+      </div><!-- /my-sessions -->
+
+
+      <!-- ══════════════ ADMIN: ADMINS PAGE ══════════════ -->
+      <div class="page-view" id="page-admins">
+
+        <div class="subpage active" id="admins-list">
+          <div class="page-header">
+            <div>
+              <div class="page-title">Admins</div>
+              <div class="page-subtitle">Manage administrator accounts</div>
+            </div>
+            <div class="page-actions">
+              <button class="btn btn-primary btn-sm" id="btn-add-admin">+ Add Admin</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Department</th>
+                <th>Joined</th>
+                <th>Status</th>
+                <th>View</th>
+              </tr></thead>
+              <tbody id="admins-body">
+                <tr><td colspan="6"><div class="empty-state"><span class="empty-icon">🛡️</span><span class="empty-title">Loading admins…</span></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Admin sessions list -->
+        <div class="subpage" id="admin-sessions-list"><!-- populated --></div>
+        <!-- Admin session detail -->
+        <div class="subpage" id="admin-session-detail"><!-- populated --></div>
+        <!-- Admin session keystrokes -->
+        <div class="subpage" id="admin-session-keystrokes"><!-- populated --></div>
+        <!-- Admin session net speed -->
+        <div class="subpage" id="admin-session-netspeed"><!-- populated --></div>
+
+      </div><!-- /admins -->
+
+
+      <!-- ══════════════ ADMIN: EMPLOYEES PAGE ══════════════ -->
+      <div class="page-view" id="page-employees">
+
+        <div class="subpage active" id="employees-list">
+          <div class="page-header">
+            <div>
+              <div class="page-title">Employees</div>
+              <div class="page-subtitle">Manage employee accounts</div>
+            </div>
+            <div class="page-actions">
+              <button class="btn btn-primary btn-sm" id="btn-add-employee">+ Add Employee</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Department</th>
+                <th>Joined</th>
+                <th>Status</th>
+                <th>View</th>
+              </tr></thead>
+              <tbody id="employees-body">
+                <tr><td colspan="6"><div class="empty-state"><span class="empty-icon">👥</span><span class="empty-title">Loading employees…</span></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Employee sessions list -->
+        <div class="subpage" id="emp-sessions-list"><!-- populated --></div>
+        <!-- Employee session detail -->
+        <div class="subpage" id="emp-session-detail"><!-- populated --></div>
+        <!-- Employee session keystrokes -->
+        <div class="subpage" id="emp-session-keystrokes"><!-- populated --></div>
+        <!-- Employee session net speed -->
+        <div class="subpage" id="emp-session-netspeed"><!-- populated --></div>
+
+      </div><!-- /employees -->
+
+
+      <!-- ══════════════ ADMIN: SETTINGS PAGE ══════════════ -->
+      <div class="page-view" id="page-settings">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Settings</div>
+            <div class="page-subtitle">Application configuration</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">General Settings</div></div>
+          <p style="color:var(--text-secondary);font-size:13px">Settings panel coming soon.</p>
+        </div>
+      </div><!-- /settings -->
+
+
+    </main>
+  </div>
+</div>
+
+
+<!-- ═══ MODAL: Add / Edit Employee/Admin ═══ -->
+<div class="modal-overlay hidden" id="modal-employee">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-emp-title">Add Employee</span>
+      <button class="modal-close">&#x2715;</button>
+    </div>
+    <div id="modal-emp-alert" class="alert alert-error hidden"></div>
+    <div class="form-group">
+      <label class="form-label">Full Name *</label>
+      <input class="form-input" type="text" id="emp-name" placeholder="Jane Doe" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Email *</label>
+      <input class="form-input" type="email" id="emp-email" placeholder="jane@company.com" />
+    </div>
+    <div class="form-group" id="emp-password-group">
+      <label class="form-label">Password *</label>
+      <input class="form-input" type="password" id="emp-password" placeholder="Min 6 characters" />
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group">
+        <label class="form-label">Department</label>
+        <input class="form-input" type="text" id="emp-department" placeholder="Engineering" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Role</label>
+        <select class="form-input" id="emp-role">
+          <option value="employee">Employee</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-employee">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: Reset Password ═══ -->
+<div class="modal-overlay hidden" id="modal-reset-pw">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Reset Password</span>
+      <button class="modal-close">&#x2715;</button>
+    </div>
+    <div id="modal-pw-alert" class="alert alert-error hidden"></div>
+    <div class="form-group">
+      <label class="form-label">New Password *</label>
+      <input class="form-input" type="password" id="new-password" placeholder="Min 6 characters" />
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost">Cancel</button>
+      <button class="btn btn-danger" id="btn-confirm-reset">Reset Password</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/dashboard.js"></script>
+</body>
+</html>

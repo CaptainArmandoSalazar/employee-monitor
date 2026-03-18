@@ -1,0 +1,4093 @@
+====================================
+FILE: src/renderer/login.html
+====================================
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com;" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Employee Monitor — Login</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+<div class="login-page">
+
+  <!-- Custom titlebar -->
+  <div class="titlebar">
+    <div class="titlebar-logo">
+      <span class="dot"></span>
+      Employee Monitor
+    </div>
+    <div class="titlebar-controls">
+      <button class="win-btn" id="btn-minimize" title="Minimize">&#x2212;</button>
+      <button class="win-btn close" id="btn-close" title="Close">&#x2715;</button>
+    </div>
+  </div>
+
+  <!-- Login body -->
+  <div class="login-body">
+    <div class="login-card">
+
+      <div class="login-brand">
+        <div class="brand-icon">🖥️</div>
+        <h1>Employee Monitor</h1>
+        <p>Sign in to start your work session</p>
+      </div>
+
+      <div id="login-alert" class="alert alert-error hidden">
+        <span>⚠️</span>
+        <span id="login-alert-msg"></span>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="email">Email Address</label>
+        <div class="input-wrap">
+          <span class="input-icon">✉</span>
+          <input
+            class="form-input"
+            type="email"
+            id="email"
+            placeholder="you@company.com"
+            autocomplete="email"
+            autofocus
+          />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="password">Password</label>
+        <div class="input-wrap">
+          <span class="input-icon">🔒</span>
+          <input
+            class="form-input"
+            type="password"
+            id="password"
+            placeholder="Enter your password"
+            autocomplete="current-password"
+          />
+        </div>
+      </div>
+
+      <button class="btn btn-primary btn-block btn-lg" id="btn-login">
+        <span id="login-btn-text">Sign In</span>
+        <span id="login-spinner" class="spinner hidden"></span>
+      </button>
+
+      <p style="text-align:center; margin-top:20px; font-size:12px; color:var(--text-muted)">
+        AvDevs Employee Monitoring System v1.0
+      </p>
+    </div>
+  </div>
+
+</div>
+
+<script src="js/login.js"></script>
+</body>
+</html>
+
+
+
+====================================
+FILE: src/renderer/css/styles.css
+====================================
+/* ── Design tokens ──────────────────────────────────────── */
+:root {
+  --bg-base:      #0f1117;
+  --bg-surface:   #1a1d27;
+  --bg-raised:    #21253a;
+  --bg-hover:     #272c42;
+  --border:       #2e3350;
+  --border-light: #3a4060;
+
+  --accent:       #6c63ff;
+  --accent-hover: #7d75ff;
+  --accent-dim:   rgba(108,99,255,.15);
+
+  --success:      #22c55e;
+  --success-dim:  rgba(34,197,94,.15);
+  --warning:      #f59e0b;
+  --warning-dim:  rgba(245,158,11,.15);
+  --danger:       #ef4444;
+  --danger-dim:   rgba(239,68,68,.15);
+  --info:         #3b82f6;
+
+  --text-primary:   #eef0f6;
+  --text-secondary: #8892b0;
+  --text-muted:     #4a5278;
+
+  --radius-sm: 6px;
+  --radius:    10px;
+  --radius-lg: 16px;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.4);
+  --shadow:    0 4px 16px rgba(0,0,0,.5);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,.6);
+
+  --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* ── Reset ───────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  font-family: var(--font);
+  font-size: 14px;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* ── Custom scrollbar ────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ── Titlebar drag region ────────────────────────────────── */
+.titlebar {
+  -webkit-app-region: drag;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.titlebar-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.titlebar-logo .dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.titlebar-controls {
+  -webkit-app-region: no-drag;
+  display: flex;
+  gap: 6px;
+}
+.win-btn {
+  width: 28px; height: 22px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .15s, color .15s;
+}
+.win-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.win-btn.close:hover { background: var(--danger); color: #fff; }
+
+/* ═══════════════════════════════════════════════════════════
+   LOGIN PAGE
+═══════════════════════════════════════════════════════════ */
+.login-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.login-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: radial-gradient(ellipse at 50% 0%, rgba(108,99,255,.12) 0%, transparent 70%), var(--bg-base);
+}
+
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 36px 32px;
+  box-shadow: var(--shadow-lg);
+}
+
+.login-brand {
+  text-align: center;
+  margin-bottom: 32px;
+}
+.login-brand .brand-icon {
+  width: 52px; height: 52px;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  margin-bottom: 14px;
+}
+.login-brand h1 {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.login-brand p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+/* ── Form ────────────────────────────────────────────────── */
+.form-group { margin-bottom: 18px; }
+.form-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.form-input {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: var(--font);
+  outline: none;
+  transition: border-color .2s, box-shadow .2s;
+}
+.form-input::placeholder { color: var(--text-muted); }
+.form-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+.form-input.error { border-color: var(--danger); }
+
+.input-wrap { position: relative; }
+.input-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 15px;
+  pointer-events: none;
+}
+.input-wrap .form-input { padding-left: 38px; }
+
+.form-error {
+  font-size: 12px;
+  color: var(--danger);
+  margin-top: 5px;
+}
+
+/* ── Buttons ─────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-family: var(--font);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(108,99,255,.4);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  box-shadow: 0 4px 16px rgba(108,99,255,.5);
+  transform: translateY(-1px);
+}
+.btn-primary:active { transform: translateY(0); }
+
+.btn-success {
+  background: var(--success);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(34,197,94,.3);
+}
+.btn-success:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); }
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
+.btn-danger:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-light);
+}
+
+.btn-sm { padding: 6px 14px; font-size: 12px; }
+.btn-lg { padding: 13px 28px; font-size: 15px; }
+.btn-block { width: 100%; }
+
+.btn-icon {
+  width: 34px; height: 34px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+.btn-icon:hover { background: var(--bg-hover); color: var(--text-primary); border-color: var(--border-light); }
+
+/* ── Alert / toast ───────────────────────────────────────── */
+.alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  margin-bottom: 18px;
+  animation: slideIn .2s ease;
+}
+.alert-error   { background: var(--danger-dim);  border: 1px solid rgba(239,68,68,.3);  color: #fca5a5; }
+.alert-success { background: var(--success-dim); border: 1px solid rgba(34,197,94,.3); color: #86efac; }
+.alert-warning { background: var(--warning-dim); border: 1px solid rgba(245,158,11,.3); color: #fcd34d; }
+.alert.hidden { display: none; }
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Loading spinner ─────────────────────────────────────── */
+.spinner {
+  display: inline-block;
+  width: 16px; height: 16px;
+  border: 2px solid rgba(255,255,255,.2);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin .6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ═══════════════════════════════════════════════════════════
+   DASHBOARD LAYOUT
+═══════════════════════════════════════════════════════════ */
+.app-layout {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  flex-direction: column;
+}
+
+.app-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────── */
+.sidebar {
+  width: 220px;
+  min-width: 220px;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 16px 12px;
+  overflow-y: auto;
+}
+
+.sidebar-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 20px;
+}
+.avatar {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.user-info { overflow: hidden; }
+.user-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.user-role {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: capitalize;
+}
+
+.nav-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 0 8px;
+  margin-bottom: 6px;
+  margin-top: 16px;
+}
+.nav-section-label:first-child { margin-top: 0; }
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+  transition: background .15s, color .15s;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  font-family: var(--font);
+}
+.nav-item:hover { background: var(--bg-raised); color: var(--text-primary); }
+.nav-item.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-weight: 500;
+}
+.nav-item .nav-icon { width: 18px; text-align: center; font-size: 15px; }
+.nav-badge {
+  margin-left: auto;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+
+.sidebar-bottom {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+/* ── Main content ────────────────────────────────────────── */
+.main-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── Page header ─────────────────────────────────────────── */
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.page-title { font-size: 20px; font-weight: 700; color: var(--text-primary); }
+.page-subtitle { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
+.page-actions { display: flex; gap: 10px; align-items: center; }
+
+/* ── Cards ───────────────────────────────────────────────── */
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.card-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.card-subtitle { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+
+/* ── Stats grid ──────────────────────────────────────────── */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.stat-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color .2s;
+}
+.stat-card:hover { border-color: var(--border-light); }
+
+.stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-muted);
+}
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.stat-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.stat-icon {
+  font-size: 20px;
+  margin-bottom: 4px;
+}
+
+.stat-card.accent  { border-left: 3px solid var(--accent); }
+.stat-card.success { border-left: 3px solid var(--success); }
+.stat-card.warning { border-left: 3px solid var(--warning); }
+.stat-card.danger  { border-left: 3px solid var(--danger); }
+
+/* ── Session timer card ──────────────────────────────────── */
+.session-card {
+  background: linear-gradient(135deg, var(--bg-surface), var(--bg-raised));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.session-status-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  display: inline-block;
+  margin-right: 8px;
+}
+.session-status-dot.active {
+  background: var(--success);
+  box-shadow: 0 0 0 3px var(--success-dim);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(34,197,94,.15); }
+  50% { box-shadow: 0 0 0 6px rgba(34,197,94,.08); }
+}
+.session-timer {
+  font-size: 40px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  letter-spacing: .02em;
+}
+.session-timer.active { color: var(--success); }
+.session-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+.session-actions { display: flex; gap: 10px; }
+
+/* ── Clock-in loading state ──────────────────────────────── */
+.clock-in-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+/* ── Tables ──────────────────────────────────────────────── */
+.table-wrap {
+  overflow-x: auto;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+thead tr {
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+}
+th {
+  padding: 11px 14px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+td {
+  padding: 11px 14px;
+  border-bottom: 1px solid rgba(46,51,80,.5);
+  color: var(--text-primary);
+  vertical-align: middle;
+}
+tr:last-child td { border-bottom: none; }
+tbody tr { transition: background .1s; }
+tbody tr:hover { background: var(--bg-hover); }
+
+.td-muted { color: var(--text-secondary); font-size: 12px; }
+.td-mono  { font-family: var(--font-mono); font-size: 12px; }
+
+/* ── Badges / Pills ──────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.badge-success { background: var(--success-dim); color: var(--success); }
+.badge-danger  { background: var(--danger-dim);  color: var(--danger); }
+.badge-warning { background: var(--warning-dim); color: var(--warning); }
+.badge-accent  { background: var(--accent-dim);  color: var(--accent); }
+.badge-muted   { background: rgba(255,255,255,.06); color: var(--text-secondary); }
+
+/* ── Filters bar ─────────────────────────────────────────── */
+.filters {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.filter-input, .filter-select {
+  padding: 7px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: var(--font);
+  outline: none;
+  transition: border-color .15s;
+}
+.filter-input:focus, .filter-select:focus { border-color: var(--accent); }
+.filter-select option { background: var(--bg-raised); }
+
+/* ── Modal ───────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn .15s ease;
+}
+.modal-overlay.hidden { display: none; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.modal {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  width: 100%;
+  max-width: 480px;
+  box-shadow: var(--shadow-lg);
+  animation: scaleIn .15s ease;
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+.modal-title { font-size: 16px; font-weight: 700; }
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  line-height: 1;
+}
+.modal-close:hover { color: var(--text-primary); background: var(--bg-hover); }
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+/* ── Progress bar ────────────────────────────────────────── */
+.progress-bar {
+  height: 6px;
+  background: var(--bg-hover);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width .4s ease;
+  background: var(--accent);
+}
+.progress-fill.success { background: var(--success); }
+.progress-fill.warning { background: var(--warning); }
+.progress-fill.danger  { background: var(--danger); }
+
+/* ── Empty state ─────────────────────────────────────────── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  color: var(--text-muted);
+  gap: 10px;
+  text-align: center;
+}
+.empty-state .empty-icon { font-size: 36px; opacity: .5; }
+.empty-state .empty-title { font-size: 14px; font-weight: 600; color: var(--text-secondary); }
+.empty-state .empty-sub { font-size: 12px; }
+
+/* ── Page views ──────────────────────────────────────────── */
+.page-view { display: none; }
+.page-view.active { display: flex; flex-direction: column; gap: 20px; }
+
+/* ── Tabs ────────────────────────────────────────────────── */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); padding-bottom: 0; }
+.tab-btn {
+  padding: 8px 16px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-family: var(--font);
+  font-weight: 500;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+  margin-bottom: -1px;
+}
+.tab-btn:hover { color: var(--text-primary); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-panel { display: none; padding-top: 16px; }
+.tab-panel.active { display: block; }
+
+/* ── Divider ─────────────────────────────────────────────── */
+.divider { height: 1px; background: var(--border); margin: 4px 0; }
+
+/* ── Utility ─────────────────────────────────────────────── */
+.flex        { display: flex; }
+.flex-col    { display: flex; flex-direction: column; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.gap-2  { gap: 8px; }
+.gap-3  { gap: 12px; }
+.gap-4  { gap: 16px; }
+.mt-2   { margin-top: 8px; }
+.mt-4   { margin-top: 16px; }
+.w-full { width: 100%; }
+.text-sm { font-size: 12px; }
+.text-muted { color: var(--text-secondary); }
+.hidden { display: none !important; }
+.text-success { color: var(--success); }
+.text-danger  { color: var(--danger); }
+.text-warning { color: var(--warning); }
+.text-accent  { color: var(--accent); }
+.font-mono    { font-family: var(--font-mono); }
+.truncate { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 200px; }
+
+/* ── Tooltip ─────────────────────────────────────────────── */
+[data-tooltip] { position: relative; }
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-light);
+  color: var(--text-primary);
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .15s;
+  z-index: 999;
+}
+[data-tooltip]:hover::after { opacity: 1; }
+
+
+
+====================================
+FILE: src/renderer/dashboard.html
+====================================
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com;" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Employee Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css" />
+  <style>
+    /* ── Extra page styles ── */
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 12px;
+    }
+    .detail-tile {
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 16px;
+      cursor: default;
+    }
+    .detail-tile.clickable {
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+    }
+    .detail-tile.clickable:hover {
+      border-color: var(--accent);
+      background: var(--bg-hover);
+    }
+    .detail-tile-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+    .detail-tile-value {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .detail-tile-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* Back button */
+    .back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-family: var(--font);
+      padding: 6px 14px;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .back-btn:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+      border-color: var(--border-light);
+    }
+
+    /* Sub-page overlay */
+    .subpage {
+      display: none;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .subpage.active {
+      display: flex;
+    }
+
+    /* Section dividers in session detail */
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-layout">
+
+  <!-- ── Titlebar ──────────────────────────────────────── -->
+  <div class="titlebar">
+    <div class="titlebar-logo">
+      <span class="dot" id="status-dot"></span>
+      Employee Monitor
+    </div>
+    <div style="flex:1"></div>
+    <div class="titlebar-controls">
+      <button class="win-btn" id="btn-minimize">&#x2212;</button>
+      <button class="win-btn close" id="btn-close">&#x2715;</button>
+    </div>
+  </div>
+
+  <div class="app-body">
+
+    <!-- ── Sidebar ───────────────────────────────────────── -->
+    <nav class="sidebar">
+      <div class="sidebar-user">
+        <div class="avatar" id="sidebar-avatar">?</div>
+        <div class="user-info">
+          <div class="user-name" id="sidebar-name">Loading…</div>
+          <div class="user-role" id="sidebar-role">—</div>
+        </div>
+      </div>
+
+      <!-- Common nav -->
+      <div class="nav-section-label">Workspace</div>
+      <button class="nav-item active" data-page="overview">
+        <span class="nav-icon">🏠</span> Overview
+      </button>
+      <button class="nav-item" data-page="my-sessions">
+        <span class="nav-icon">📅</span> My Sessions
+      </button>
+
+      <!-- Admin nav -->
+      <div class="nav-section-label admin-only hidden">Admin</div>
+      <button class="nav-item admin-only hidden" data-page="admins">
+        <span class="nav-icon">🛡️</span> Admins
+      </button>
+      <button class="nav-item admin-only hidden" data-page="employees">
+        <span class="nav-icon">👥</span> Employees
+      </button>
+      <button class="nav-item admin-only hidden" data-page="settings">
+        <span class="nav-icon">⚙️</span> Settings
+      </button>
+
+      <div class="sidebar-bottom">
+        <button class="nav-item" id="btn-logout">
+          <span class="nav-icon">🚪</span> Sign Out
+        </button>
+      </div>
+    </nav>
+
+    <!-- ── Main content area ────────────────────────────── -->
+    <main class="main-content">
+
+      <!-- ══════════════ OVERVIEW PAGE ══════════════ -->
+      <div class="page-view active" id="page-overview">
+
+        <div class="page-header">
+          <div>
+            <div class="page-title" id="greeting">Good morning</div>
+            <div class="page-subtitle" id="overview-date">—</div>
+          </div>
+        </div>
+
+        <!-- Session card -->
+        <div class="session-card" style="flex-direction:column;gap:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:24px;width:100%">
+            <div>
+              <div class="flex items-center gap-2" style="margin-bottom:6px">
+                <span class="session-status-dot" id="session-dot"></span>
+                <span style="font-size:13px;color:var(--text-secondary)" id="session-status-text">Not clocked in</span>
+              </div>
+              <div class="session-timer" id="session-timer">00:00:00</div>
+              <div class="session-meta" id="session-meta">Clock in to start tracking</div>
+            </div>
+            <div class="session-actions">
+              <div id="clock-in-loading" class="clock-in-loading hidden">
+                <span class="spinner"></span>
+                <span>Gathering location &amp; device info…</span>
+              </div>
+              <button class="btn btn-success btn-lg" id="btn-clock-in">▶ Clock In</button>
+              <button class="btn btn-danger btn-lg hidden" id="btn-clock-out">■ Clock Out</button>
+            </div>
+          </div>
+
+          <!-- Clock-in detail panel -->
+          <div id="clockin-details" class="hidden" style="width:100%;border-top:1px solid var(--border);padding-top:14px">
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px">📍 Location</div>
+                <div style="font-size:13px;font-weight:600;color:var(--text-primary)" id="di-location">—</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px" id="di-latlon">—</div>
+              </div>
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px">🌐 IP Address</div>
+                <div style="font-size:13px;font-weight:600;color:var(--text-primary);font-family:var(--font-mono)" id="di-ip">—</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px" id="di-connection">—</div>
+              </div>
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px">📶 Network</div>
+                <div style="font-size:13px;font-weight:600;color:var(--text-primary)" id="di-ssid">—</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px" id="di-mac">—</div>
+              </div>
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px">💻 Device</div>
+                <div style="font-size:13px;font-weight:600;color:var(--text-primary)" id="di-device-name">—</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px" id="di-os">—</div>
+              </div>
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px">⚙️ CPU</div>
+                <div style="font-size:12px;font-weight:600;color:var(--text-primary)" id="di-cpu">—</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px" id="di-ram">—</div>
+              </div>
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px">💾 Storage</div>
+                <div style="font-size:13px;font-weight:600;color:var(--text-primary)" id="di-storage">—</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px" id="di-speed">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stats row -->
+        <div class="stats-grid">
+          <div class="stat-card accent">
+            <div class="stat-label">Active Time</div>
+            <div class="stat-value" id="stat-active">0h 0m</div>
+            <div class="stat-sub">Today</div>
+          </div>
+          <div class="stat-card warning">
+            <div class="stat-label">Idle Time</div>
+            <div class="stat-value" id="stat-idle">0h 0m</div>
+            <div class="stat-sub">Today</div>
+          </div>
+          <div class="stat-card success">
+            <div class="stat-label">Keystrokes</div>
+            <div class="stat-value" id="stat-keys">0</div>
+            <div class="stat-sub">This session</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Sessions</div>
+            <div class="stat-value" id="stat-sessions">0</div>
+            <div class="stat-sub">Total today</div>
+          </div>
+        </div>
+
+        <!-- Recent sessions -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Recent Sessions</div>
+              <div class="card-subtitle">Your last 5 work sessions</div>
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="switchPage('my-sessions')">View All →</button>
+          </div>
+          <div class="table-wrap">
+            <table id="recent-sessions-table">
+              <thead><tr>
+                <th>Date</th>
+                <th>Clock In</th>
+                <th>Clock Out</th>
+                <th>Active Time</th>
+                <th>Status</th>
+              </tr></thead>
+              <tbody id="recent-sessions-body">
+                <tr><td colspan="5"><div class="empty-state"><span class="empty-icon">📋</span><span class="empty-title">No sessions yet</span></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div><!-- /overview -->
+
+
+      <!-- ══════════════ MY SESSIONS PAGE ══════════════ -->
+      <div class="page-view" id="page-my-sessions">
+
+        <!-- List sub-page -->
+        <div class="subpage active" id="my-sessions-list">
+          <div class="page-header">
+            <div>
+              <div class="page-title">My Sessions</div>
+              <div class="page-subtitle">Your complete work history</div>
+            </div>
+            <div class="page-actions">
+              <input class="filter-input" type="date" id="my-session-filter-date" />
+              <button class="btn btn-ghost btn-sm" id="btn-refresh-my-sessions">↻ Refresh</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Date</th>
+                <th>Clock In</th>
+                <th>Clock Out</th>
+                <th>Active Time</th>
+                <th>Idle Time</th>
+                <th>Location</th>
+                <th>Keystrokes</th>
+                <th>Status</th>
+                <th>View</th>
+              </tr></thead>
+              <tbody id="my-sessions-body">
+                <tr><td colspan="9"><div class="empty-state"><span class="empty-icon">⏳</span><span class="empty-title">Loading sessions…</span></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Session detail sub-page -->
+        <div class="subpage" id="my-session-detail">
+          <!-- populated by JS -->
+        </div>
+
+        <!-- Keystrokes raw sub-page -->
+        <div class="subpage" id="my-session-keystrokes">
+          <!-- populated by JS -->
+        </div>
+
+        <!-- Network speed sub-page -->
+        <div class="subpage" id="my-session-netspeed">
+          <!-- populated by JS -->
+        </div>
+
+      </div><!-- /my-sessions -->
+
+
+      <!-- ══════════════ ADMIN: ADMINS PAGE ══════════════ -->
+      <div class="page-view" id="page-admins">
+
+        <div class="subpage active" id="admins-list">
+          <div class="page-header">
+            <div>
+              <div class="page-title">Admins</div>
+              <div class="page-subtitle">Manage administrator accounts</div>
+            </div>
+            <div class="page-actions">
+              <button class="btn btn-primary btn-sm" id="btn-add-admin">+ Add Admin</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Department</th>
+                <th>Joined</th>
+                <th>Status</th>
+                <th>View</th>
+              </tr></thead>
+              <tbody id="admins-body">
+                <tr><td colspan="6"><div class="empty-state"><span class="empty-icon">🛡️</span><span class="empty-title">Loading admins…</span></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Admin sessions list -->
+        <div class="subpage" id="admin-sessions-list"><!-- populated --></div>
+        <!-- Admin session detail -->
+        <div class="subpage" id="admin-session-detail"><!-- populated --></div>
+        <!-- Admin session keystrokes -->
+        <div class="subpage" id="admin-session-keystrokes"><!-- populated --></div>
+        <!-- Admin session net speed -->
+        <div class="subpage" id="admin-session-netspeed"><!-- populated --></div>
+
+      </div><!-- /admins -->
+
+
+      <!-- ══════════════ ADMIN: EMPLOYEES PAGE ══════════════ -->
+      <div class="page-view" id="page-employees">
+
+        <div class="subpage active" id="employees-list">
+          <div class="page-header">
+            <div>
+              <div class="page-title">Employees</div>
+              <div class="page-subtitle">Manage employee accounts</div>
+            </div>
+            <div class="page-actions">
+              <button class="btn btn-primary btn-sm" id="btn-add-employee">+ Add Employee</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Department</th>
+                <th>Joined</th>
+                <th>Status</th>
+                <th>View</th>
+              </tr></thead>
+              <tbody id="employees-body">
+                <tr><td colspan="6"><div class="empty-state"><span class="empty-icon">👥</span><span class="empty-title">Loading employees…</span></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Employee sessions list -->
+        <div class="subpage" id="emp-sessions-list"><!-- populated --></div>
+        <!-- Employee session detail -->
+        <div class="subpage" id="emp-session-detail"><!-- populated --></div>
+        <!-- Employee session keystrokes -->
+        <div class="subpage" id="emp-session-keystrokes"><!-- populated --></div>
+        <!-- Employee session net speed -->
+        <div class="subpage" id="emp-session-netspeed"><!-- populated --></div>
+
+      </div><!-- /employees -->
+
+
+      <!-- ══════════════ ADMIN: SETTINGS PAGE ══════════════ -->
+      <div class="page-view" id="page-settings">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Settings</div>
+            <div class="page-subtitle">Application configuration</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">General Settings</div></div>
+          <p style="color:var(--text-secondary);font-size:13px">Settings panel coming soon.</p>
+        </div>
+      </div><!-- /settings -->
+
+
+    </main>
+  </div>
+</div>
+
+
+<!-- ═══ MODAL: Add / Edit Employee/Admin ═══ -->
+<div class="modal-overlay hidden" id="modal-employee">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-emp-title">Add Employee</span>
+      <button class="modal-close" onclick="closeModal('modal-employee')">&#x2715;</button>
+    </div>
+    <div id="modal-emp-alert" class="alert alert-error hidden"></div>
+    <div class="form-group">
+      <label class="form-label">Full Name *</label>
+      <input class="form-input" type="text" id="emp-name" placeholder="Jane Doe" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Email *</label>
+      <input class="form-input" type="email" id="emp-email" placeholder="jane@company.com" />
+    </div>
+    <div class="form-group" id="emp-password-group">
+      <label class="form-label">Password *</label>
+      <input class="form-input" type="password" id="emp-password" placeholder="Min 6 characters" />
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group">
+        <label class="form-label">Department</label>
+        <input class="form-input" type="text" id="emp-department" placeholder="Engineering" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Role</label>
+        <select class="form-input" id="emp-role">
+          <option value="employee">Employee</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-employee')">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-employee">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: Reset Password ═══ -->
+<div class="modal-overlay hidden" id="modal-reset-pw">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Reset Password</span>
+      <button class="modal-close" onclick="closeModal('modal-reset-pw')">&#x2715;</button>
+    </div>
+    <div id="modal-pw-alert" class="alert alert-error hidden"></div>
+    <div class="form-group">
+      <label class="form-label">New Password *</label>
+      <input class="form-input" type="password" id="new-password" placeholder="Min 6 characters" />
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-reset-pw')">Cancel</button>
+      <button class="btn btn-danger" id="btn-confirm-reset">Reset Password</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/dashboard.js"></script>
+</body>
+</html>
+
+
+====================================
+FILE: src/renderer/js/dashboard.js
+====================================
+/* global electronAPI */
+'use strict';
+
+const api = window.electronAPI;
+
+// ── State ─────────────────────────────────────────────────
+let currentEmployee   = null;
+let isAdmin           = false;
+let timerInterval     = null;
+let statsInterval     = null;
+let clockInTime       = null;
+let editingEmployeeId = null;
+let resetPwEmployeeId = null;
+
+// Shorthand
+function g(id) { return document.getElementById(id); }
+
+// ══════════════════════════════════════════════════════════
+// BOOT
+// ══════════════════════════════════════════════════════════
+async function boot() {
+  try {
+    currentEmployee = await api.getEmployee();
+    if (!currentEmployee) { await api.showLogin(); return; }
+    // Verify token is still valid by checking if we can get the employee profile
+    // (the auth service will have restored the token from disk if available)
+
+    isAdmin = currentEmployee.role === 'admin';
+    const name = currentEmployee.employee_name || 'User';
+
+    g('sidebar-name').textContent   = name;
+    g('sidebar-role').textContent   = currentEmployee.role;
+    g('sidebar-avatar').textContent = name.charAt(0).toUpperCase();
+
+    if (isAdmin) {
+      document.querySelectorAll('.admin-only').forEach(el => el.classList.remove('hidden'));
+    }
+
+    const hour  = new Date().getHours();
+    const greet = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+    g('greeting').textContent      = `${greet}, ${name.split(' ')[0]}`;
+    g('overview-date').textContent = new Date().toLocaleDateString('en-US', {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+    });
+
+    // Restore active session if any
+    const active = await api.getActiveSession();
+    if (active) {
+      clockInTime = await api.getClockInTime();
+      setClocked(true);
+      startTimer();
+      const saved = sessionStorage.getItem('clockin_data');
+      if (saved) {
+        try {
+          const r = JSON.parse(saved);
+          fillClockInPanel(r.deviceInfo||{}, r.netInfo||{}, r.geo||{}, r.netSpeed||{}, r.session||{});
+          g('clockin-details').classList.remove('hidden');
+        } catch { /* ignore */ }
+      }
+    }
+
+    statsInterval = setInterval(refreshStats, 10_000);
+    await loadOverview();
+    bindNav();
+    bindWindowControls();
+    bindClockButtons();
+    if (isAdmin) bindAdminButtons();
+
+  } catch (err) {
+    console.error('Boot error:', err);
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// NAVIGATION
+// ══════════════════════════════════════════════════════════
+function bindNav() {
+  document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
+    btn.addEventListener('click', () => switchPage(btn.dataset.page));
+  });
+  g('btn-logout').addEventListener('click', async () => {
+    stopTimer(); clearInterval(statsInterval);
+    await api.logout(); await api.showLogin();
+  });
+}
+
+function switchPage(pageId) {
+  document.querySelectorAll('.page-view').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const page   = g('page-' + pageId);
+  const navBtn = document.querySelector(`.nav-item[data-page="${pageId}"]`);
+  if (page)   page.classList.add('active');
+  if (navBtn) navBtn.classList.add('active');
+
+  if (pageId === 'overview')    { loadOverview(); }
+  if (pageId === 'my-sessions') { showSub('my-sessions', 'my-sessions-list'); loadMySessions(); }
+  if (pageId === 'admins')      { showSub('admins', 'admins-list'); loadAdmins(); }
+  if (pageId === 'employees')   { showSub('employees', 'employees-list'); loadEmployees(); }
+}
+
+/**
+ * Show one sub-panel inside a page-view, hide all others.
+ * IMPORTANT: both arguments are full element IDs.
+ */
+function showSub(pageId, subId) {
+  const page = g('page-' + pageId);
+  if (!page) { console.error('showSub: page not found for', pageId); return; }
+  page.querySelectorAll('.subpage').forEach(s => s.classList.remove('active'));
+  const target = g(subId);
+  if (target) {
+    target.classList.add('active');
+  } else {
+    console.error('showSub: target subpage not found:', subId);
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// WINDOW CONTROLS
+// ══════════════════════════════════════════════════════════
+function bindWindowControls() {
+  g('btn-minimize').addEventListener('click', () => api.minimize());
+  g('btn-close').addEventListener('click', async () => {
+    if (await api.isClocked()) {
+      if (confirm('You are clocked in. Clock out before closing?')) await doClockOut();
+    }
+    api.closeWindow();
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+// CLOCK IN / OUT
+// ══════════════════════════════════════════════════════════
+function bindClockButtons() {
+  g('btn-clock-in').addEventListener('click', doClockIn);
+  g('btn-clock-out').addEventListener('click', doClockOut);
+}
+
+async function doClockIn() {
+  const loader = g('clock-in-loading');
+  g('btn-clock-in').classList.add('hidden');
+  loader.classList.remove('hidden');
+  try {
+    const r = await api.clockIn();
+    if (r.success) {
+      clockInTime = Date.now();
+      setClocked(true); startTimer();
+      g('session-meta').textContent = `Clocked in at ${fmtTime(r.session.clock_in)}`;
+      fillClockInPanel(r.deviceInfo||{}, r.netInfo||{}, r.geo||{}, r.netSpeed||{}, r.session||{});
+      g('clockin-details').classList.remove('hidden');
+      sessionStorage.setItem('clockin_data', JSON.stringify({
+        deviceInfo: r.deviceInfo||{}, netInfo: r.netInfo||{},
+        geo: r.geo||{}, netSpeed: r.netSpeed||{}, session: r.session||{},
+      }));
+    } else {
+      alert('Clock-in failed: ' + (r.error || 'Unknown'));
+      setClocked(false);
+    }
+  } catch (e) { alert('Clock-in error: ' + e.message); setClocked(false); }
+  finally { loader.classList.add('hidden'); }
+}
+
+async function doClockOut() {
+  const btn = g('btn-clock-out');
+  btn.disabled = true; btn.textContent = 'Clocking out…';
+  try {
+    const r = await api.clockOut();
+    if (r.success) {
+      stopTimer(); setClocked(false); clockInTime = null;
+      g('clockin-details').classList.add('hidden');
+      sessionStorage.removeItem('clockin_data');
+      await loadOverview();
+    } else {
+      // If token expired, clear state and redirect to login silently
+      const err = r.error || '';
+      if (err.toLowerCase().includes('token') || err.toLowerCase().includes('expired') || err.toLowerCase().includes('auth')) {
+        stopTimer(); setClocked(false); clockInTime = null;
+        sessionStorage.removeItem('clockin_data');
+        await api.showLogin();
+      } else {
+        alert('Clock-out failed: ' + err);
+      }
+    }
+  } catch (e) {
+    // Network error or token expired — clear state
+    stopTimer(); setClocked(false); clockInTime = null;
+    sessionStorage.removeItem('clockin_data');
+  }
+  finally { btn.disabled = false; btn.innerHTML = '■ Clock Out'; }
+}
+
+function fillClockInPanel(d, n, geo, sp, s) {
+  const loc = geo.location || ((s.city && s.country) ? `${s.city}, ${s.country}` : s.city || s.country || '—');
+  const pairs = [
+    ['di-location',    loc],
+    ['di-latlon',      (geo.latitude && geo.longitude) ? `${(+geo.latitude).toFixed(4)}, ${(+geo.longitude).toFixed(4)}` : '—'],
+    ['di-ip',          geo.ip || n.ip_address || '—'],
+    ['di-connection',  n.connection_type || '—'],
+    ['di-ssid',        n.ssid || 'Not detected'],
+    ['di-mac',         n.mac_address || '—'],
+    ['di-device-name', d.device_name || '—'],
+    ['di-os',          d.os || '—'],
+    ['di-cpu',         d.cpu || '—'],
+    ['di-ram',         d.ram ? `RAM: ${d.ram}` : '—'],
+    ['di-storage',     (d.storage_total && d.storage_free) ? `${d.storage_free} GB free / ${d.storage_total} GB` : '—'],
+    ['di-speed',       sp.download ? `↓ ${sp.download} Mbps  ping ${sp.ping}ms` : '—'],
+  ];
+  pairs.forEach(([id, val]) => { const el = g(id); if (el) el.textContent = val; });
+}
+
+function setClocked(on) {
+  g('session-dot').classList.toggle('active', on);
+  g('status-dot').style.background     = on ? 'var(--success)' : 'var(--text-muted)';
+  g('session-status-text').textContent = on ? 'Session active' : 'Not clocked in';
+  g('session-timer').classList.toggle('active', on);
+  g('btn-clock-in').classList.toggle('hidden', on);
+  g('btn-clock-out').classList.toggle('hidden', !on);
+  if (!on) {
+    g('session-timer').textContent = '00:00:00';
+    g('session-meta').textContent  = 'Clock in to start tracking';
+  }
+}
+
+// ── Timer ─────────────────────────────────────────────────
+function startTimer() { stopTimer(); timerInterval = setInterval(tick, 1000); tick(); }
+function stopTimer()  { if (timerInterval) { clearInterval(timerInterval); timerInterval = null; } }
+function tick() {
+  if (!clockInTime) return;
+  const el = g('session-timer');
+  if (el) el.textContent = fmtDuration(Math.floor((Date.now() - clockInTime) / 1000));
+}
+async function refreshStats() {
+  if (!await api.isClocked()) return;
+  try {
+    const s = await api.getTrackingStats();
+    if (clockInTime) { const el = g('stat-active'); if (el) el.textContent = sToHm(Math.floor((Date.now()-clockInTime)/1000)); }
+    const el = g('stat-idle'); if (el) el.textContent = sToHm(s.idle||0);
+  } catch { /* ignore */ }
+}
+
+// ══════════════════════════════════════════════════════════
+// OVERVIEW
+// ══════════════════════════════════════════════════════════
+async function loadOverview() {
+  try {
+    const sessions = await api.getMySessions(10);
+    const arr      = Array.isArray(sessions) ? sessions : [];
+    const tbody    = g('recent-sessions-body');
+    tbody.innerHTML = arr.length
+      ? arr.slice(0, 5).map(s => `
+          <tr>
+            <td>${fmtDate(s.date || s.clock_in)}</td>
+            <td class="td-mono">${fmtTime(s.clock_in)}</td>
+            <td class="td-mono">${s.clock_out ? fmtTime(s.clock_out) : '<span class="text-success">Active</span>'}</td>
+            <td>${sToHm(s.total_active_time)}</td>
+            <td>${statusBadge(s.session_status)}</td>
+          </tr>`).join('')
+      : emptyRow(5, 'No sessions yet');
+
+    const today = new Date().toDateString();
+    const el    = g('stat-sessions');
+    if (el) el.textContent = String(arr.filter(s => {
+      const d = s.clock_in ? new Date(s.clock_in) : (s.date ? new Date(s.date) : null);
+      return d && d.toDateString() === today;
+    }).length);
+  } catch (e) { console.error('loadOverview:', e); }
+}
+
+// ══════════════════════════════════════════════════════════
+// MY SESSIONS
+// ══════════════════════════════════════════════════════════
+async function loadMySessions() {
+  const tbody = g('my-sessions-body');
+  tbody.innerHTML = loadingRow(9);
+  try {
+    const dateFilter = g('my-session-filter-date').value;
+    const sessions   = await api.getMySessions(500);
+    let   arr        = Array.isArray(sessions) ? sessions : [];
+    if (dateFilter) {
+      arr = arr.filter(s => (s.date || (s.clock_in||'').substring(0,10)) === dateFilter);
+    }
+    if (!arr.length) { tbody.innerHTML = emptyRow(9, 'No sessions found'); return; }
+
+    // Keystroke totals (best-effort, non-blocking)
+    const ksMap = {};
+    try {
+      const kr = await api.getAdminKeystrokes({ limit: '10000' });
+      if (kr && kr.ok && Array.isArray(kr.data)) {
+        kr.data.forEach(k => {
+          ksMap[k.session_id] = (ksMap[k.session_id]||0) + (k.keys_pressed_count||0);
+        });
+      }
+    } catch { /* keystroke totals optional */ }
+
+    tbody.innerHTML = arr.map(s => `
+      <tr>
+        <td>${fmtDate(s.date || s.clock_in)}</td>
+        <td class="td-mono">${fmtTime(s.clock_in)}</td>
+        <td class="td-mono">${s.clock_out ? fmtTime(s.clock_out) : '<span class="text-success">Active</span>'}</td>
+        <td class="text-success">${sToHm(s.total_active_time)}</td>
+        <td class="text-warning">${sToHm(s.total_idle_time)}</td>
+        <td class="td-muted">${esc(locStr(s))}</td>
+        <td>${(ksMap[s.session_id]||0).toLocaleString()}</td>
+        <td>${statusBadge(s.session_status)}</td>
+        <td>
+          <button class="btn btn-ghost btn-sm"
+                  data-action="view-session"
+                  data-sid="${esc(s.session_id)}"
+                  data-page="my-sessions"
+                  data-back="my-sessions-list">
+            View
+          </button>
+        </td>
+      </tr>`).join('');
+
+  } catch (e) {
+    console.error('loadMySessions:', e);
+    tbody.innerHTML = emptyRow(9, 'Error loading sessions: ' + e.message);
+  }
+}
+
+g('btn-refresh-my-sessions').addEventListener('click', loadMySessions);
+g('my-session-filter-date').addEventListener('change', loadMySessions);
+
+// ── Single delegated click handler for ALL view buttons ──
+// Attached to document so it catches buttons in dynamically rendered tables
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+
+  const action  = btn.dataset.action;
+  const sid     = btn.dataset.sid;
+  const pageId  = btn.dataset.page;
+  const backSub = btn.dataset.back;
+  const empId   = btn.dataset.empId;
+  const empName = btn.dataset.empName;
+
+  if (action === 'view-session' && sid && pageId && backSub) {
+    openSessionDetail(sid, pageId, backSub);
+  }
+  if (action === 'view-user' && empId && empName && pageId) {
+    openUserSessions(empId, empName, pageId);
+  }
+  if (action === 'view-user-session' && sid && pageId && backSub) {
+    openSessionDetail(sid, pageId, backSub);
+  }
+  if (action === 'back-to-sub') {
+    const targetPage = btn.dataset.targetPage;
+    const targetSub  = btn.dataset.targetSub;
+    if (targetPage && targetSub) showSub(targetPage, targetSub);
+  }
+  if (action === 'open-keystrokes') {
+    openKeystrokesPage(sid, pageId, backSub);
+  }
+  if (action === 'open-netspeed') {
+    openNetSpeedPage(sid, pageId, backSub);
+  }
+});
+
+// ══════════════════════════════════════════════════════════
+// SESSION DETAIL
+// ══════════════════════════════════════════════════════════
+async function openSessionDetail(sessionId, pageId, backSubId) {
+  const detailSubId = pageId === 'my-sessions' ? 'my-session-detail'
+                    : pageId === 'admins'       ? 'admin-session-detail'
+                    :                             'emp-session-detail';
+
+  const container = g(detailSubId);
+  if (!container) {
+    console.error('openSessionDetail: container not found:', detailSubId);
+    return;
+  }
+
+  // Show spinner and switch to detail sub-panel
+  container.innerHTML = spinHtml();
+  showSub(pageId, detailSubId);
+
+  try {
+    // ── 1. Get session data ────────────────────────────
+    let session = null;
+    const sidStr = String(sessionId).toLowerCase().trim();
+
+    // Try own sessions first (works for any role, no 403)
+    try {
+      const ownSessions = await api.getMySessions(500);
+      console.log('Own sessions count:', Array.isArray(ownSessions) ? ownSessions.length : 'not array');
+      if (Array.isArray(ownSessions)) {
+        session = ownSessions.find(s => String(s.session_id).toLowerCase().trim() === sidStr) || null;
+        console.log('Session found in own sessions:', session ? 'YES' : 'NO');
+      }
+    } catch (err) { console.warn('getMySessions err:', err); }
+
+    // Admin fallback — if not found in own sessions, try admin endpoint
+    if (!session && isAdmin) {
+      try {
+        const r = await api.getAdminSessions({ limit: '500' });
+        if (r && r.ok && Array.isArray(r.data)) {
+          session = r.data.find(s => String(s.session_id).toLowerCase().trim() === sidStr) || null;
+          console.log('Session found via admin endpoint:', session ? 'YES' : 'NO');
+        }
+      } catch (err) { console.warn('getAdminSessions err:', err); }
+    }
+
+    // ── 2. Keystroke total ─────────────────────────────
+    let totalKeys = 0;
+    try {
+      const kr = await api.getAdminKeystrokes({ session_id: sessionId, limit: '5000' });
+      if (kr && kr.ok && Array.isArray(kr.data)) {
+        totalKeys = kr.data.reduce((a, k) => a + (k.keys_pressed_count||0), 0);
+      }
+    } catch { /* optional */ }
+
+    // ── 3. Render ──────────────────────────────────────
+    const ci  = session ? fmtTime(session.clock_in) : '—';
+    const co  = session
+      ? (session.clock_out ? fmtTime(session.clock_out) : '<span class="text-success">Active</span>')
+      : '—';
+    const at  = session ? sToHm(session.total_active_time) : '—';
+    const it  = session ? sToHm(session.total_idle_time)   : '—';
+    const dt  = session ? fmtDate(session.date || session.clock_in) : '—';
+    const lo  = session ? esc(locStr(session)) : '—';
+    const ip  = session ? esc(session.ip_address || '—') : '—';
+    const cds = (session && session.latitude && session.longitude)
+      ? `${(+session.latitude).toFixed(4)}, ${(+session.longitude).toFixed(4)}` : '—';
+
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:20px;">
+
+        <div style="display:flex;align-items:center;gap:12px;">
+          <button class="back-btn"
+                  data-action="back-to-sub"
+                  data-target-page="${pageId}"
+                  data-target-sub="${backSubId}">
+            ← Back
+          </button>
+          <div>
+            <div class="page-title">Session Detail</div>
+            <div class="page-subtitle">${dt}</div>
+          </div>
+        </div>
+
+        <div class="detail-grid">
+          <div class="detail-tile">
+            <div class="detail-tile-label">🕐 Clock In</div>
+            <div class="detail-tile-value">${ci}</div>
+          </div>
+          <div class="detail-tile">
+            <div class="detail-tile-label">🕑 Clock Out</div>
+            <div class="detail-tile-value">${co}</div>
+          </div>
+          <div class="detail-tile">
+            <div class="detail-tile-label">⚡ Active Time</div>
+            <div class="detail-tile-value text-success">${at}</div>
+          </div>
+          <div class="detail-tile">
+            <div class="detail-tile-label">💤 Idle Time</div>
+            <div class="detail-tile-value text-warning">${it}</div>
+          </div>
+          <div class="detail-tile clickable"
+               data-action="open-keystrokes"
+               data-sid="${sessionId}"
+               data-page="${pageId}"
+               data-back="${detailSubId}"
+               style="cursor:pointer;">
+            <div class="detail-tile-label">⌨️ Total Keystrokes</div>
+            <div class="detail-tile-value">${totalKeys.toLocaleString()}</div>
+            <div class="detail-tile-sub" style="color:var(--accent);margin-top:4px;">
+              Click to view raw keystrokes →
+            </div>
+          </div>
+          <div class="detail-tile clickable"
+               data-action="open-netspeed"
+               data-sid="${sessionId}"
+               data-page="${pageId}"
+               data-back="${detailSubId}"
+               style="cursor:pointer;">
+            <div class="detail-tile-label">📶 Network Speed</div>
+            <div class="detail-tile-value">View History</div>
+            <div class="detail-tile-sub" style="color:var(--accent);margin-top:4px;">
+              Click to view speed logs →
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="section-title">📍 Location</div>
+          <div class="detail-grid">
+            <div class="detail-tile">
+              <div class="detail-tile-label">City / Country</div>
+              <div class="detail-tile-value">${lo}</div>
+            </div>
+            <div class="detail-tile">
+              <div class="detail-tile-label">IP Address</div>
+              <div class="detail-tile-value" style="font-family:var(--font-mono);">${ip}</div>
+            </div>
+            <div class="detail-tile">
+              <div class="detail-tile-label">Coordinates</div>
+              <div class="detail-tile-value">${cds}</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="dev-sec-${sessionId}">
+          <div class="section-title">💻 Device Information</div>
+          ${spinHtml()}
+        </div>
+
+        <div id="net-sec-${sessionId}">
+          <div class="section-title">🌐 Network Information</div>
+          ${spinHtml()}
+        </div>
+
+      </div>`;
+
+    // Load device + network info asynchronously
+    loadDeviceSec(sessionId);
+    loadNetworkSec(sessionId);
+
+  } catch (e) {
+    console.error('openSessionDetail error:', e);
+    container.innerHTML = `
+      <div style="padding:20px;">
+        <button class="back-btn"
+                data-action="back-to-sub"
+                data-target-page="${pageId}"
+                data-target-sub="${backSubId}">
+          ← Back
+        </button>
+        <p class="text-muted" style="margin-top:16px;">
+          Error loading session: ${esc(e.message)}
+        </p>
+      </div>`;
+  }
+}
+
+// ── Device info ───────────────────────────────────────────
+async function loadDeviceSec(sessionId) {
+  const sec = g(`dev-sec-${sessionId}`);
+  if (!sec) return;
+  try {
+    const r = await api.getAdminDeviceInfo({ session_id: sessionId, limit: '1' });
+    const d = (r && r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+    if (!d) {
+      sec.innerHTML = `<div class="section-title">💻 Device Information</div>
+        <p class="text-muted" style="font-size:13px;padding:8px 0;">No device info recorded.</p>`;
+      return;
+    }
+    sec.innerHTML = `
+      <div class="section-title">💻 Device Information</div>
+      <div class="detail-grid">
+        <div class="detail-tile">
+          <div class="detail-tile-label">Device Name</div>
+          <div class="detail-tile-value">${esc(d.device_name||'—')}</div>
+        </div>
+        <div class="detail-tile">
+          <div class="detail-tile-label">OS</div>
+          <div class="detail-tile-value">${esc(d.os||'—')}</div>
+        </div>
+        <div class="detail-tile">
+          <div class="detail-tile-label">CPU</div>
+          <div class="detail-tile-value" style="font-size:12px;">${esc(d.cpu||'—')}</div>
+        </div>
+        <div class="detail-tile">
+          <div class="detail-tile-label">RAM</div>
+          <div class="detail-tile-value">${esc(d.ram||'—')}</div>
+        </div>
+        <div class="detail-tile">
+          <div class="detail-tile-label">Storage</div>
+          <div class="detail-tile-value">
+            ${d.storage_total ? `${d.storage_free} GB free / ${d.storage_total} GB` : '—'}
+          </div>
+        </div>
+        <div class="detail-tile">
+          <div class="detail-tile-label">Device ID</div>
+          <div class="detail-tile-value" style="font-family:var(--font-mono);font-size:11px;">
+            ${esc(d.device_id||'—')}
+          </div>
+        </div>
+      </div>`;
+  } catch {
+    const sec2 = g(`dev-sec-${sessionId}`);
+    if (sec2) sec2.innerHTML = `<div class="section-title">💻 Device Information</div>
+      <p class="text-muted" style="font-size:13px;padding:8px 0;">Could not load device info.</p>`;
+  }
+}
+
+// ── Network info ──────────────────────────────────────────
+async function loadNetworkSec(sessionId) {
+  const sec = g(`net-sec-${sessionId}`);
+  if (!sec) return;
+  try {
+    const r = await api.getAdminNetworkInfo({ session_id: sessionId, limit: '1' });
+    const n = (r && r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+    if (!n) {
+      sec.innerHTML = `<div class="section-title">🌐 Network Information</div>
+        <p class="text-muted" style="font-size:13px;padding:8px 0;">No network info recorded.</p>`;
+      return;
+    }
+    sec.innerHTML = `
+      <div class="section-title">🌐 Connected Network Information</div>
+      <div class="detail-grid">
+        <div class="detail-tile">
+          <div class="detail-tile-label">IP Address</div>
+          <div class="detail-tile-value" style="font-family:var(--font-mono);">${esc(n.ip_address||'—')}</div>
+        </div>
+        <div class="detail-tile">
+          <div class="detail-tile-label">Connection Type</div>
+          <div class="detail-tile-value">${esc(n.connection_type||'—')}</div>
+        </div>
+        <div class="detail-tile">
+          <div class="detail-tile-label">WiFi SSID</div>
+          <div class="detail-tile-value">${esc(n.ssid||'Not detected')}</div>
+        </div>
+        <div class="detail-tile">
+          <div class="detail-tile-label">MAC Address</div>
+          <div class="detail-tile-value" style="font-family:var(--font-mono);">${esc(n.mac_address||'—')}</div>
+        </div>
+      </div>`;
+  } catch {
+    const sec2 = g(`net-sec-${sessionId}`);
+    if (sec2) sec2.innerHTML = `<div class="section-title">🌐 Network Information</div>
+      <p class="text-muted" style="font-size:13px;padding:8px 0;">Could not load network info.</p>`;
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// KEYSTROKES PAGE
+// ══════════════════════════════════════════════════════════
+async function openKeystrokesPage(sessionId, pageId, backDetailSubId) {
+  const ksSubId   = pageId === 'my-sessions' ? 'my-session-keystrokes'
+                  : pageId === 'admins'       ? 'admin-session-keystrokes'
+                  :                             'emp-session-keystrokes';
+  const container = g(ksSubId);
+  if (!container) return;
+  container.innerHTML = spinHtml();
+  showSub(pageId, ksSubId);
+  try {
+    const kr    = await api.getAdminKeystrokes({ session_id: sessionId, limit: '5000' });
+    const rows  = (kr && kr.ok && Array.isArray(kr.data)) ? kr.data : [];
+    const total = rows.reduce((a, k) => a + (k.keys_pressed_count||0), 0);
+
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:20px;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <button class="back-btn"
+                  data-action="back-to-sub"
+                  data-target-page="${pageId}"
+                  data-target-sub="${backDetailSubId}">
+            ← Back to Session
+          </button>
+          <div>
+            <div class="page-title">Raw Keystroke Logs</div>
+            <div class="page-subtitle">
+              ${rows.length} entries · Total: ${total.toLocaleString()} keystrokes
+            </div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>#</th><th>Keystrokes Count</th><th>Timestamp</th></tr>
+            </thead>
+            <tbody>
+              ${rows.length
+                ? rows.map((k, i) => `
+                    <tr>
+                      <td class="td-muted">${i+1}</td>
+                      <td><strong>${(k.keys_pressed_count||0).toLocaleString()}</strong> keys</td>
+                      <td class="td-mono td-muted">${fmtDateTime(k.timestamp)}</td>
+                    </tr>`).join('')
+                : emptyRow(3, 'No keystroke logs for this session')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  } catch (e) {
+    container.innerHTML = `
+      <div style="padding:20px;">
+        <button class="back-btn"
+                data-action="back-to-sub"
+                data-target-page="${pageId}"
+                data-target-sub="${backDetailSubId}">
+          ← Back
+        </button>
+        <p class="text-muted" style="margin-top:12px;">Error: ${esc(e.message)}</p>
+      </div>`;
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// NETWORK SPEED PAGE
+// ══════════════════════════════════════════════════════════
+async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
+  const nsSubId   = pageId === 'my-sessions' ? 'my-session-netspeed'
+                  : pageId === 'admins'       ? 'admin-session-netspeed'
+                  :                             'emp-session-netspeed';
+  const container = g(nsSubId);
+  if (!container) return;
+  container.innerHTML = spinHtml();
+  showSub(pageId, nsSubId);
+  try {
+    const [nsR, smR] = await Promise.all([
+      api.getAdminNetworkSpeed({ session_id: sessionId, limit: '1000' }),
+      api.getAdminSystemMetrics({ session_id: sessionId, limit: '1000' }),
+    ]);
+    const nsRows = (nsR && nsR.ok && Array.isArray(nsR.data)) ? nsR.data : [];
+    const smRows = (smR && smR.ok && Array.isArray(smR.data)) ? smR.data : [];
+    const len    = Math.max(nsRows.length, smRows.length);
+    const rows   = Array.from({ length: len }, (_, i) => ({ ns: nsRows[i]||null, sm: smRows[i]||null }));
+
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:20px;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <button class="back-btn"
+                  data-action="back-to-sub"
+                  data-target-page="${pageId}"
+                  data-target-sub="${backDetailSubId}">
+            ← Back to Session
+          </button>
+          <div>
+            <div class="page-title">Network Speed History</div>
+            <div class="page-subtitle">
+              Captured every 5 minutes · ${rows.length} entries
+            </div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th><th>Download</th><th>Upload</th><th>Ping</th>
+                <th>CPU %</th><th>Memory %</th><th>Timestamp</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.length
+                ? rows.map((row, i) => {
+                    const ns = row.ns, sm = row.sm;
+                    return `<tr>
+                      <td class="td-muted">${i+1}</td>
+                      <td>${ns ? `↓ ${ns.download_speed} Mbps` : '—'}</td>
+                      <td>${ns ? `↑ ${ns.upload_speed} Mbps`   : '—'}</td>
+                      <td>${(ns && ns.ping != null) ? `${ns.ping}ms` : '—'}</td>
+                      <td>
+                        ${sm
+                          ? `<div>${sm.cpu_usage.toFixed(1)}%</div>
+                             <div class="progress-bar" style="width:80px;margin-top:3px;">
+                               <div class="progress-fill ${cpuCls(sm.cpu_usage)}"
+                                    style="width:${Math.min(sm.cpu_usage,100)}%;"></div>
+                             </div>`
+                          : '—'}
+                      </td>
+                      <td>
+                        ${sm
+                          ? `<div>${sm.memory_usage.toFixed(1)}%</div>
+                             <div class="progress-bar" style="width:80px;margin-top:3px;">
+                               <div class="progress-fill ${cpuCls(sm.memory_usage)}"
+                                    style="width:${Math.min(sm.memory_usage,100)}%;"></div>
+                             </div>`
+                          : '—'}
+                      </td>
+                      <td class="td-mono td-muted">
+                        ${fmtDateTime((ns || sm)?.timestamp)}
+                      </td>
+                    </tr>`;
+                  }).join('')
+                : emptyRow(7, 'No network speed logs for this session')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  } catch (e) {
+    container.innerHTML = `
+      <div style="padding:20px;">
+        <button class="back-btn"
+                data-action="back-to-sub"
+                data-target-page="${pageId}"
+                data-target-sub="${backDetailSubId}">
+          ← Back
+        </button>
+        <p class="text-muted" style="margin-top:12px;">Error: ${esc(e.message)}</p>
+      </div>`;
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// ADMINS PAGE
+// ══════════════════════════════════════════════════════════
+async function loadAdmins() {
+  const tbody = g('admins-body');
+  tbody.innerHTML = loadingRow(6);
+  try {
+    const r    = await api.listEmployees({ role: 'admin', active_only: 'false' });
+    const list = (r && r.ok && Array.isArray(r.data)) ? r.data : [];
+    if (!list.length) { tbody.innerHTML = emptyRow(6, 'No admins found'); return; }
+    tbody.innerHTML = list.map(e => `
+      <tr>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div class="avatar" style="width:28px;height:28px;font-size:11px;">
+              ${e.employee_name.charAt(0).toUpperCase()}
+            </div>
+            <strong>${esc(e.employee_name)}</strong>
+          </div>
+        </td>
+        <td class="td-muted">${esc(e.email)}</td>
+        <td>${esc(e.department||'—')}</td>
+        <td class="td-muted">${e.date_of_joining ? fmtDate(e.date_of_joining) : '—'}</td>
+        <td>
+          ${e.status
+            ? '<span class="badge badge-success">Active</span>'
+            : '<span class="badge badge-danger">Inactive</span>'}
+        </td>
+        <td>
+          <button class="btn btn-ghost btn-sm"
+                  data-action="view-user"
+                  data-emp-id="${e.employee_id}"
+                  data-emp-name="${esc(e.employee_name)}"
+                  data-page="admins">
+            View
+          </button>
+        </td>
+      </tr>`).join('');
+  } catch (e) { tbody.innerHTML = emptyRow(6, 'Error: ' + e.message); }
+}
+
+// ══════════════════════════════════════════════════════════
+// EMPLOYEES PAGE
+// ══════════════════════════════════════════════════════════
+async function loadEmployees() {
+  const tbody = g('employees-body');
+  tbody.innerHTML = loadingRow(6);
+  try {
+    const r    = await api.listEmployees({ role: 'employee', active_only: 'false' });
+    const list = (r && r.ok && Array.isArray(r.data)) ? r.data : [];
+    if (!list.length) { tbody.innerHTML = emptyRow(6, 'No employees found'); return; }
+    tbody.innerHTML = list.map(e => `
+      <tr>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div class="avatar" style="width:28px;height:28px;font-size:11px;">
+              ${e.employee_name.charAt(0).toUpperCase()}
+            </div>
+            <strong>${esc(e.employee_name)}</strong>
+          </div>
+        </td>
+        <td class="td-muted">${esc(e.email)}</td>
+        <td>${esc(e.department||'—')}</td>
+        <td class="td-muted">${e.date_of_joining ? fmtDate(e.date_of_joining) : '—'}</td>
+        <td>
+          ${e.status
+            ? '<span class="badge badge-success">Active</span>'
+            : '<span class="badge badge-danger">Inactive</span>'}
+        </td>
+        <td>
+          <button class="btn btn-ghost btn-sm"
+                  data-action="view-user"
+                  data-emp-id="${e.employee_id}"
+                  data-emp-name="${esc(e.employee_name)}"
+                  data-page="employees">
+            View
+          </button>
+        </td>
+      </tr>`).join('');
+  } catch (e) { tbody.innerHTML = emptyRow(6, 'Error: ' + e.message); }
+}
+
+// ══════════════════════════════════════════════════════════
+// USER SESSIONS LIST
+// ══════════════════════════════════════════════════════════
+async function openUserSessions(empId, empName, pageId) {
+  const sessSubId = pageId === 'admins' ? 'admin-sessions-list' : 'emp-sessions-list';
+  const listSubId = pageId === 'admins' ? 'admins-list'         : 'employees-list';
+  const container = g(sessSubId);
+  if (!container) return;
+  container.innerHTML = spinHtml();
+  showSub(pageId, sessSubId);
+
+  try {
+    // Admin fetching sessions for any employee
+    const r        = await api.getAdminSessions({ employee_id: empId, limit: '500' });
+    const sessions = (r && r.ok && Array.isArray(r.data)) ? r.data : [];
+
+    // Keystroke totals
+    const ksMap = {};
+    try {
+      const kr = await api.getAdminKeystrokes({ employee_id: empId, limit: '10000' });
+      if (kr && kr.ok && Array.isArray(kr.data)) {
+        kr.data.forEach(k => {
+          ksMap[k.session_id] = (ksMap[k.session_id]||0) + (k.keys_pressed_count||0);
+        });
+      }
+    } catch { /* optional */ }
+
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:20px;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <button class="back-btn"
+                  data-action="back-to-sub"
+                  data-target-page="${pageId}"
+                  data-target-sub="${listSubId}">
+            ← Back
+          </button>
+          <div>
+            <div class="page-title">${esc(empName)}</div>
+            <div class="page-subtitle">All Sessions (${sessions.length})</div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th><th>Clock In</th><th>Clock Out</th>
+                <th>Active</th><th>Idle</th><th>Location</th>
+                <th>Keystrokes</th><th>Status</th><th>View</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${sessions.length
+                ? sessions.map(s => `
+                    <tr>
+                      <td>${fmtDate(s.date||s.clock_in)}</td>
+                      <td class="td-mono">${fmtTime(s.clock_in)}</td>
+                      <td class="td-mono">
+                        ${s.clock_out
+                          ? fmtTime(s.clock_out)
+                          : '<span class="text-success">Active</span>'}
+                      </td>
+                      <td class="text-success">${sToHm(s.total_active_time)}</td>
+                      <td class="text-warning">${sToHm(s.total_idle_time)}</td>
+                      <td class="td-muted">${esc(locStr(s))}</td>
+                      <td>${(ksMap[s.session_id]||0).toLocaleString()}</td>
+                      <td>${statusBadge(s.session_status)}</td>
+                      <td>
+                        <button class="btn btn-ghost btn-sm"
+                                data-action="view-user-session"
+                                data-sid="${esc(s.session_id)}"
+                                data-page="${pageId}"
+                                data-back="${sessSubId}">
+                          View
+                        </button>
+                      </td>
+                    </tr>`).join('')
+                : emptyRow(9, 'No sessions found for this user')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  } catch (e) {
+    container.innerHTML = `
+      <div style="padding:20px;">
+        <button class="back-btn"
+                data-action="back-to-sub"
+                data-target-page="${pageId}"
+                data-target-sub="${listSubId}">
+          ← Back
+        </button>
+        <p class="text-muted" style="margin-top:12px;">Error: ${esc(e.message)}</p>
+      </div>`;
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// ADMIN MODAL CONTROLS
+// ══════════════════════════════════════════════════════════
+function bindAdminButtons() {
+  g('btn-add-admin').addEventListener('click',    () => openEmpModal('admin'));
+  g('btn-add-employee').addEventListener('click', () => openEmpModal('employee'));
+  g('btn-save-employee').addEventListener('click', saveEmployee);
+  g('btn-confirm-reset').addEventListener('click', confirmReset);
+}
+
+function openEmpModal(defaultRole) {
+  editingEmployeeId = null;
+  g('modal-emp-title').textContent      = defaultRole === 'admin' ? 'Add Admin' : 'Add Employee';
+  g('emp-name').value                   = '';
+  g('emp-email').value                  = '';
+  g('emp-email').disabled               = false;
+  g('emp-password').value               = '';
+  g('emp-department').value             = '';
+  g('emp-role').value                   = defaultRole;
+  g('emp-password-group').style.display = 'block';
+  g('modal-emp-alert').classList.add('hidden');
+  g('modal-employee').classList.remove('hidden');
+}
+
+function openEditEmployeeModal(id, name, email, dept, role) {
+  editingEmployeeId = id;
+  g('modal-emp-title').textContent      = 'Edit ' + (role === 'admin' ? 'Admin' : 'Employee');
+  g('emp-name').value                   = name;
+  g('emp-email').value                  = email;
+  g('emp-email').disabled               = true;
+  g('emp-department').value             = dept;
+  g('emp-role').value                   = role;
+  g('emp-password-group').style.display = 'none';
+  g('modal-emp-alert').classList.add('hidden');
+  g('modal-employee').classList.remove('hidden');
+}
+
+async function saveEmployee() {
+  const btn      = g('btn-save-employee');
+  const name     = g('emp-name').value.trim();
+  const email    = g('emp-email').value.trim();
+  const password = g('emp-password').value;
+  const dept     = g('emp-department').value.trim();
+  const role     = g('emp-role').value;
+  g('modal-emp-alert').classList.add('hidden');
+  if (!name)                           { showModalAlert('modal-emp-alert', 'Name is required'); return; }
+  if (!editingEmployeeId && !email)    { showModalAlert('modal-emp-alert', 'Email is required'); return; }
+  if (!editingEmployeeId && !password) { showModalAlert('modal-emp-alert', 'Password is required'); return; }
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const r = editingEmployeeId
+      ? await api.updateEmployee(editingEmployeeId, { employee_name: name, department: dept, role })
+      : await api.createEmployee({ employee_name: name, email, password, department: dept, role });
+    if (r && r.ok) {
+      closeModal('modal-employee');
+      role === 'admin' ? loadAdmins() : loadEmployees();
+    } else {
+      showModalAlert('modal-emp-alert', (r && r.data && r.data.detail) ? r.data.detail : 'Save failed');
+    }
+  } finally { btn.disabled = false; btn.textContent = 'Save'; }
+}
+
+function openResetPasswordModal(id) {
+  resetPwEmployeeId = id;
+  g('new-password').value = '';
+  g('modal-pw-alert').classList.add('hidden');
+  g('modal-reset-pw').classList.remove('hidden');
+}
+
+async function confirmReset() {
+  const btn = g('btn-confirm-reset');
+  const pw  = g('new-password').value;
+  if (!pw || pw.length < 6) {
+    showModalAlert('modal-pw-alert', 'Password must be at least 6 characters');
+    return;
+  }
+  btn.disabled = true; btn.textContent = 'Resetting…';
+  try {
+    const r = await api.resetPassword(resetPwEmployeeId, pw);
+    if (r && (r.ok || r.status === 204)) closeModal('modal-reset-pw');
+    else showModalAlert('modal-pw-alert', 'Reset failed');
+  } finally { btn.disabled = false; btn.textContent = 'Reset Password'; }
+}
+
+function closeModal(id) { const el = g(id); if (el) el.classList.add('hidden'); }
+function showModalAlert(id, msg) {
+  const el = g(id);
+  if (!el) return;
+  el.textContent = '⚠ ' + msg;
+  el.className   = 'alert alert-error';
+}
+document.querySelectorAll('.modal-overlay').forEach(o => {
+  o.addEventListener('click', e => { if (e.target === o) o.classList.add('hidden'); });
+});
+
+// ══════════════════════════════════════════════════════════
+// GLOBALS (for inline HTML onclick on modals)
+// ══════════════════════════════════════════════════════════
+window.switchPage             = switchPage;
+window.showSub                = showSub;
+window.closeModal             = closeModal;
+window.openEditEmployeeModal  = openEditEmployeeModal;
+window.openResetPasswordModal = openResetPasswordModal;
+
+// ══════════════════════════════════════════════════════════
+// FORMATTING
+// ══════════════════════════════════════════════════════════
+function fmtDuration(s) {
+  const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=s%60;
+  return `${pad(h)}:${pad(m)}:${pad(sec)}`;
+}
+function sToHm(s) {
+  if (!s) return '0m';
+  const h=Math.floor(s/3600), m=Math.floor((s%3600)/60);
+  return h ? `${h}h ${m}m` : `${m}m`;
+}
+function fmtDate(v) {
+  if (!v) return '—';
+  try { return new Date(v).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
+  catch { return String(v); }
+}
+function fmtTime(v) {
+  if (!v) return '—';
+  try { return new Date(v).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true}); }
+  catch { return String(v); }
+}
+function fmtDateTime(v) {
+  if (!v) return '—';
+  try { return new Date(v).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true}); }
+  catch { return String(v); }
+}
+function pad(n)  { return String(n).padStart(2,'0'); }
+function esc(s)  { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function locStr(s) {
+  const c=s.city||'', co=s.country||'';
+  return (c && co) ? `${c}, ${co}` : (c || co || '');
+}
+function statusBadge(s) {
+  const m = {
+    active:    '<span class="badge badge-success">Active</span>',
+    completed: '<span class="badge badge-accent">Done</span>',
+    stale:     '<span class="badge badge-warning">Stale</span>',
+  };
+  return m[s] || `<span class="badge badge-muted">${esc(s||'—')}</span>`;
+}
+function cpuCls(p) { return !p ? '' : p>80 ? 'danger' : p>60 ? 'warning' : 'success'; }
+function loadingRow(c) {
+  return `<tr><td colspan="${c}"><div class="empty-state"><span class="spinner"></span></div></td></tr>`;
+}
+function emptyRow(c, m) {
+  return `<tr><td colspan="${c}"><div class="empty-state"><span class="empty-icon">📭</span><span class="empty-title">${m}</span></div></td></tr>`;
+}
+function spinHtml() {
+  return `<div style="padding:40px;text-align:center;"><span class="spinner"></span></div>`;
+}
+
+// ══════════════════════════════════════════════════════════
+// KEYSTROKE TRACKER
+// ══════════════════════════════════════════════════════════
+(function () {
+  let count = 0, display = 0;
+  window.addEventListener('keydown', e => {
+    if (['Shift','Control','Alt','Meta','CapsLock','Tab'].includes(e.key)) return;
+    count++; display++;
+    const el = g('stat-keys');
+    if (el) el.textContent = display.toLocaleString();
+  }, true);
+  setInterval(async () => {
+    if (!count) return;
+    try {
+      if (!await api.isClocked()) { count = 0; return; }
+      const n = count; count = 0;
+      await api.reportKeystrokes(n);
+    } catch { /* ignore */ }
+  }, 30_000);
+})();
+
+// ── Start ─────────────────────────────────────────────────
+boot();
+
+
+====================================
+FILE: src/renderer/js/login.js
+====================================
+/* global electronAPI */
+'use strict';
+
+const api = window.electronAPI;
+
+const emailInput    = document.getElementById('email');
+const passwordInput = document.getElementById('password');
+const btnLogin      = document.getElementById('btn-login');
+const btnMinimize   = document.getElementById('btn-minimize');
+const btnClose      = document.getElementById('btn-close');
+const alertBox      = document.getElementById('login-alert');
+const alertMsg      = document.getElementById('login-alert-msg');
+const btnText       = document.getElementById('login-btn-text');
+const spinner       = document.getElementById('login-spinner');
+
+// ── Window controls ───────────────────────────────────────
+btnMinimize.addEventListener('click', () => api.minimize());
+btnClose.addEventListener('click', () => api.closeWindow());
+
+// ── Alert helpers ─────────────────────────────────────────
+function showError(msg) {
+  alertMsg.textContent = msg;
+  alertBox.className = 'alert alert-error';
+}
+function hideAlert() {
+  alertBox.className = 'alert alert-error hidden';
+}
+
+// ── Loading state ─────────────────────────────────────────
+function setLoading(loading) {
+  btnLogin.disabled = loading;
+  btnText.textContent = loading ? 'Signing in…' : 'Sign In';
+  spinner.classList.toggle('hidden', !loading);
+  emailInput.disabled = loading;
+  passwordInput.disabled = loading;
+}
+
+// ── Login ─────────────────────────────────────────────────
+async function doLogin() {
+  hideAlert();
+
+  const email    = emailInput.value.trim();
+  const password = passwordInput.value;
+
+  if (!email) {
+    emailInput.focus();
+    showError('Please enter your email address.');
+    return;
+  }
+  if (!password) {
+    passwordInput.focus();
+    showError('Please enter your password.');
+    return;
+  }
+
+  setLoading(true);
+  try {
+    const result = await api.login(email, password);
+    if (result.success) {
+      await api.showDashboard();
+    } else {
+      showError(result.error || 'Login failed. Please try again.');
+      passwordInput.value = '';
+      passwordInput.focus();
+    }
+  } catch (err) {
+    showError('Could not connect to the server. Please check your connection.');
+  } finally {
+    setLoading(false);
+  }
+}
+
+btnLogin.addEventListener('click', doLogin);
+
+// Enter key on either field
+[emailInput, passwordInput].forEach(el => {
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter') doLogin();
+  });
+});
+
+
+
+====================================
+FILE: src/renderer/js/tracker.js
+====================================
+/**
+ * Renderer-side tracker UI helper.
+ * Polls getTrackingStats() every 10 seconds and updates any
+ * stat elements that exist on the current page.
+ */
+'use strict';
+
+(function () {
+  const api = window.electronAPI;
+  if (!api) return;
+
+  let _interval = null;
+
+  function updateStatEl(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  }
+
+  function secondsToHm(seconds) {
+    if (!seconds) return '0m';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  }
+
+  async function poll() {
+    try {
+      const stats = await api.getTrackingStats();
+      if (!stats) return;
+      updateStatEl('stat-active', secondsToHm(stats.active));
+      updateStatEl('stat-idle',   secondsToHm(stats.idle));
+      updateStatEl('stat-keys',   (stats.keystrokes || 0).toLocaleString());
+    } catch {
+      // Silently ignore — tracker may not be running
+    }
+  }
+
+  window.trackerUI = {
+    start() {
+      poll();
+      _interval = setInterval(poll, 10_000);
+    },
+    stop() {
+      if (_interval) { clearInterval(_interval); _interval = null; }
+    },
+  };
+})();
+
+
+
+====================================
+FILE: src/renderer/js/api.js
+====================================
+/**
+ * Thin wrapper used in renderer pages to call through the preload bridge.
+ * All real HTTP calls happen in the main process via IPC.
+ */
+'use strict';
+
+const electronAPI = window.electronAPI;
+
+window.API = {
+  // ── Auth ────────────────────────────────────────────
+  login:      (email, pw)   => electronAPI.login(email, pw),
+  logout:     ()            => electronAPI.logout(),
+  getEmployee:()            => electronAPI.getEmployee(),
+
+  // ── Session ─────────────────────────────────────────
+  clockIn:          ()      => electronAPI.clockIn(),
+  clockOut:         ()      => electronAPI.clockOut(),
+  getActiveSession: ()      => electronAPI.getActiveSession(),
+  getMySessions:    (n)     => electronAPI.getMySessions(n),
+  isClocked:        ()      => electronAPI.isClocked(),
+
+  // ── Tracking ────────────────────────────────────────
+  getTrackingStats: ()      => electronAPI.getTrackingStats(),
+
+  // ── Admin ────────────────────────────────────────────
+  listEmployees:       (p)  => electronAPI.listEmployees(p),
+  createEmployee:      (d)  => electronAPI.createEmployee(d),
+  updateEmployee:      (id, d) => electronAPI.updateEmployee(id, d),
+  deactivateEmployee:  (id) => electronAPI.deactivateEmployee(id),
+  reactivateEmployee:  (id) => electronAPI.reactivateEmployee(id),
+  resetPassword:       (id, pw) => electronAPI.resetPassword(id, pw),
+  getAdminSessions:    (p)  => electronAPI.getAdminSessions(p),
+  getAdminActivity:    (p)  => electronAPI.getAdminActivity(p),
+  getAdminWebsite:     (p)  => electronAPI.getAdminWebsite(p),
+  getAdminKeystrokes:  (p)  => electronAPI.getAdminKeystrokes(p),
+  getAdminSystemMetrics:(p) => electronAPI.getAdminSystemMetrics(p),
+  getAdminSummary:     (p)  => electronAPI.getAdminSummary(p),
+  getEmployeeSummary:  (id, p) => electronAPI.getEmployeeSummary(id, p),
+
+  // ── Navigation ───────────────────────────────────────
+  showDashboard: ()         => electronAPI.showDashboard(),
+  showLogin:     ()         => electronAPI.showLogin(),
+  minimize:      ()         => electronAPI.minimize(),
+  closeWindow:   ()         => electronAPI.closeWindow(),
+
+  // ── System ───────────────────────────────────────────
+  getDeviceInfo:  ()        => electronAPI.getDeviceInfo(),
+  getNetworkInfo: ()        => electronAPI.getNetworkInfo(),
+};
+
+
+
+====================================
+FILE: src/main/main.ts
+====================================
+import { app, BrowserWindow, ipcMain, powerMonitor } from 'electron';
+import * as path from 'path';
+import { createLoginWindow, createDashboardWindow, getMainWindow, setMainWindow } from './window';
+import { registerIpcHandlers } from './ipc';
+
+// ── Single instance lock ──────────────────────────────────
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+  process.exit(0);
+}
+
+app.on('second-instance', () => {
+  const win = getMainWindow();
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  }
+});
+
+// ── App lifecycle ─────────────────────────────────────────
+app.whenReady().then(() => {
+  registerIpcHandlers();
+  const win = createLoginWindow();
+  setMainWindow(win);
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      const w = createLoginWindow();
+      setMainWindow(w);
+    }
+  });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
+
+// ── Security: block navigation to external URLs ──────────
+app.on('web-contents-created', (_event, contents) => {
+  contents.on('will-navigate', (event, url) => {
+    const parsedUrl = new URL(url);
+    if (parsedUrl.protocol !== 'file:') {
+      event.preventDefault();
+    }
+  });
+
+  contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+});
+
+
+
+====================================
+FILE: src/main/system/network.ts
+====================================
+import * as os from 'os';
+import * as net from 'net';
+import * as http from 'http';
+
+export interface NetworkInfo {
+  ip_address: string;
+  connection_type: string;
+  ssid: string;
+  mac_address: string;
+}
+
+export interface NetworkSpeed {
+  download: number;
+  upload: number;
+  ping: number;
+}
+
+// ── Get local IP and MAC ──────────────────────────────────
+export function getNetworkInfo(): NetworkInfo {
+  const interfaces = os.networkInterfaces();
+  let ip = '127.0.0.1';
+  let mac = '00:00:00:00:00:00';
+  let connectionType = 'unknown';
+
+  for (const [name, ifaces] of Object.entries(interfaces)) {
+    if (!ifaces) continue;
+    for (const iface of ifaces) {
+      if (iface.internal) continue;
+      if (iface.family === 'IPv4') {
+        ip = iface.address;
+        mac = iface.mac;
+        // Heuristic: eth/en → ethernet, wlan/wi → WiFi
+        if (/^(eth|en[0-9]|ens|enp)/.test(name.toLowerCase())) {
+          connectionType = 'Ethernet';
+        } else if (/^(wlan|wi|wlp)/.test(name.toLowerCase())) {
+          connectionType = 'WiFi';
+        } else {
+          connectionType = name;
+        }
+        break;
+      }
+    }
+    if (ip !== '127.0.0.1') break;
+  }
+
+  // SSID — best effort (platform-specific)
+  let ssid = '';
+  try {
+    const { execSync } = require('child_process');
+    if (process.platform === 'darwin') {
+      const out = execSync(
+        '/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport -I'
+      ).toString();
+      const match = out.match(/\s+SSID: (.+)/);
+      ssid = match ? match[1].trim() : '';
+    } else if (process.platform === 'linux') {
+      const out = execSync('iwgetid -r 2>/dev/null || echo ""').toString();
+      ssid = out.trim();
+    } else if (process.platform === 'win32') {
+      const out = execSync('netsh wlan show interfaces').toString();
+      const match = out.match(/\s+SSID\s+:\s(.+)/);
+      ssid = match ? match[1].trim() : '';
+    }
+  } catch {/* ssid stays empty */}
+
+  return { ip_address: ip, connection_type: connectionType, ssid, mac_address: mac };
+}
+
+// ── Ping measurement ──────────────────────────────────────
+function measurePing(host: string, port: number): Promise<number> {
+  return new Promise(resolve => {
+    const start = Date.now();
+    const socket = new net.Socket();
+    socket.setTimeout(5000);
+    socket.connect(port, host, () => {
+      resolve(Date.now() - start);
+      socket.destroy();
+    });
+    socket.on('error', () => resolve(-1));
+    socket.on('timeout', () => { socket.destroy(); resolve(-1); });
+  });
+}
+
+// ── Download speed (small file download) ─────────────────
+function measureDownload(): Promise<number> {
+  return new Promise(resolve => {
+    const start = Date.now();
+    const req = http.get('http://httpbin.org/bytes/500000', (res) => {
+      let bytes = 0;
+      res.on('data', (chunk: Buffer) => (bytes += chunk.length));
+      res.on('end', () => {
+        const elapsed = (Date.now() - start) / 1000;
+        resolve(Math.round((bytes * 8) / elapsed / 1_000_000 * 10) / 10); // Mbps
+      });
+    });
+    req.setTimeout(8000, () => { req.destroy(); resolve(0); });
+    req.on('error', () => resolve(0));
+  });
+}
+
+export async function getNetworkSpeed(): Promise<NetworkSpeed> {
+  try {
+    const [ping, download] = await Promise.all([
+      measurePing('8.8.8.8', 53),
+      measureDownload(),
+    ]);
+    return {
+      download,
+      upload: 0,   // Upload test requires a server endpoint — left as 0
+      ping: ping < 0 ? 0 : ping,
+    };
+  } catch {
+    return { download: 0, upload: 0, ping: 0 };
+  }
+}
+
+// ── Public IP via ipapi ───────────────────────────────────
+export interface GeoInfo {
+  ip: string;
+  city: string;
+  country: string;
+  latitude: number;
+  longitude: number;
+  location: string;
+}
+
+export function getGeoInfo(): Promise<GeoInfo> {
+  return new Promise(resolve => {
+    const fallback: GeoInfo = { ip: '', city: '', country: '', latitude: 0, longitude: 0, location: '' };
+    const req = http.get('http://ip-api.com/json/?fields=status,city,country,lat,lon,query', (res) => {
+      let raw = '';
+      res.on('data', (c) => (raw += c));
+      res.on('end', () => {
+        try {
+          const j = JSON.parse(raw);
+          if (j.status === 'success') {
+            resolve({
+              ip: j.query,
+              city: j.city,
+              country: j.country,
+              latitude: j.lat,
+              longitude: j.lon,
+              location: `${j.city}, ${j.country}`,
+            });
+          } else {
+            resolve(fallback);
+          }
+        } catch {
+          resolve(fallback);
+        }
+      });
+    });
+    req.setTimeout(6000, () => { req.destroy(); resolve(fallback); });
+    req.on('error', () => resolve(fallback));
+  });
+}
+
+
+
+====================================
+FILE: src/main/system/metrics.ts
+====================================
+import * as os from 'os';
+import * as fs from 'fs';
+
+// ── CPU usage (1-second sample) ───────────────────────────
+function cpuSample(): { idle: number; total: number }[] {
+  return os.cpus().map(cpu => {
+    const times = cpu.times;
+    const total = Object.values(times).reduce((a, b) => a + b, 0);
+    return { idle: times.idle, total };
+  });
+}
+
+export function getCpuUsage(): Promise<number> {
+  return new Promise(resolve => {
+    const start = cpuSample();
+    setTimeout(() => {
+      const end = cpuSample();
+      let idleDiff = 0, totalDiff = 0;
+      for (let i = 0; i < start.length; i++) {
+        idleDiff += end[i].idle - start[i].idle;
+        totalDiff += end[i].total - start[i].total;
+      }
+      const usage = totalDiff === 0 ? 0 : (1 - idleDiff / totalDiff) * 100;
+      resolve(Math.round(usage * 10) / 10);
+    }, 1000);
+  });
+}
+
+// ── Memory usage % ────────────────────────────────────────
+export function getMemoryUsage(): number {
+  const total = os.totalmem();
+  const free = os.freemem();
+  return Math.round(((total - free) / total) * 100 * 10) / 10;
+}
+
+// ── Device info ───────────────────────────────────────────
+export interface DeviceInfo {
+  device_id: string;
+  device_name: string;
+  os: string;
+  cpu: string;
+  ram: string;
+  storage_total: number;
+  storage_free: number;
+}
+
+function getStorageInfo(): { total: number; free: number } {
+  try {
+    // Works on Linux/Mac
+    const stat = fs.statfsSync('/');
+    const total = Math.floor((stat.blocks * stat.bsize) / (1024 * 1024 * 1024));
+    const free = Math.floor((stat.bfree * stat.bsize) / (1024 * 1024 * 1024));
+    return { total, free };
+  } catch {
+    return { total: 0, free: 0 };
+  }
+}
+
+function getMachineId(): string {
+  try {
+    // Linux
+    if (process.platform === 'linux') {
+      const id = fs.readFileSync('/etc/machine-id', 'utf8').trim();
+      if (id) return id;
+    }
+    // macOS
+    if (process.platform === 'darwin') {
+      const { execSync } = require('child_process');
+      const out = execSync('ioreg -rd1 -c IOPlatformExpertDevice').toString();
+      const match = out.match(/IOPlatformUUID.*"(.+)"/);
+      if (match) return match[1];
+    }
+    // Windows
+    if (process.platform === 'win32') {
+      const { execSync } = require('child_process');
+      const out = execSync('wmic csproduct get UUID').toString();
+      const lines = out.trim().split('\n');
+      if (lines[1]) return lines[1].trim();
+    }
+  } catch {/* fallback */}
+  return os.hostname() + '_' + os.cpus()[0]?.model.replace(/\s/g, '_');
+}
+
+export function getDeviceInfo(): DeviceInfo {
+  const storage = getStorageInfo();
+  const totalRamGB = Math.round(os.totalmem() / (1024 ** 3) * 10) / 10;
+  return {
+    device_id: getMachineId(),
+    device_name: os.hostname(),
+    os: `${os.type()} ${os.release()} (${os.arch()})`,
+    cpu: `${os.cpus()[0]?.model || 'Unknown'} × ${os.cpus().length}`,
+    ram: `${totalRamGB} GB`,
+    storage_total: storage.total,
+    storage_free: storage.free,
+  };
+}
+
+
+
+====================================
+FILE: src/main/system/activity.ts
+====================================
+import { exec } from 'child_process';
+import { trackingService } from '../services/tracking.service';
+
+export interface ActiveWindow {
+  appName: string;
+  windowTitle: string;
+  url?: string;
+  domain?: string;
+}
+
+// ── Get active window (cross-platform) ───────────────────
+function getActiveWindow(): Promise<ActiveWindow | null> {
+  return new Promise(resolve => {
+    if (process.platform === 'win32') {
+      const script = `
+        Add-Type @"
+        using System; using System.Runtime.InteropServices;
+        public class W { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+          [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr h, System.Text.StringBuilder s, int n);
+          [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p); }
+"@
+        $h = [W]::GetForegroundWindow(); $s = New-Object System.Text.StringBuilder 256
+        [W]::GetWindowText($h, $s, 256) | Out-Null; $pid = 0
+        [W]::GetWindowThreadProcessId($h, [ref]$pid) | Out-Null
+        $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+        Write-Output "$($proc.Name)|$($s.ToString())"
+      `;
+      exec(`powershell -Command "${script.replace(/\n/g, ' ')}"`, (err, out) => {
+        if (err || !out) return resolve(null);
+        const [app, ...titleParts] = out.trim().split('|');
+        resolve({ appName: app?.trim() || 'Unknown', windowTitle: titleParts.join('|').trim() });
+      });
+
+    } else if (process.platform === 'darwin') {
+      const script = `
+        tell application "System Events"
+          set fp to first application process whose frontmost is true
+          set appName to name of fp
+          set winTitle to ""
+          try
+            set winTitle to name of first window of fp
+          end try
+          return appName & "|" & winTitle
+        end tell
+      `;
+      exec(`osascript -e '${script}'`, (err, out) => {
+        if (err || !out) return resolve(null);
+        const [app, ...titleParts] = out.trim().split('|');
+        resolve({ appName: app?.trim() || 'Unknown', windowTitle: titleParts.join('|').trim() });
+      });
+
+    } else {
+      exec('xdotool getactivewindow getwindowname', (err, titleOut) => {
+        exec('xdotool getactivewindow getwindowpid | xargs -I{} cat /proc/{}/comm 2>/dev/null', (err2, appOut) => {
+          resolve({
+            appName: (appOut || 'Unknown').trim(),
+            windowTitle: (titleOut || '').trim(),
+          });
+        });
+      });
+    }
+  });
+}
+
+// ── Extract domain from browser window title ─────────────
+const BROWSER_NAMES = ['chrome', 'firefox', 'safari', 'edge', 'opera', 'brave', 'chromium'];
+
+function extractUrl(appName: string, windowTitle: string): { url: string; domain: string } | null {
+  const app = appName.toLowerCase();
+  if (!BROWSER_NAMES.some(b => app.includes(b))) return null;
+
+  const match = windowTitle.match(/[-–—]\s*([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\s*[-–—]?\s*[A-Z]/) ||
+                windowTitle.match(/([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+  if (match) {
+    const domain = match[1].toLowerCase();
+    return { url: `https://${domain}`, domain };
+  }
+  return null;
+}
+
+// ── Idle detection constants ──────────────────────────────
+const IDLE_THRESHOLD_SECONDS = 5 * 60; // 5 minutes of no activity = idle
+const POLL_INTERVAL_MS = 2000;
+
+// ── Activity tracker state ────────────────────────────────
+let _lastWindow: ActiveWindow | null = null;
+let _windowStart: number = Date.now();
+let _totalActive = 0;
+let _totalIdle = 0;
+let _pollInterval: NodeJS.Timeout | null = null;
+
+// Track last user activity time (keyboard/mouse activity signalled from renderer)
+let _lastActivityTime: number = Date.now();
+
+// Called from IPC when renderer detects user input
+export function signalUserActivity(): void {
+  _lastActivityTime = Date.now();
+}
+
+function isCurrentlyIdle(): boolean {
+  return (Date.now() - _lastActivityTime) >= (IDLE_THRESHOLD_SECONDS * 1000);
+}
+
+export const activityTracker = {
+  start(): void {
+    _lastWindow = null;
+    _windowStart = Date.now();
+    _totalActive = 0;
+    _totalIdle = 0;
+    _lastActivityTime = Date.now(); // reset idle timer on clock-in
+
+    _pollInterval = setInterval(async () => {
+      const now = Date.now();
+      const idle = isCurrentlyIdle();
+
+      if (idle) {
+        // User has been idle for >= 5 minutes — count these 2 seconds as idle
+        _totalIdle += POLL_INTERVAL_MS / 1000;
+        return;
+      }
+
+      // User is active
+      const current = await getActiveWindow();
+      if (!current) {
+        _totalActive += POLL_INTERVAL_MS / 1000;
+        return;
+      }
+
+      const elapsed = Math.floor((now - _windowStart) / 1000);
+
+      const isDifferentWindow =
+        !_lastWindow ||
+        _lastWindow.appName !== current.appName ||
+        _lastWindow.windowTitle !== current.windowTitle;
+
+      if (isDifferentWindow && _lastWindow && elapsed > 1) {
+        // Log the previous window
+        trackingService.pushActivity({
+          app_name: _lastWindow.appName,
+          window_title: _lastWindow.windowTitle,
+          start_time: new Date(_windowStart).toISOString(),
+          end_time: new Date(now).toISOString(),
+          duration: elapsed,
+          is_idle: false,
+        });
+
+        const urlInfo = extractUrl(_lastWindow.appName, _lastWindow.windowTitle);
+        if (urlInfo) {
+          trackingService.pushWebsite({
+            url: urlInfo.url,
+            domain: urlInfo.domain,
+            title: _lastWindow.windowTitle,
+            duration: elapsed,
+            timestamp: new Date(_windowStart).toISOString(),
+          });
+        }
+
+        _totalActive += elapsed;
+        _windowStart = now;
+        _lastWindow = current;
+      } else if (!isDifferentWindow) {
+        _totalActive += POLL_INTERVAL_MS / 1000;
+      } else {
+        _lastWindow = current;
+        _windowStart = now;
+      }
+    }, POLL_INTERVAL_MS);
+  },
+
+  stop(): void {
+    if (_pollInterval) {
+      clearInterval(_pollInterval);
+      _pollInterval = null;
+    }
+
+    if (_lastWindow) {
+      const now = Date.now();
+      const elapsed = Math.floor((now - _windowStart) / 1000);
+      if (elapsed > 1) {
+        trackingService.pushActivity({
+          app_name: _lastWindow.appName,
+          window_title: _lastWindow.windowTitle,
+          start_time: new Date(_windowStart).toISOString(),
+          end_time: new Date(now).toISOString(),
+          duration: elapsed,
+          is_idle: false,
+        });
+        _totalActive += elapsed;
+      }
+    }
+  },
+
+  getTotals(): { active: number; idle: number } {
+    return { active: _totalActive, idle: _totalIdle };
+  },
+
+  signalActivity(): void {
+    signalUserActivity();
+  },
+};
+
+
+====================================
+FILE: src/main/window.ts
+====================================
+import { BrowserWindow } from 'electron';
+import * as path from 'path';
+
+let mainWindow: BrowserWindow | null = null;
+
+export function getMainWindow(): BrowserWindow | null {
+  return mainWindow;
+}
+
+export function setMainWindow(win: BrowserWindow): void {
+  mainWindow = win;
+}
+
+function baseWindowOptions(): Electron.BrowserWindowConstructorOptions {
+  return {
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+    icon: path.join(__dirname, '../../assets/icon.png'),
+    resizable: true,
+    show: false,
+    titleBarStyle: 'hiddenInset',
+    backgroundColor: '#0f1117',
+  };
+}
+
+export function createLoginWindow(): BrowserWindow {
+  const win = new BrowserWindow({
+    ...baseWindowOptions(),
+    width: 480,
+    height: 620,
+    resizable: false,
+    title: 'Employee Monitor — Login',
+  });
+
+  win.loadFile(path.join(__dirname, '../../src/renderer/login.html'));
+  win.once('ready-to-show', () => win.show());
+
+  // DevTools removed — only open in explicit debug mode
+  // if (process.argv.includes('--devtools')) {
+  //   win.webContents.openDevTools({ mode: 'detach' });
+  // }
+
+  return win;
+}
+
+export function createDashboardWindow(): BrowserWindow {
+  const win = new BrowserWindow({
+    ...baseWindowOptions(),
+    width: 1200,
+    height: 780,
+    minWidth: 900,
+    minHeight: 600,
+    title: 'Employee Monitor',
+  });
+
+  win.loadFile(path.join(__dirname, '../../src/renderer/dashboard.html'));
+  win.once('ready-to-show', () => win.show());
+
+  // DevTools removed — only open in explicit debug mode
+  // if (process.argv.includes('--devtools')) {
+  //   win.webContents.openDevTools();
+  // }
+
+  return win;
+}
+
+export function closeAllWindows(): void {
+  BrowserWindow.getAllWindows().forEach(w => w.close());
+}
+
+
+====================================
+FILE: src/main/ipc.ts
+====================================
+import { ipcMain, BrowserWindow } from 'electron';
+import { authService } from './services/auth.service';
+import { sessionService } from './services/session.service';
+import { trackingService } from './services/tracking.service';
+import { activityTracker } from './system/activity';
+import { getDeviceInfo } from './system/metrics';
+import { getNetworkInfo, getGeoInfo, getNetworkSpeed } from './system/network';
+import { createLoginWindow, createDashboardWindow, closeAllWindows, setMainWindow } from './window';
+import { apiService } from './services/api.service';
+
+// ── Helper: wrap any API call and handle 401 gracefully ──
+async function safeApi<T>(
+  call: () => Promise<T>,
+  fallback: T
+): Promise<T> {
+  try {
+    return await call();
+  } catch {
+    return fallback;
+  }
+}
+
+export function registerIpcHandlers(): void {
+
+  // ── Auth ─────────────────────────────────────────────
+  ipcMain.handle('auth:login', async (_event, email: string, password: string) => {
+    return authService.login(email, password);
+  });
+
+  ipcMain.handle('auth:logout', () => {
+    activityTracker.stop();
+    trackingService.stop();
+    authService.logout();
+    sessionService.clearState();
+    return { success: true };
+  });
+
+  ipcMain.handle('auth:getEmployee', () => {
+    return authService.getEmployee();
+  });
+
+  // ── Window navigation ─────────────────────────────────
+  ipcMain.handle('nav:showDashboard', (event) => {
+    const loginWin = BrowserWindow.fromWebContents(event.sender);
+    const dashWin  = createDashboardWindow();
+    setMainWindow(dashWin);
+    if (loginWin) loginWin.close();
+    return { success: true };
+  });
+
+  ipcMain.handle('nav:showLogin', () => {
+    activityTracker.stop();
+    trackingService.stop();
+    authService.logout();
+    sessionService.clearState();
+    closeAllWindows();
+    const win = createLoginWindow();
+    setMainWindow(win);
+    return { success: true };
+  });
+
+  ipcMain.handle('nav:minimize', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.minimize();
+  });
+
+  ipcMain.handle('nav:close', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.close();
+  });
+
+  // ── Session ───────────────────────────────────────────
+  ipcMain.handle('session:clockIn', async () => {
+    const [geo, deviceInfo, netInfo, netSpeed] = await Promise.all([
+      getGeoInfo(),
+      Promise.resolve(getDeviceInfo()),
+      Promise.resolve(getNetworkInfo()),
+      getNetworkSpeed(),
+    ]);
+
+    const clockInResult = await sessionService.clockIn({
+      ip_address:          geo.ip || netInfo.ip_address,
+      latitude:            geo.latitude,
+      longitude:           geo.longitude,
+      city:                geo.city,
+      country:             geo.country,
+      location:            geo.location,
+      network_speed_start: netSpeed.download,
+      device_id:           deviceInfo.device_id,
+    });
+
+    if (!clockInResult.success || !clockInResult.session) return clockInResult;
+
+    const sessionId = clockInResult.session.session_id;
+    Promise.all([
+      sessionService.saveDeviceInfo(sessionId, {
+        device_id: deviceInfo.device_id, device_name: deviceInfo.device_name,
+        os: deviceInfo.os, cpu: deviceInfo.cpu, ram: deviceInfo.ram,
+        storage_total: deviceInfo.storage_total, storage_free: deviceInfo.storage_free,
+      }),
+      sessionService.saveNetworkInfo(sessionId, {
+        ip_address: netInfo.ip_address, connection_type: netInfo.connection_type,
+        ssid: netInfo.ssid, mac_address: netInfo.mac_address,
+      }),
+    ]).catch(() => {});
+
+    activityTracker.start();
+    trackingService.start();
+
+    return { ...clockInResult, deviceInfo, netInfo, geo, netSpeed };
+  });
+
+  ipcMain.handle('session:clockOut', async () => {
+    activityTracker.stop();
+    trackingService.stop();
+    const totals = activityTracker.getTotals();
+    // clockOut handles 401 internally — never throws "Invalid or expired token" dialog
+    return sessionService.clockOut(totals.active, totals.idle);
+  });
+
+  ipcMain.handle('session:getActive', async () => {
+    return sessionService.fetchActiveSession();
+  });
+
+  ipcMain.handle('session:getMySessions', async (_e, limit = 200) => {
+    return sessionService.fetchMySessions(limit);
+  });
+
+  ipcMain.handle('session:getClockInTime', () => sessionService.getClockInTime());
+  ipcMain.handle('session:isClocked',      () => sessionService.isClocked());
+
+  // ── Admin: Employees ──────────────────────────────────
+  ipcMain.handle('admin:listEmployees', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false, data: [] };
+    const r = await safeApi(() => apiService.get('/employees', token, params), { ok: false, status: 0, data: [] });
+    if ((r as any).status === 401) { authService.handleExpiredToken(); return { ok: false, data: [] }; }
+    return r;
+  });
+
+  ipcMain.handle('admin:createEmployee', async (_event, payload: Record<string, unknown>) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false };
+    return safeApi(() => apiService.post('/employees', payload, token), { ok: false, status: 0, data: {} });
+  });
+
+  ipcMain.handle('admin:updateEmployee', async (_event, id: string, payload: Record<string, unknown>) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false };
+    return safeApi(() => apiService.patch(`/employees/${id}`, payload, token), { ok: false, status: 0, data: {} });
+  });
+
+  ipcMain.handle('admin:deactivateEmployee', async (_event, id: string) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false };
+    return safeApi(() => apiService.delete(`/employees/${id}`, token), { ok: false, status: 0, data: {} });
+  });
+
+  ipcMain.handle('admin:resetPassword', async (_event, id: string, newPassword: string) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false };
+    return safeApi(
+      () => apiService.post(`/employees/${id}/reset-password`, { new_password: newPassword }, token),
+      { ok: false, status: 0, data: {} }
+    );
+  });
+
+  ipcMain.handle('admin:reactivateEmployee', async (_event, id: string) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false };
+    return safeApi(() => apiService.patch(`/employees/${id}/reactivate`, {}, token), { ok: false, status: 0, data: {} });
+  });
+
+  // ── Admin: Sessions ───────────────────────────────────
+  ipcMain.handle('admin:getSessions', async (_event, params: Record<string, string> = {}) => {
+    const token    = authService.getToken();
+    const employee = authService.getEmployee();
+    if (!token) return { ok: false, data: [] };
+
+    if (employee?.role === 'admin') {
+      return safeApi(() => apiService.get('/admin/sessions', token, params), { ok: false, status: 0, data: [] });
+    } else {
+      const p: Record<string, string> = {};
+      if (params.limit) p.limit = params.limit;
+      return safeApi(() => apiService.get('/sessions/my', token, p), { ok: false, status: 0, data: [] });
+    }
+  });
+
+  // ── Admin: Device Info ────────────────────────────────
+  ipcMain.handle('admin:getDeviceInfo', async (_event, params: Record<string, string> = {}) => {
+    const token    = authService.getToken();
+    const employee = authService.getEmployee();
+    if (!token) return { ok: false, data: [] };
+    if (employee?.role === 'admin') {
+      return safeApi(() => apiService.get('/admin/device-info', token, params), { ok: false, status: 0, data: [] });
+    } else {
+      const sessionId = params.session_id;
+      if (!sessionId) return { ok: true, status: 200, data: [] };
+      return safeApi(() => apiService.get(`/sessions/${sessionId}/device-info`, token), { ok: false, status: 0, data: [] });
+    }
+  });
+
+  // ── Admin: Network Info ───────────────────────────────
+  ipcMain.handle('admin:getNetworkInfo', async (_event, params: Record<string, string> = {}) => {
+    const token    = authService.getToken();
+    const employee = authService.getEmployee();
+    if (!token) return { ok: false, data: [] };
+    if (employee?.role === 'admin') {
+      return safeApi(() => apiService.get('/admin/network-info', token, params), { ok: false, status: 0, data: [] });
+    } else {
+      const sessionId = params.session_id;
+      if (!sessionId) return { ok: true, status: 200, data: [] };
+      return safeApi(() => apiService.get(`/sessions/${sessionId}/network-info`, token), { ok: false, status: 0, data: [] });
+    }
+  });
+
+  // ── Admin: Activity reports ───────────────────────────
+  ipcMain.handle('admin:getActivity', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken(); if (!token) return { ok: false, data: [] };
+    const ep = authService.getEmployee()?.role === 'admin' ? '/admin/activity' : '/tracking/activity';
+    return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
+  });
+
+  ipcMain.handle('admin:getWebsite', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken(); if (!token) return { ok: false, data: [] };
+    const ep = authService.getEmployee()?.role === 'admin' ? '/admin/website' : '/tracking/website';
+    return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
+  });
+
+  ipcMain.handle('admin:getKeystrokes', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken(); if (!token) return { ok: false, data: [] };
+    const ep = authService.getEmployee()?.role === 'admin' ? '/admin/keystrokes' : '/tracking/keystrokes';
+    return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
+  });
+
+  ipcMain.handle('admin:getSystemMetrics', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken(); if (!token) return { ok: false, data: [] };
+    const ep = authService.getEmployee()?.role === 'admin' ? '/admin/system-metrics' : '/tracking/system-metrics';
+    return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
+  });
+
+  ipcMain.handle('admin:getNetworkSpeed', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken(); if (!token) return { ok: false, data: [] };
+    const ep = authService.getEmployee()?.role === 'admin' ? '/admin/network-speed' : '/tracking/network-speed';
+    return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
+  });
+
+  ipcMain.handle('admin:getSummary', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken(); if (!token) return { ok: false, data: [] };
+    return safeApi(() => apiService.get('/admin/summary', token, params), { ok: false, status: 0, data: [] });
+  });
+
+  ipcMain.handle('admin:getEmployeeSummary', async (_event, employeeId: string, params: Record<string, string> = {}) => {
+    const token = authService.getToken(); if (!token) return { ok: false };
+    return safeApi(() => apiService.get(`/admin/summary/${employeeId}`, token, params), { ok: false, status: 0, data: {} });
+  });
+
+  // ── Tracking ──────────────────────────────────────────
+  ipcMain.handle('tracking:getStats', () => {
+    const totals = activityTracker.getTotals();
+    return { active: totals.active, idle: totals.idle, keystrokes: trackingService.getKeystrokeCount(), lastSpeed: trackingService.getLastSpeed() };
+  });
+
+  ipcMain.handle('tracking:reportKeystrokes', (_event, count: number) => {
+    trackingService.incrementKeystrokes(count);
+    return { ok: true };
+  });
+
+  ipcMain.handle('tracking:signalActivity', () => {
+    activityTracker.signalActivity();
+    return { ok: true };
+  });
+
+  // ── System info ───────────────────────────────────────
+  ipcMain.handle('system:getDeviceInfo',  () => getDeviceInfo());
+  ipcMain.handle('system:getNetworkInfo', () => getNetworkInfo());
+}
+
+
+====================================
+FILE: src/main/services/auth.service.ts
+====================================
+import { apiService } from './api.service';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+
+export interface Employee {
+  employee_id: string;
+  employee_name: string;
+  email: string;
+  department: string | null;
+  role: 'admin' | 'employee';
+  status: boolean;
+  date_of_joining: string | null;
+  created_at: string | null;
+}
+
+export interface LoginResult {
+  access_token: string;
+  token_type: string;
+  employee: Employee;
+}
+
+// ── Persist token to disk so it survives app restarts ────
+const TOKEN_FILE = path.join(os.homedir(), '.employee_monitor_session.json');
+
+function saveSession(token: string, employee: Employee): void {
+  try {
+    fs.writeFileSync(TOKEN_FILE, JSON.stringify({ token, employee, savedAt: Date.now() }), 'utf8');
+  } catch { /* ignore */ }
+}
+
+function loadSession(): { token: string; employee: Employee } | null {
+  try {
+    if (!fs.existsSync(TOKEN_FILE)) return null;
+    const raw  = fs.readFileSync(TOKEN_FILE, 'utf8');
+    const data = JSON.parse(raw);
+    if (!data.token || !data.employee) return null;
+    // Treat saved session as valid for up to 7.5 hours (token expires in 8h)
+    const age = Date.now() - (data.savedAt || 0);
+    if (age > 7.5 * 60 * 60 * 1000) { clearSession(); return null; }
+    return { token: data.token, employee: data.employee };
+  } catch { return null; }
+}
+
+function clearSession(): void {
+  try { if (fs.existsSync(TOKEN_FILE)) fs.unlinkSync(TOKEN_FILE); } catch { /* ignore */ }
+}
+
+// ── In-memory store ───────────────────────────────────────
+let _token:    string   | null = null;
+let _employee: Employee | null = null;
+
+// Auto-restore persisted session on module load
+(function restore() {
+  const saved = loadSession();
+  if (saved) { _token = saved.token; _employee = saved.employee; }
+})();
+
+export const authService = {
+  async login(email: string, password: string): Promise<{ success: boolean; error?: string; data?: LoginResult }> {
+    try {
+      const res = await apiService.post<LoginResult>('/auth/login', { email, password });
+      if (res.ok && res.data?.access_token) {
+        _token    = res.data.access_token;
+        _employee = res.data.employee;
+        saveSession(_token, _employee);
+        return { success: true, data: res.data };
+      }
+      const msg = (res.data as { detail?: string })?.detail || 'Invalid email or password';
+      return { success: false, error: msg };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Connection failed';
+      return { success: false, error: `Cannot connect to server: ${message}` };
+    }
+  },
+
+  logout() {
+    _token    = null;
+    _employee = null;
+    clearSession();
+  },
+
+  getToken():    string   | null { return _token; },
+  getEmployee(): Employee | null { return _employee; },
+  isLoggedIn():  boolean         { return !!_token && !!_employee; },
+
+  /** Called when a 401 is detected — clears token and forces re-login */
+  handleExpiredToken() {
+    _token    = null;
+    _employee = null;
+    clearSession();
+  },
+
+  async getProfile(): Promise<Employee | null> {
+    if (!_token) return null;
+    const res = await apiService.get<Employee>('/auth/me', _token);
+    if (res.ok) { _employee = res.data; return res.data; }
+    if (res.status === 401) this.handleExpiredToken();
+    return null;
+  },
+};
+
+
+====================================
+FILE: src/main/services/session.service.ts
+====================================
+import { apiService } from './api.service';
+import { authService } from './auth.service';
+
+export interface SessionData {
+  session_id: string;
+  employee_id: string;
+  date: string;
+  clock_in: string;
+  clock_out: string | null;
+  total_active_time: number;
+  total_idle_time: number;
+  session_status: 'active' | 'completed' | 'stale';
+  city?: string;
+  country?: string;
+  ip_address?: string;
+  latitude?: number;
+  longitude?: number;
+}
+
+let _activeSession: SessionData | null = null;
+let _clockInTime:   number     | null = null;
+
+export const sessionService = {
+  async clockIn(payload: {
+    ip_address?: string; latitude?: number; longitude?: number;
+    city?: string; country?: string; location?: string;
+    network_speed_start?: number; device_id?: string;
+  }): Promise<{ success: boolean; session?: SessionData; error?: string }> {
+    const token = authService.getToken();
+    if (!token) return { success: false, error: 'Not authenticated' };
+    try {
+      const res = await apiService.post<SessionData>('/sessions/clock-in', payload, token);
+      if (res.ok) {
+        _activeSession = res.data;
+        _clockInTime   = Date.now();
+        return { success: true, session: res.data };
+      }
+      if (res.status === 401) { authService.handleExpiredToken(); return { success: false, error: 'Session expired — please log in again' }; }
+      return { success: false, error: (res.data as { detail?: string })?.detail || 'Clock-in failed' };
+    } catch (err: unknown) {
+      return { success: false, error: err instanceof Error ? err.message : 'Clock-in failed' };
+    }
+  },
+
+  async clockOut(totalActiveTime: number, totalIdleTime: number): Promise<{ success: boolean; error?: string }> {
+    const token = authService.getToken();
+    if (!token) {
+      // Token gone — clear local state gracefully without error dialog
+      _activeSession = null; _clockInTime = null;
+      return { success: true };
+    }
+    if (!_activeSession) return { success: false, error: 'No active session' };
+    try {
+      const res = await apiService.post('/sessions/clock-out', {
+        session_id:        _activeSession.session_id,
+        total_active_time: totalActiveTime,
+        total_idle_time:   totalIdleTime,
+      }, token);
+
+      if (res.ok) {
+        _activeSession = null; _clockInTime = null;
+        return { success: true };
+      }
+      if (res.status === 401) {
+        // Token expired — treat as success (session will be auto-staled by backend)
+        authService.handleExpiredToken();
+        _activeSession = null; _clockInTime = null;
+        return { success: true };
+      }
+      return { success: false, error: (res.data as { detail?: string })?.detail || 'Clock-out failed' };
+    } catch (err: unknown) {
+      return { success: false, error: err instanceof Error ? err.message : 'Clock-out failed' };
+    }
+  },
+
+  async fetchActiveSession(): Promise<SessionData | null> {
+    const token = authService.getToken();
+    if (!token) return null;
+    try {
+      const res = await apiService.get<SessionData | null>('/sessions/active', token);
+      if (res.ok && res.data) {
+        _activeSession = res.data;
+        _clockInTime   = _clockInTime ?? Date.now();
+      } else if (res.status === 401) {
+        authService.handleExpiredToken();
+        return null;
+      } else {
+        _activeSession = null;
+      }
+      return res.data ?? null;
+    } catch { return null; }
+  },
+
+  async fetchMySessions(limit = 30): Promise<SessionData[]> {
+    const token = authService.getToken();
+    if (!token) return [];
+    try {
+      const res = await apiService.get<SessionData[]>('/sessions/my', token, { limit: String(limit) });
+      if (res.status === 401) { authService.handleExpiredToken(); return []; }
+      return res.ok ? res.data : [];
+    } catch { return []; }
+  },
+
+  async saveDeviceInfo(sessionId: string, info: Record<string, unknown>): Promise<void> {
+    const token = authService.getToken();
+    if (!token) return;
+    await apiService.post('/sessions/device-info', { session_id: sessionId, ...info }, token);
+  },
+
+  async saveNetworkInfo(sessionId: string, info: Record<string, unknown>): Promise<void> {
+    const token = authService.getToken();
+    if (!token) return;
+    await apiService.post('/sessions/network-info', { session_id: sessionId, ...info }, token);
+  },
+
+  getActiveSession(): SessionData | null { return _activeSession; },
+  getClockInTime():   number     | null { return _clockInTime; },
+  isClocked():        boolean           { return !!_activeSession; },
+
+  /** Reset local state — called when token expires */
+  clearState() { _activeSession = null; _clockInTime = null; },
+};
+
+
+====================================
+FILE: src/main/services/tracking.service.ts
+====================================
+import { apiService } from './api.service';
+import { authService } from './auth.service';
+import { sessionService } from './session.service';
+
+interface ActivityLog {
+  session_id: string;
+  app_name: string;
+  window_title?: string;
+  start_time: string;
+  end_time: string;
+  duration: number;
+  is_idle: boolean;
+}
+
+interface WebsiteLog {
+  session_id: string;
+  url: string;
+  domain: string;
+  title?: string;
+  duration: number;
+  timestamp: string;
+}
+
+let _activityBuffer: ActivityLog[] = [];
+let _websiteBuffer: WebsiteLog[] = [];
+let _keystrokeCount = 0;
+let _metricsInterval: NodeJS.Timeout | null = null;
+let _flushInterval: NodeJS.Timeout | null = null;
+let _lastSpeed: { download: number; upload: number; ping: number } | null = null;
+export const trackingService = {
+  // ── Start tracking engine ─────────────────────────────
+  start(): void {
+    // Flush activity/website buffers every 30s
+    _flushInterval = setInterval(() => this.flushBuffers(), 30_000);
+    // Send system metrics + network speed every 5 minutes
+    _metricsInterval = setInterval(() => this.sendPeriodicMetrics(), 5 * 60_000);
+  },
+
+  stop(): void {
+    if (_flushInterval) { clearInterval(_flushInterval); _flushInterval = null; }
+    if (_metricsInterval) { clearInterval(_metricsInterval); _metricsInterval = null; }
+    this.flushBuffers(); // flush remaining
+    this.sendKeystrokes();
+  },
+
+  // ── Activity ──────────────────────────────────────────
+  pushActivity(log: Omit<ActivityLog, 'session_id'>): void {
+    const session = sessionService.getActiveSession();
+    if (!session) return;
+    _activityBuffer.push({ session_id: session.session_id, ...log });
+    if (_activityBuffer.length >= 20) this.flushActivity();
+  },
+
+  async flushActivity(): Promise<void> {
+    if (_activityBuffer.length === 0) return;
+    const token = authService.getToken();
+    if (!token) return;
+    const logs = [..._activityBuffer];
+    _activityBuffer = [];
+    try {
+      await apiService.post('/tracking/activity/batch', { logs }, token);
+    } catch {
+      _activityBuffer = [...logs, ..._activityBuffer]; // put back on error
+    }
+  },
+
+  // ── Website ───────────────────────────────────────────
+  pushWebsite(log: Omit<WebsiteLog, 'session_id'>): void {
+    const session = sessionService.getActiveSession();
+    if (!session) return;
+    _websiteBuffer.push({ session_id: session.session_id, ...log });
+    if (_websiteBuffer.length >= 20) this.flushWebsite();
+  },
+
+  async flushWebsite(): Promise<void> {
+    if (_websiteBuffer.length === 0) return;
+    const token = authService.getToken();
+    if (!token) return;
+    const logs = [..._websiteBuffer];
+    _websiteBuffer = [];
+    try {
+      await apiService.post('/tracking/website/batch', { logs }, token);
+    } catch {
+      _websiteBuffer = [...logs, ..._websiteBuffer];
+    }
+  },
+
+  // ── Keystrokes ────────────────────────────────────────
+  incrementKeystrokes(count = 1): void {
+    _keystrokeCount += count;
+  },
+
+  async sendKeystrokes(): Promise<void> {
+    const session = sessionService.getActiveSession();
+    const token = authService.getToken();
+    if (!session || !token || _keystrokeCount === 0) return;
+    const count = _keystrokeCount;
+    _keystrokeCount = 0;
+    try {
+      await apiService.post('/tracking/keystrokes', {
+        session_id: session.session_id,
+        keys_pressed_count: count,
+        timestamp: new Date().toISOString(),
+      }, token);
+    } catch {
+      _keystrokeCount += count; // restore on failure
+    }
+  },
+
+  // ── System Metrics + Network Speed (every 5 min) ──────
+  async sendPeriodicMetrics(): Promise<void> {
+    const session = sessionService.getActiveSession();
+    const token = authService.getToken();
+    if (!session || !token) return;
+
+    const { getCpuUsage, getMemoryUsage } = await import('../system/metrics');
+    const { getNetworkSpeed } = await import('../system/network');
+
+    const [cpu, mem] = await Promise.all([getCpuUsage(), getMemoryUsage()]);
+    const speed = await getNetworkSpeed();
+    _lastSpeed = speed;
+
+    const now = new Date().toISOString();
+
+    await Promise.allSettled([
+      apiService.post('/tracking/system-metrics', {
+        session_id: session.session_id,
+        cpu_usage: cpu,
+        memory_usage: mem,
+        timestamp: now,
+      }, token),
+
+      apiService.post('/tracking/network-speed', {
+        session_id: session.session_id,
+        download_speed: speed.download,
+        upload_speed: speed.upload,
+        ping: speed.ping,
+        timestamp: now,
+      }, token),
+
+      this.sendKeystrokes(),
+    ]);
+  },
+
+  async flushBuffers(): Promise<void> {
+    await Promise.allSettled([
+      this.flushActivity(),
+      this.flushWebsite(),
+    ]);
+  },
+
+  getKeystrokeCount(): number {
+    return _keystrokeCount;
+  },
+
+  getLastSpeed(): { download: number; upload: number; ping: number } | null {
+    return _lastSpeed;
+  },
+};
+
+
+
+====================================
+FILE: src/main/services/api.service.ts
+====================================
+import * as https from 'https';
+import * as http from 'http';
+import { URL } from 'url';
+
+const BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1';
+
+export interface ApiResponse<T = unknown> {
+  ok: boolean;
+  status: number;
+  data: T;
+}
+
+function request<T>(
+  method: string,
+  endpoint: string,
+  body?: unknown,
+  token?: string
+): Promise<ApiResponse<T>> {
+  return new Promise((resolve, reject) => {
+    const url = new URL(BASE_URL + endpoint);
+    const bodyStr = body ? JSON.stringify(body) : undefined;
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (bodyStr) headers['Content-Length'] = Buffer.byteLength(bodyStr).toString();
+
+    const lib = url.protocol === 'https:' ? https : http;
+    const options: http.RequestOptions = {
+      hostname: url.hostname,
+      port: url.port || (url.protocol === 'https:' ? 443 : 80),
+      path: url.pathname + url.search,
+      method,
+      headers,
+      timeout: 15000,
+    };
+
+    const req = lib.request(options, (res) => {
+      let raw = '';
+      res.on('data', (chunk) => (raw += chunk));
+      res.on('end', () => {
+        let data: T;
+        try {
+          data = JSON.parse(raw) as T;
+        } catch {
+          data = raw as unknown as T;
+        }
+        resolve({ ok: (res.statusCode ?? 0) < 400, status: res.statusCode ?? 0, data });
+      });
+    });
+
+    req.on('error', reject);
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Request timed out'));
+    });
+
+    if (bodyStr) req.write(bodyStr);
+    req.end();
+  });
+}
+
+export const apiService = {
+  post: <T>(endpoint: string, body: unknown, token?: string) =>
+    request<T>('POST', endpoint, body, token),
+
+  get: <T>(endpoint: string, token?: string, params?: Record<string, string>) => {
+    const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    return request<T>('GET', endpoint + query, undefined, token);
+  },
+
+  patch: <T>(endpoint: string, body: unknown, token?: string) =>
+    request<T>('PATCH', endpoint, body, token),
+
+  delete: <T>(endpoint: string, token?: string) =>
+    request<T>('DELETE', endpoint, undefined, token),
+};
+
+
+

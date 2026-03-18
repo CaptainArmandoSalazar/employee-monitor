@@ -1,24 +1,21 @@
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import Optional
 
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "postgresql://postgres:password@localhost:5432/employee_monitor"
-    SECRET_KEY: str = "your-super-secret-key-change-in-production-min-32-chars"
+    DATABASE_URL: str
+    SECRET_KEY: str
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
-    APP_NAME: str = "Employee Monitor API"
-    APP_VERSION: str = "1.0.0"
-    DEBUG: bool = False
-    ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
 
-    @property
-    def allowed_origins_list(self) -> List[str]:
-        return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]
+    DEFAULT_ADMIN_EMAIL: str = "admin@avdevs.com"
+    DEFAULT_ADMIN_PASSWORD: str = "1234"
+    DEFAULT_ADMIN_NAME: str = "Super Admin"
+    DEFAULT_ADMIN_DEPARTMENT: str = "IT"
 
     class Config:
         env_file = ".env"
+        extra = "ignore"
 
 
 settings = Settings()

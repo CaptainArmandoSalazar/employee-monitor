@@ -1,0 +1,305 @@
+import { ipcMain, BrowserWindow } from 'electron';
+import { authService } from './services/auth.service';
+import { sessionService } from './services/session.service';
+import { trackingService } from './services/tracking.service';
+import { activityTracker } from './system/activity';
+import { getDeviceInfo } from './system/metrics';
+import { getNetworkInfo, getGeoInfo, getNetworkSpeed } from './system/network';
+import { createLoginWindow, createDashboardWindow, closeAllWindows, setMainWindow } from './window';
+import { apiService } from './services/api.service';
+
+// ── Helper: wrap any API call and handle 401 gracefully ──
+async function safeApi<T>(
+  call: () => Promise<T>,
+  fallback: T
+): Promise<T> {
+  try {
+    return await call();
+  } catch {
+    return fallback;
+  }
+}
+
+export function registerIpcHandlers(): void {
+
+  // ── Auth ─────────────────────────────────────────────
+  ipcMain.handle('auth:login', async (_event, email: string, password: string) => {
+    return authService.login(email, password);
+  });
+
+  ipcMain.handle('auth:logout', () => {
+    activityTracker.stop();
+    trackingService.stop();
+    authService.logout();
+    sessionService.clearState();
+    return { success: true };
+  });
+
+  ipcMain.handle('auth:getEmployee', () => {
+    return authService.getEmployee();
+  });
+
+  // ── Window navigation ─────────────────────────────────
+  ipcMain.handle('nav:showDashboard', (event) => {
+    const loginWin = BrowserWindow.fromWebContents(event.sender);
+    const dashWin  = createDashboardWindow();
+    setMainWindow(dashWin);
+    if (loginWin) loginWin.close();
+    return { success: true };
+  });
+
+  ipcMain.handle('nav:showLogin', () => {
+    activityTracker.stop();
+    trackingService.stop();
+    authService.logout();
+    sessionService.clearState();
+    closeAllWindows();
+    const win = createLoginWindow();
+    setMainWindow(win);
+    return { success: true };
+  });
+
+  ipcMain.handle('nav:minimize', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.minimize();
+  });
+
+  ipcMain.handle('nav:close', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.close();
+  });
+
+  // ── Session ───────────────────────────────────────────
+  ipcMain.handle('session:clockIn', async () => {
+    const [geo, deviceInfo, netInfo, netSpeed] = await Promise.all([
+      getGeoInfo(),
+      Promise.resolve(getDeviceInfo()),
+      Promise.resolve(getNetworkInfo()),
+      getNetworkSpeed(),
+    ]);
+
+    const clockInResult = await sessionService.clockIn({
+      ip_address:          geo.ip || netInfo.ip_address,
+      latitude:            geo.latitude,
+      longitude:           geo.longitude,
+      city:                geo.city,
+      country:             geo.country,
+      location:            geo.location,
+      network_speed_start: netSpeed.download,
+      device_id:           deviceInfo.device_id,
+    });
+
+    if (!clockInResult.success || !clockInResult.session) return clockInResult;
+
+    const sessionId = clockInResult.session.session_id;
+    Promise.all([
+      sessionService.saveDeviceInfo(sessionId, {
+        device_id: deviceInfo.device_id, device_name: deviceInfo.device_name,
+        os: deviceInfo.os, cpu: deviceInfo.cpu, ram: deviceInfo.ram,
+        storage_total: deviceInfo.storage_total, storage_free: deviceInfo.storage_free,
+      }),
+      sessionService.saveNetworkInfo(sessionId, {
+        ip_address: netInfo.ip_address, connection_type: netInfo.connection_type,
+        ssid: netInfo.ssid, mac_address: netInfo.mac_address,
+      }),
+    ]).catch(() => {});
+
+    activityTracker.start();
+    trackingService.start();
+
+    // FIX: Also save initial network speed to network_speed_logs table immediately
+    // so it shows up in the session's network speed history even for short sessions
+    if (netSpeed.download !== undefined) {
+      const token = authService.getToken();
+      if (token) {
+        apiService.post('/tracking/network-speed', {
+          session_id: clockInResult.session!.session_id,
+          download_speed: netSpeed.download,
+          upload_speed: netSpeed.upload,
+          ping: netSpeed.ping,
+          timestamp: new Date().toISOString(),
+        }, token).catch(() => {});
+      }
+    }
+
+    return { ...clockInResult, deviceInfo, netInfo, geo, netSpeed };
+  });
+
+  ipcMain.handle('session:clockOut', async () => {
+    activityTracker.stop();
+    trackingService.stop();
+    const totals = activityTracker.getTotals();
+    return sessionService.clockOut(totals.active, totals.idle);
+  });
+
+  ipcMain.handle('session:getActive', async () => {
+    return sessionService.fetchActiveSession();
+  });
+
+  ipcMain.handle('session:getMySessions', async (_e, limit = 200) => {
+    return sessionService.fetchMySessions(limit);
+  });
+
+  ipcMain.handle('session:getClockInTime', () => sessionService.getClockInTime());
+  ipcMain.handle('session:isClocked',      () => sessionService.isClocked());
+
+  // ── Admin: Employees ──────────────────────────────────
+  ipcMain.handle('admin:listEmployees', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false, data: [] };
+    const r = await safeApi(() => apiService.get('/employees', token, params), { ok: false, status: 0, data: [] });
+    if ((r as any).status === 401) { authService.handleExpiredToken(); return { ok: false, data: [] }; }
+    return r;
+  });
+
+  ipcMain.handle('admin:createEmployee', async (_event, payload: Record<string, unknown>) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false };
+    return safeApi(() => apiService.post('/employees', payload, token), { ok: false, status: 0, data: {} });
+  });
+
+  ipcMain.handle('admin:updateEmployee', async (_event, id: string, payload: Record<string, unknown>) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false };
+    return safeApi(() => apiService.patch(`/employees/${id}`, payload, token), { ok: false, status: 0, data: {} });
+  });
+
+  ipcMain.handle('admin:deactivateEmployee', async (_event, id: string) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false };
+    return safeApi(() => apiService.delete(`/employees/${id}`, token), { ok: false, status: 0, data: {} });
+  });
+
+  ipcMain.handle('admin:resetPassword', async (_event, id: string, newPassword: string) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false };
+    return safeApi(
+      () => apiService.post(`/employees/${id}/reset-password`, { new_password: newPassword }, token),
+      { ok: false, status: 0, data: {} }
+    );
+  });
+
+  ipcMain.handle('admin:reactivateEmployee', async (_event, id: string) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false };
+    return safeApi(() => apiService.patch(`/employees/${id}/reactivate`, {}, token), { ok: false, status: 0, data: {} });
+  });
+
+  // ── Admin: Sessions ───────────────────────────────────
+  // FIX: Always use /admin/sessions for admin users.
+  // The old logic checked authService.getEmployee()?.role which could be null
+  // after a session restore, causing it to fall back to /sessions/my incorrectly.
+  ipcMain.handle('admin:getSessions', async (_event, params: Record<string, string> = {}) => {
+    const token    = authService.getToken();
+    const employee = authService.getEmployee();
+    if (!token) return { ok: false, data: [] };
+
+    // ALWAYS use admin endpoint if role is admin (or if we have a token but employee
+    // isn't loaded yet — try admin endpoint first, fall back to /sessions/my)
+    if (employee?.role === 'admin') {
+      // Admin: use /admin/sessions which supports employee_id filtering
+      const result = await safeApi(
+        () => apiService.get('/admin/sessions', token, params),
+        { ok: false, status: 0, data: [] }
+      );
+      if ((result as any).status === 401) {
+        authService.handleExpiredToken();
+        return { ok: false, data: [] };
+      }
+      return result;
+    } else {
+      // Non-admin: can only see own sessions, ignore employee_id filter
+      const p: Record<string, string> = {};
+      if (params.limit) p.limit = params.limit;
+      return safeApi(() => apiService.get('/sessions/my', token, p), { ok: false, status: 0, data: [] });
+    }
+  });
+
+  // ── Admin: Device Info ────────────────────────────────
+  ipcMain.handle('admin:getDeviceInfo', async (_event, params: Record<string, string> = {}) => {
+    const token    = authService.getToken();
+    const employee = authService.getEmployee();
+    if (!token) return { ok: false, data: [] };
+    if (employee?.role === 'admin') {
+      return safeApi(() => apiService.get('/admin/device-info', token, params), { ok: false, status: 0, data: [] });
+    } else {
+      const sessionId = params.session_id;
+      if (!sessionId) return { ok: true, status: 200, data: [] };
+      return safeApi(() => apiService.get(`/sessions/${sessionId}/device-info`, token), { ok: false, status: 0, data: [] });
+    }
+  });
+
+  // ── Admin: Network Info ───────────────────────────────
+  ipcMain.handle('admin:getNetworkInfo', async (_event, params: Record<string, string> = {}) => {
+    const token    = authService.getToken();
+    const employee = authService.getEmployee();
+    if (!token) return { ok: false, data: [] };
+    if (employee?.role === 'admin') {
+      return safeApi(() => apiService.get('/admin/network-info', token, params), { ok: false, status: 0, data: [] });
+    } else {
+      const sessionId = params.session_id;
+      if (!sessionId) return { ok: true, status: 200, data: [] };
+      return safeApi(() => apiService.get(`/sessions/${sessionId}/network-info`, token), { ok: false, status: 0, data: [] });
+    }
+  });
+
+  // ── Admin: Activity reports ───────────────────────────
+  ipcMain.handle('admin:getActivity', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken(); if (!token) return { ok: false, data: [] };
+    const ep = authService.getEmployee()?.role === 'admin' ? '/admin/activity' : '/tracking/activity';
+    return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
+  });
+
+  ipcMain.handle('admin:getWebsite', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken(); if (!token) return { ok: false, data: [] };
+    const ep = authService.getEmployee()?.role === 'admin' ? '/admin/website' : '/tracking/website';
+    return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
+  });
+
+  ipcMain.handle('admin:getKeystrokes', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken(); if (!token) return { ok: false, data: [] };
+    const ep = authService.getEmployee()?.role === 'admin' ? '/admin/keystrokes' : '/tracking/keystrokes';
+    return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
+  });
+
+  ipcMain.handle('admin:getSystemMetrics', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken(); if (!token) return { ok: false, data: [] };
+    const ep = authService.getEmployee()?.role === 'admin' ? '/admin/system-metrics' : '/tracking/system-metrics';
+    return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
+  });
+
+  ipcMain.handle('admin:getNetworkSpeed', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken(); if (!token) return { ok: false, data: [] };
+    const ep = authService.getEmployee()?.role === 'admin' ? '/admin/network-speed' : '/tracking/network-speed';
+    return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
+  });
+
+  ipcMain.handle('admin:getSummary', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken(); if (!token) return { ok: false, data: [] };
+    return safeApi(() => apiService.get('/admin/summary', token, params), { ok: false, status: 0, data: [] });
+  });
+
+  ipcMain.handle('admin:getEmployeeSummary', async (_event, employeeId: string, params: Record<string, string> = {}) => {
+    const token = authService.getToken(); if (!token) return { ok: false };
+    return safeApi(() => apiService.get(`/admin/summary/${employeeId}`, token, params), { ok: false, status: 0, data: {} });
+  });
+
+  // ── Tracking ──────────────────────────────────────────
+  ipcMain.handle('tracking:getStats', () => {
+    const totals = activityTracker.getTotals();
+    return { active: totals.active, idle: totals.idle, keystrokes: trackingService.getKeystrokeCount(), lastSpeed: trackingService.getLastSpeed() };
+  });
+
+  ipcMain.handle('tracking:reportKeystrokes', async (_event, count: number) => {
+    // FIX: incrementKeystrokes now immediately sends to DB
+    await trackingService.incrementKeystrokes(count);
+    return { ok: true };
+  });
+
+  ipcMain.handle('tracking:signalActivity', () => {
+    activityTracker.signalActivity();
+    return { ok: true };
+  });
+
+  // ── System info ───────────────────────────────────────
+  ipcMain.handle('system:getDeviceInfo',  () => getDeviceInfo());
+  ipcMain.handle('system:getNetworkInfo', () => getNetworkInfo());
+}

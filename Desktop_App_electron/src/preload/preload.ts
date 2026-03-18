@@ -1,56 +1,53 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  // ─── Store (persistent data)
-  storeGet: (key: string) => ipcRenderer.invoke('store-get', key),
-  storeSet: (key: string, val: any) => ipcRenderer.invoke('store-set', key, val),
-  storeDelete: (key: string) => ipcRenderer.invoke('store-delete', key),
+  // ── Auth ────────────────────────────────────────────
+  login:        (email: string, pw: string) => ipcRenderer.invoke('auth:login', email, pw),
+  logout:       ()                          => ipcRenderer.invoke('auth:logout'),
+  getEmployee:  ()                          => ipcRenderer.invoke('auth:getEmployee'),
 
-  // ─── System info
-  getDeviceId: () => ipcRenderer.invoke('get-device-id'),
-  getSystemInfo: () => ipcRenderer.invoke('get-system-info'),
+  // ── Session ─────────────────────────────────────────
+  clockIn:          ()              => ipcRenderer.invoke('session:clockIn'),
+  clockOut:         ()              => ipcRenderer.invoke('session:clockOut'),
+  getActiveSession: ()              => ipcRenderer.invoke('session:getActive'),
+  getMySessions:    (limit: number) => ipcRenderer.invoke('session:getMySessions', limit),
+  getClockInTime:   ()              => ipcRenderer.invoke('session:getClockInTime'),
+  isClocked:        ()              => ipcRenderer.invoke('session:isClocked'),
 
-  // ─── Tray
-  updateTrayStatus: (on: boolean) => ipcRenderer.invoke('update-tray-status', on),
-runSpeedTest: () => ipcRenderer.invoke('run-speed-test'),
+  // ── Tracking ────────────────────────────────────────
+  getTrackingStats:  ()              => ipcRenderer.invoke('tracking:getStats'),
+  reportKeystrokes:  (n: number)     => ipcRenderer.invoke('tracking:reportKeystrokes', n),
+  signalActivity:    ()              => ipcRenderer.invoke('tracking:signalActivity'),
 
-  // ─── Monitoring
-  startWindowPolling: () => ipcRenderer.invoke('start-window-polling'),
-  stopWindowPolling: () => ipcRenderer.invoke('stop-window-polling'),
-  getKeystrokeData: () => ipcRenderer.invoke('get-keystroke-data'),
+  // ── Admin: Employees ─────────────────────────────────
+  listEmployees:      (p: Record<string,string>)              => ipcRenderer.invoke('admin:listEmployees', p),
+  createEmployee:     (d: Record<string,unknown>)             => ipcRenderer.invoke('admin:createEmployee', d),
+  updateEmployee:     (id: string, d: Record<string,unknown>) => ipcRenderer.invoke('admin:updateEmployee', id, d),
+  deactivateEmployee: (id: string)                            => ipcRenderer.invoke('admin:deactivateEmployee', id),
+  reactivateEmployee: (id: string)                            => ipcRenderer.invoke('admin:reactivateEmployee', id),
+  resetPassword:      (id: string, pw: string)                => ipcRenderer.invoke('admin:resetPassword', id, pw),
 
-  // ─── Window control
-  minimize: () => ipcRenderer.invoke('window-minimize'),
-  hideToTray: () => ipcRenderer.invoke('window-hide'),
+  // ── Admin: Sessions ───────────────────────────────────
+  getAdminSessions:       (p: Record<string,string>) => ipcRenderer.invoke('admin:getSessions', p),
 
-  // ─── Event listeners
-  onKeystrokeLive: (callback: (count: number) => void) => {
-    ipcRenderer.on('keystroke-live', (_, count) => callback(count));
-  },
-  onActiveWindow: (callback: (info: any) => void) => {
-    ipcRenderer.on('active-window-update', (_, info) => callback(info));
-  },
-  onNetworkSpeed: (callback: (speed: number | null) => void) => {
-    ipcRenderer.on('network-speed-update', (_, speed) => callback(speed));
-  },
-  onTrayClockOut: (callback: () => void) => {
-    ipcRenderer.on('tray-clock-out', () => callback());
-  },
-  onSystemSuspend: (callback: () => void) => {
-    ipcRenderer.on('system-suspend', () => callback());
-  },
-  onSystemResume: (callback: () => void) => {
-    ipcRenderer.on('system-resume', () => callback());
-  },
-    onAppBeforeQuit: (callback: () => void) => {
-    ipcRenderer.on('app-before-quit', () => callback());
-  },
-  removeAllListeners: () => {
-    ipcRenderer.removeAllListeners('keystroke-live');
-    ipcRenderer.removeAllListeners('active-window-update');
-    ipcRenderer.removeAllListeners('network-speed-update');
-    ipcRenderer.removeAllListeners('tray-clock-out');
-    ipcRenderer.removeAllListeners('system-suspend');
-    ipcRenderer.removeAllListeners('system-resume');
-  },
+  // ── Admin: Activity / tracking data ──────────────────
+  getAdminActivity:       (p: Record<string,string>) => ipcRenderer.invoke('admin:getActivity', p),
+  getAdminWebsite:        (p: Record<string,string>) => ipcRenderer.invoke('admin:getWebsite', p),
+  getAdminKeystrokes:     (p: Record<string,string>) => ipcRenderer.invoke('admin:getKeystrokes', p),
+  getAdminSystemMetrics:  (p: Record<string,string>) => ipcRenderer.invoke('admin:getSystemMetrics', p),
+  getAdminNetworkSpeed:   (p: Record<string,string>) => ipcRenderer.invoke('admin:getNetworkSpeed', p),
+  getAdminDeviceInfo:     (p: Record<string,string>) => ipcRenderer.invoke('admin:getDeviceInfo', p),
+  getAdminNetworkInfo:    (p: Record<string,string>) => ipcRenderer.invoke('admin:getNetworkInfo', p),
+  getAdminSummary:        (p: Record<string,string>) => ipcRenderer.invoke('admin:getSummary', p),
+  getEmployeeSummary:     (id: string, p: Record<string,string>) => ipcRenderer.invoke('admin:getEmployeeSummary', id, p),
+
+  // ── Navigation ───────────────────────────────────────
+  showDashboard: () => ipcRenderer.invoke('nav:showDashboard'),
+  showLogin:     () => ipcRenderer.invoke('nav:showLogin'),
+  minimize:      () => ipcRenderer.invoke('nav:minimize'),
+  closeWindow:   () => ipcRenderer.invoke('nav:close'),
+
+  // ── System ───────────────────────────────────────────
+  getDeviceInfo:  () => ipcRenderer.invoke('system:getDeviceInfo'),
+  getNetworkInfo: () => ipcRenderer.invoke('system:getNetworkInfo'),
 });
