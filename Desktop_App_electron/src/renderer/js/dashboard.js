@@ -42,21 +42,53 @@ async function boot() {
     });
 
     // Restore active session if any
-    const active = await api.getActiveSession();
-    if (active) {
-      clockInTime = await api.getClockInTime();
-      setClocked(true);
-      startTimer();
-      const saved = sessionStorage.getItem('clockin_data');
-      if (saved) {
-        try {
-          const r = JSON.parse(saved);
-          fillClockInPanel(r.deviceInfo||{}, r.netInfo||{}, r.geo||{}, r.netSpeed||{}, r.session||{});
-          g('clockin-details').classList.remove('hidden');
-        } catch { /* ignore */ }
-      }
-    }
+// REPLACE WITH:
+const active = await api.getActiveSession();
+if (active) {
+  // Restore clock-in time from actual session timestamp (survives app restart)
+  if (active.clock_in) {
+    const clockInStr = String(active.clock_in);
+    const clockInISO = clockInStr.endsWith('Z') || clockInStr.includes('+')
+      ? clockInStr
+      : clockInStr + 'Z';
+    clockInTime = new Date(clockInISO).getTime();
+  } else {
+    clockInTime = await api.getClockInTime() || Date.now();
+  }
 
+  setClocked(true);
+  startTimer();
+setTimeout(refreshKeystrokesFromDB, 1000);
+
+// Also refresh every 2 minutes
+if (!window._keystrokeInterval) {
+  window._keystrokeInterval = setInterval(refreshKeystrokesFromDB, 2 * 60_000);
+}
+  // Try sessionStorage first (same session, app didn't fully restart)
+  const saved = sessionStorage.getItem('clockin_data');
+  if (saved) {
+    try {
+      const r = JSON.parse(saved);
+      fillClockInPanel(r.deviceInfo||{}, r.netInfo||{}, r.geo||{}, r.netSpeed||{}, r.session||{});
+      g('clockin-details').classList.remove('hidden');
+    } catch { /* ignore */ }
+  } else {
+    // App restarted — fetch device/network info from DB to repopulate panel
+    try {
+      const [devR, netR] = await Promise.all([
+        api.getAdminDeviceInfo({ session_id: active.session_id, limit: '1' }),
+        api.getAdminNetworkInfo({ session_id: active.session_id, limit: '1' }),
+      ]);
+      const d = (devR && devR.ok && Array.isArray(devR.data) && devR.data[0]) ? devR.data[0] : {};
+      const n = (netR && netR.ok && Array.isArray(netR.data) && netR.data[0]) ? netR.data[0] : {};
+      fillClockInPanel(d, n, active, {}, active);
+      g('clockin-details').classList.remove('hidden');
+    } catch { /* ignore */ }
+  }
+
+  // Refresh keystrokes from DB for this resumed session
+  setTimeout(refreshKeystrokesFromDB, 2000);
+}
     statsInterval = setInterval(refreshStats, 10_000);
     setInterval(refreshKeystrokesFromDB, 2 * 60_000);
     refreshKeystrokesFromDB();
@@ -241,12 +273,18 @@ async function refreshStats() {
   if (!await api.isClocked()) return;
   try {
     const s = await api.getTrackingStats();
-    if (clockInTime) { 
-      const el = g('stat-active'); 
-      if (el) el.textContent = sToHm(Math.floor((Date.now()-clockInTime)/1000)); 
+    const idleSecs = s.idle || 0;
+
+    // Active = total elapsed − idle time
+    if (clockInTime) {
+      const totalElapsed = Math.floor((Date.now() - clockInTime) / 1000);
+      const activeSecs   = Math.max(0, totalElapsed - idleSecs);
+      const elActive = g('stat-active');
+      if (elActive) elActive.textContent = sToHm(activeSecs);
     }
-    const el = g('stat-idle'); 
-    if (el) el.textContent = sToHm(s.idle||0);
+
+    const elIdle = g('stat-idle');
+    if (elIdle) elIdle.textContent = sToHm(idleSecs);
   } catch { /* ignore */ }
 }
 

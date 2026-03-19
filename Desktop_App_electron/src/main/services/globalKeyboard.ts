@@ -130,8 +130,17 @@ function startLinuxWorker(onFlush: (count: number) => void): void {
 
 export const globalKeyboard = {
 
-  start(onFlush: (count: number) => void): void {
-    if (_running) return;
+start(onFlush: (count: number) => void): void {
+  // Force reset any stale state from previous run (e.g. after app crash)
+  if (_running) {
+    console.log('[GlobalKeyboard] Was already running — forcing reset before restart.');
+    try {
+      if (_worker) { _worker.kill(); _worker = null; }
+      if (_hook)   { _hook.stop();   _hook   = null; }
+    } catch { /* ignore */ }
+    if (_interval) { clearInterval(_interval); _interval = null; }
+    _running = false;
+  }
     _running = true;
     _count   = 0;
     _onFlush = onFlush;

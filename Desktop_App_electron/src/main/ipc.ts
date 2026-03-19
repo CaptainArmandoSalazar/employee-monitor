@@ -130,17 +130,72 @@ export function registerIpcHandlers(): void {
     return sessionService.clockOut(totals.active, totals.idle);
   });
 
-  ipcMain.handle('session:getActive', async () => {
-    return sessionService.fetchActiveSession();
-  });
+// REPLACE the session:getActive handler entirely:
+ipcMain.handle('session:getActive', async () => {
+  const session = await sessionService.fetchActiveSession();
 
+  if (session) {
+    const existingClockInTime = sessionService.getClockInTime();
+
+    if (!existingClockInTime) {
+      console.log('[IPC] Orphan session found on restart — clocking out:', session.session_id);
+      try {
+        activityTracker.stop();
+        trackingService.stop();
+
+        // Calculate elapsed time from actual clock_in timestamp
+        let activeTime = 0;
+        if (session.clock_in) {
+          const clockInStr = String(session.clock_in);
+          const clockInISO = clockInStr.endsWith('Z') || clockInStr.includes('+')
+            ? clockInStr : clockInStr + 'Z';
+          const clockInMs    = new Date(clockInISO).getTime();
+          const totalElapsed = Math.floor((Date.now() - clockInMs) / 1000);
+          activeTime = Math.max(0, totalElapsed);
+          console.log(`[IPC] Orphan session elapsed time: ${activeTime}s`);
+        }
+
+        await sessionService.clockOut(activeTime, 0);
+        console.log('[IPC] Orphan session clocked out with time:', activeTime, 's');
+      } catch (err) {
+        console.error('[IPC] Failed to clock out orphan session:', err);
+        try {
+          const token = authService.getToken();
+          if (token && session) {
+            const clockInStr = String(session.clock_in || '');
+            const clockInISO = clockInStr.endsWith('Z') || clockInStr.includes('+')
+              ? clockInStr : clockInStr + 'Z';
+            const elapsed = clockInStr
+              ? Math.floor((Date.now() - new Date(clockInISO).getTime()) / 1000)
+              : 0;
+            await apiService.post('/sessions/clock-out', {
+              session_id:        session.session_id,
+              total_active_time: Math.max(0, elapsed),
+              total_idle_time:   0,
+            }, token);
+          }
+        } catch { /* ignore */ }
+      }
+      return null;
+    }
+  }
+
+  return session;
+});
   ipcMain.handle('session:getMySessions', async (_e, limit = 200) => {
     return sessionService.fetchMySessions(limit);
   });
 
   ipcMain.handle('session:getClockInTime', () => sessionService.getClockInTime());
   ipcMain.handle('session:isClocked',      () => sessionService.isClocked());
-
+// ADD this handler:
+ipcMain.handle('session:heartbeat', async () => {
+  const token = authService.getToken();
+  if (!token || !sessionService.isClocked()) return;
+  try {
+    await apiService.post('/sessions/heartbeat', {}, token);
+  } catch { /* ignore */ }
+});
   // ── Admin: Employees ──────────────────────────────────
   ipcMain.handle('admin:listEmployees', async (_event, params: Record<string, string> = {}) => {
     const token = authService.getToken();

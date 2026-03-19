@@ -9,6 +9,15 @@ export function getMainWindow(): BrowserWindow | null {
 
 export function setMainWindow(win: BrowserWindow): void {
   mainWindow = win;
+
+  // ── Handle window close (X button) ───────────────────
+  // The 'close' event fires before before-quit.
+  // We let before-quit in main.ts handle the actual clock-out.
+  // This just ensures the window closing triggers app quit properly.
+  win.on('close', (event) => {
+    // Let the app-level before-quit handler take care of clock-out
+    // Don't prevent default here — just let it propagate to before-quit
+  });
 }
 
 function baseWindowOptions(): Electron.BrowserWindowConstructorOptions {
@@ -39,11 +48,6 @@ export function createLoginWindow(): BrowserWindow {
   win.loadFile(path.join(__dirname, '../../src/renderer/login.html'));
   win.once('ready-to-show', () => win.show());
 
-  // DevTools removed — only open in explicit debug mode
-  // if (process.argv.includes('--devtools')) {
-  //   win.webContents.openDevTools({ mode: 'detach' });
-  // }
-
   return win;
 }
 
@@ -59,11 +63,6 @@ export function createDashboardWindow(): BrowserWindow {
 
   win.loadFile(path.join(__dirname, '../../src/renderer/dashboard.html'));
   win.once('ready-to-show', () => win.show());
-
-  // DevTools removed — only open in explicit debug mode
-  // if (process.argv.includes('--devtools')) {
-  //   win.webContents.openDevTools();
-  // }
 
   return win;
 }

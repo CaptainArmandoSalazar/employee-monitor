@@ -25,6 +25,7 @@ class Session(Base):
     city = Column(String, nullable=True)
     country = Column(String, nullable=True)
     network_speed_start = Column(Float, nullable=True)
+    last_heartbeat = Column(TIMESTAMP, nullable=True)
     device_id = Column(String, nullable=True)
 
     # Relationships

@@ -42,6 +42,20 @@ export const sessionService = {
     }
   },
 
+  resumeSession(session: SessionData): void {
+  _activeSession = session;
+  // Restore clock-in time from the session's actual clock_in timestamp
+  if (session.clock_in) {
+    const clockInStr = String(session.clock_in);
+    const clockInISO = clockInStr.endsWith('Z') || clockInStr.includes('+')
+      ? clockInStr
+      : clockInStr + 'Z';
+    _clockInTime = new Date(clockInISO).getTime();
+  } else {
+    _clockInTime = Date.now();
+  }
+  console.log('[SessionService] Session resumed. Clock-in time restored:', new Date(_clockInTime).toISOString());
+},
   async clockOut(totalActiveTime: number, totalIdleTime: number): Promise<{ success: boolean; error?: string }> {
     const token = authService.getToken();
     if (!token) {
@@ -73,23 +87,24 @@ export const sessionService = {
     }
   },
 
-  async fetchActiveSession(): Promise<SessionData | null> {
-    const token = authService.getToken();
-    if (!token) return null;
-    try {
-      const res = await apiService.get<SessionData | null>('/sessions/active', token);
-      if (res.ok && res.data) {
-        _activeSession = res.data;
-        _clockInTime   = _clockInTime ?? Date.now();
-      } else if (res.status === 401) {
-        authService.handleExpiredToken();
-        return null;
-      } else {
-        _activeSession = null;
-      }
-      return res.data ?? null;
-    } catch { return null; }
-  },
+async fetchActiveSession(): Promise<SessionData | null> {
+  const token = authService.getToken();
+  if (!token) return null;
+  try {
+    const res = await apiService.get<SessionData | null>('/sessions/active', token);
+    if (res.ok && res.data) {
+      _activeSession = res.data;
+      // DO NOT set _clockInTime here — let ipc.ts orphan check handle it
+      // _clockInTime is only set by clockIn() and resumeSession()
+    } else if (res.status === 401) {
+      authService.handleExpiredToken();
+      return null;
+    } else {
+      _activeSession = null;
+    }
+    return res.data ?? null;
+  } catch { return null; }
+},
 
   async fetchMySessions(limit = 30): Promise<SessionData[]> {
     const token = authService.getToken();

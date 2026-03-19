@@ -13,24 +13,52 @@ interface WebsiteLog {
   title?: string; duration: number; timestamp: string;
 }
 
-let _activityBuffer: ActivityLog[] = [];
-let _websiteBuffer:  WebsiteLog[]  = [];
-let _metricsInterval: NodeJS.Timeout | null = null;
-let _flushInterval:   NodeJS.Timeout | null = null;
+let _activityBuffer:    ActivityLog[] = [];
+let _websiteBuffer:     WebsiteLog[]  = [];
+let _metricsInterval:   NodeJS.Timeout | null = null;
+let _flushInterval:     NodeJS.Timeout | null = null;
+let _heartbeatInterval: NodeJS.Timeout | null = null;
 let _lastSpeed: { download: number; upload: number; ping: number } | null = null;
+let _started = false; // guard against double-start
+
+// ── IST timestamp helper ──────────────────────────────────
+function nowIST(): string {
+  return new Date().toLocaleString('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  }).replace(', ', 'T') + '+05:30';
+}
 
 export const trackingService = {
   start(): void {
+    // Clear any stale intervals from previous run before starting
+    if (_flushInterval)     { clearInterval(_flushInterval);     _flushInterval     = null; }
+    if (_metricsInterval)   { clearInterval(_metricsInterval);   _metricsInterval   = null; }
+    if (_heartbeatInterval) { clearInterval(_heartbeatInterval); _heartbeatInterval = null; }
+    _started = true;
+
     _flushInterval = setInterval(() => this.flushBuffers(), 30_000);
 
-    // Start system-wide keystroke capture, flush to DB every 10s
-    // Any detected keystroke also resets the idle timer via globalKeyboard internally
+    // ── Heartbeat every 30s ────────────────────────────────
+    _heartbeatInterval = setInterval(async () => {
+      const token   = authService.getToken();
+      const session = sessionService.getActiveSession();
+      if (!token || !session) return;
+      try {
+        await apiService.post('/sessions/heartbeat', {}, token);
+        console.log('[Tracking] Heartbeat ✓', new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }));
+      } catch (err) {
+        console.error('[Tracking] Heartbeat failed:', err);
+      }
+    }, 30_000);
+
+    // ── Global keystroke + mouse capture ──────────────────
     globalKeyboard.start(async (count: number) => {
-      // Extra safety: if global hook delivered keystrokes, user is definitely active
       if (count > 0) {
         activityTracker.signalActivity();
       }
-
       const session = sessionService.getActiveSession();
       const token   = authService.getToken();
       if (!session || !token || count === 0) return;
@@ -38,21 +66,26 @@ export const trackingService = {
         await apiService.post('/tracking/keystrokes', {
           session_id:         session.session_id,
           keys_pressed_count: count,
-          timestamp:          new Date().toISOString(),
+          timestamp:          nowIST(),
         }, token);
       } catch { /* silent */ }
     });
 
-    // Fire metrics 5s after clock-in, then every 5 min
+    // ── Metrics 5s after start, then every 5 min ──────────
     setTimeout(() => this.sendPeriodicMetrics(), 5_000);
     _metricsInterval = setInterval(() => this.sendPeriodicMetrics(), 5 * 60_000);
+
+    console.log('[Tracking] Started.');
   },
 
   stop(): void {
-    if (_flushInterval)   { clearInterval(_flushInterval);   _flushInterval   = null; }
-    if (_metricsInterval) { clearInterval(_metricsInterval); _metricsInterval = null; }
-    globalKeyboard.stop(); // flushes remaining keystrokes internally
+    _started = false;
+    if (_flushInterval)     { clearInterval(_flushInterval);     _flushInterval     = null; }
+    if (_metricsInterval)   { clearInterval(_metricsInterval);   _metricsInterval   = null; }
+    if (_heartbeatInterval) { clearInterval(_heartbeatInterval); _heartbeatInterval = null; }
+    globalKeyboard.stop();
     this.flushBuffers();
+    console.log('[Tracking] Stopped.');
   },
 
   pushActivity(log: Omit<ActivityLog, 'session_id'>): void {
@@ -85,8 +118,6 @@ export const trackingService = {
     catch { _websiteBuffer = [...logs, ..._websiteBuffer]; }
   },
 
-  // Called from IPC when renderer reports keystrokes (app focused)
-  // globalKeyboard.addRendererCount is a no-op to prevent double-counting
   incrementKeystrokes(count = 1): Promise<void> {
     globalKeyboard.addRendererCount(count);
     return Promise.resolve();
@@ -103,7 +134,7 @@ export const trackingService = {
     const [cpu, mem] = await Promise.all([getCpuUsage(), getMemoryUsage()]);
     await apiService.post('/tracking/system-metrics', {
       session_id: session.session_id, cpu_usage: cpu,
-      memory_usage: mem, timestamp: new Date().toISOString(),
+      memory_usage: mem, timestamp: nowIST(),
     }, token).catch(() => {});
 
     const speed = await getNetworkSpeed();
@@ -115,8 +146,7 @@ export const trackingService = {
 
     await apiService.post('/tracking/network-speed', {
       session_id: s2.session_id, download_speed: speed.download,
-      upload_speed: speed.upload, ping: speed.ping,
-      timestamp: new Date().toISOString(),
+      upload_speed: speed.upload, ping: speed.ping, timestamp: nowIST(),
     }, t2).catch(() => {});
   },
 
@@ -124,6 +154,7 @@ export const trackingService = {
     await Promise.allSettled([this.flushActivity(), this.flushWebsite()]);
   },
 
+  isStarted(): boolean { return _started; },
   getKeystrokeCount(): number { return globalKeyboard.getCurrentCount(); },
   getLastSpeed(): { download: number; upload: number; ping: number } | null { return _lastSpeed; },
 };

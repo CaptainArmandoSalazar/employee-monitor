@@ -12,6 +12,7 @@ from app.schemas.session import ClockInRequest, ClockOutRequest, SessionOut
 from app.schemas.device import DeviceInfoCreate, DeviceInfoOut, NetworkInfoCreate, NetworkInfoOut
 from app.services import session_service
 from app.api.deps import get_current_employee, require_admin
+from app.utils.helpers import utcnow
 
 router = APIRouter(prefix="/sessions", tags=["Sessions"])
 
@@ -37,6 +38,22 @@ def clock_out(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return SessionOut.model_validate(session)
+
+
+@router.post("/heartbeat")
+def heartbeat(
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    """
+    Desktop app calls this every 30s while clocked in to prove it is alive.
+    Backend uses last_heartbeat to auto-close sessions from crashed apps.
+    """
+    session = session_service.get_active_session(db, current_employee.employee_id)
+    if session:
+        session.last_heartbeat = utcnow()
+        db.commit()
+    return {"ok": True}
 
 
 @router.get("/active", response_model=Optional[SessionOut])
@@ -104,7 +121,6 @@ def get_session(
     return SessionOut.model_validate(session)
 
 
-# ── Device + Network info captured at clock-in ──────────────
 @router.post("/device-info", response_model=DeviceInfoOut)
 def save_device_info(
     payload: DeviceInfoCreate,
@@ -125,14 +141,12 @@ def save_network_info(
     return NetworkInfoOut.model_validate(record)
 
 
-# ── GET device-info for a session (own sessions only for employees) ──
 @router.get("/{session_id}/device-info", response_model=List[DeviceInfoOut])
 def get_session_device_info(
     session_id: UUID,
     db: Session = Depends(get_db),
     current_employee: Employee = Depends(get_current_employee),
 ):
-    """Return device info records for a session. Employees can only query their own sessions."""
     from app.models.session import Session as SessionModel
     session = db.query(SessionModel).filter(SessionModel.session_id == session_id).first()
     if not session:
@@ -143,14 +157,12 @@ def get_session_device_info(
     return [DeviceInfoOut.model_validate(r) for r in records]
 
 
-# ── GET network-info for a session (own sessions only for employees) ──
 @router.get("/{session_id}/network-info", response_model=List[NetworkInfoOut])
 def get_session_network_info(
     session_id: UUID,
     db: Session = Depends(get_db),
     current_employee: Employee = Depends(get_current_employee),
 ):
-    """Return network info records for a session. Employees can only query their own sessions."""
     from app.models.session import Session as SessionModel
     session = db.query(SessionModel).filter(SessionModel.session_id == session_id).first()
     if not session:
