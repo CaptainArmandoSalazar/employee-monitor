@@ -289,7 +289,9 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('tracking:reportKeystrokes', async (_event, count: number) => {
-    // FIX: incrementKeystrokes now immediately sends to DB
+    // When app is focused, renderer sends keystroke counts here.
+    // globalKeyboard.addRendererCount() decides whether to use them
+    // (only as fallback if uiohook global hook is not running).
     await trackingService.incrementKeystrokes(count);
     return { ok: true };
   });

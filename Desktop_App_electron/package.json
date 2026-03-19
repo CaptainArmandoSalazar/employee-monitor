@@ -8,7 +8,9 @@
     "start": "npm run build && electron .",
     "dev": "concurrently \"tsc --watch\" \"wait-on dist/main/main.js && electron . --dev\"",
     "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder"
+    "dist": "npm run build && electron-builder",
+    "postinstall": "electron-rebuild -f -w uiohook-napi",
+    "rebuild": "electron-rebuild -f -w uiohook-napi"
   },
   "keywords": [],
   "author": "AvDevs",
@@ -18,11 +20,14 @@
     "concurrently": "^8.2.2",
     "electron": "^28.2.0",
     "electron-builder": "^24.9.1",
+    "electron-rebuild": "^3.2.9",
     "typescript": "^5.3.3",
     "wait-on": "^7.2.0"
   },
   "dependencies": {
     "node-fetch": "^2.7.0",
+    "node-global-key-listener": "^0.3.0",
+    "uiohook-napi": "^1.5.4",
     "uuid": "^9.0.0"
   },
   "build": {

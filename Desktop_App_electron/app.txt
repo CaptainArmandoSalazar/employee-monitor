@@ -1328,7 +1328,7 @@ FILE: src/renderer/dashboard.html
   <div class="modal">
     <div class="modal-header">
       <span class="modal-title" id="modal-emp-title">Add Employee</span>
-      <button class="modal-close" onclick="closeModal('modal-employee')">&#x2715;</button>
+      <button class="modal-close">&#x2715;</button>
     </div>
     <div id="modal-emp-alert" class="alert alert-error hidden"></div>
     <div class="form-group">
@@ -1357,7 +1357,7 @@ FILE: src/renderer/dashboard.html
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('modal-employee')">Cancel</button>
+      <button class="btn btn-ghost">Cancel</button>
       <button class="btn btn-primary" id="btn-save-employee">Save</button>
     </div>
   </div>
@@ -1368,7 +1368,7 @@ FILE: src/renderer/dashboard.html
   <div class="modal">
     <div class="modal-header">
       <span class="modal-title">Reset Password</span>
-      <button class="modal-close" onclick="closeModal('modal-reset-pw')">&#x2715;</button>
+      <button class="modal-close">&#x2715;</button>
     </div>
     <div id="modal-pw-alert" class="alert alert-error hidden"></div>
     <div class="form-group">
@@ -1376,7 +1376,7 @@ FILE: src/renderer/dashboard.html
       <input class="form-input" type="password" id="new-password" placeholder="Min 6 characters" />
     </div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('modal-reset-pw')">Cancel</button>
+      <button class="btn btn-ghost">Cancel</button>
       <button class="btn btn-danger" id="btn-confirm-reset">Reset Password</button>
     </div>
   </div>
@@ -1414,8 +1414,6 @@ async function boot() {
   try {
     currentEmployee = await api.getEmployee();
     if (!currentEmployee) { await api.showLogin(); return; }
-    // Verify token is still valid by checking if we can get the employee profile
-    // (the auth service will have restored the token from disk if available)
 
     isAdmin = currentEmployee.role === 'admin';
     const name = currentEmployee.employee_name || 'User';
@@ -1456,6 +1454,7 @@ async function boot() {
     bindNav();
     bindWindowControls();
     bindClockButtons();
+    bindModalButtons();
     if (isAdmin) bindAdminButtons();
 
   } catch (err) {
@@ -1490,10 +1489,6 @@ function switchPage(pageId) {
   if (pageId === 'employees')   { showSub('employees', 'employees-list'); loadEmployees(); }
 }
 
-/**
- * Show one sub-panel inside a page-view, hide all others.
- * IMPORTANT: both arguments are full element IDs.
- */
 function showSub(pageId, subId) {
   const page = g('page-' + pageId);
   if (!page) { console.error('showSub: page not found for', pageId); return; }
@@ -1562,7 +1557,6 @@ async function doClockOut() {
       sessionStorage.removeItem('clockin_data');
       await loadOverview();
     } else {
-      // If token expired, clear state and redirect to login silently
       const err = r.error || '';
       if (err.toLowerCase().includes('token') || err.toLowerCase().includes('expired') || err.toLowerCase().includes('auth')) {
         stopTimer(); setClocked(false); clockInTime = null;
@@ -1573,7 +1567,6 @@ async function doClockOut() {
       }
     }
   } catch (e) {
-    // Network error or token expired — clear state
     stopTimer(); setClocked(false); clockInTime = null;
     sessionStorage.removeItem('clockin_data');
   }
@@ -1665,7 +1658,7 @@ async function loadMySessions() {
   tbody.innerHTML = loadingRow(9);
   try {
     const dateFilter = g('my-session-filter-date').value;
-    const sessions   = await api.getMySessions(500);
+    const sessions   = await api.getMySessions(200);
     let   arr        = Array.isArray(sessions) ? sessions : [];
     if (dateFilter) {
       arr = arr.filter(s => (s.date || (s.clock_in||'').substring(0,10)) === dateFilter);
@@ -1675,7 +1668,7 @@ async function loadMySessions() {
     // Keystroke totals (best-effort, non-blocking)
     const ksMap = {};
     try {
-      const kr = await api.getAdminKeystrokes({ limit: '10000' });
+      const kr = await api.getAdminKeystrokes({ limit: '500' });
       if (kr && kr.ok && Array.isArray(kr.data)) {
         kr.data.forEach(k => {
           ksMap[k.session_id] = (ksMap[k.session_id]||0) + (k.keys_pressed_count||0);
@@ -1714,7 +1707,6 @@ g('btn-refresh-my-sessions').addEventListener('click', loadMySessions);
 g('my-session-filter-date').addEventListener('change', loadMySessions);
 
 // ── Single delegated click handler for ALL view buttons ──
-// Attached to document so it catches buttons in dynamically rendered tables
 document.addEventListener('click', function(e) {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
@@ -1762,7 +1754,6 @@ async function openSessionDetail(sessionId, pageId, backSubId) {
     return;
   }
 
-  // Show spinner and switch to detail sub-panel
   container.innerHTML = spinHtml();
   showSub(pageId, detailSubId);
 
@@ -1771,23 +1762,20 @@ async function openSessionDetail(sessionId, pageId, backSubId) {
     let session = null;
     const sidStr = String(sessionId).toLowerCase().trim();
 
-    // Try own sessions first (works for any role, no 403)
+    // Try own sessions first
     try {
-      const ownSessions = await api.getMySessions(500);
-      console.log('Own sessions count:', Array.isArray(ownSessions) ? ownSessions.length : 'not array');
+      const ownSessions = await api.getMySessions(200);
       if (Array.isArray(ownSessions)) {
         session = ownSessions.find(s => String(s.session_id).toLowerCase().trim() === sidStr) || null;
-        console.log('Session found in own sessions:', session ? 'YES' : 'NO');
       }
     } catch (err) { console.warn('getMySessions err:', err); }
 
-    // Admin fallback — if not found in own sessions, try admin endpoint
+    // Admin fallback
     if (!session && isAdmin) {
       try {
-        const r = await api.getAdminSessions({ limit: '500' });
+        const r = await api.getAdminSessions({ limit: '200' });
         if (r && r.ok && Array.isArray(r.data)) {
           session = r.data.find(s => String(s.session_id).toLowerCase().trim() === sidStr) || null;
-          console.log('Session found via admin endpoint:', session ? 'YES' : 'NO');
         }
       } catch (err) { console.warn('getAdminSessions err:', err); }
     }
@@ -1795,7 +1783,7 @@ async function openSessionDetail(sessionId, pageId, backSubId) {
     // ── 2. Keystroke total ─────────────────────────────
     let totalKeys = 0;
     try {
-      const kr = await api.getAdminKeystrokes({ session_id: sessionId, limit: '5000' });
+      const kr = await api.getAdminKeystrokes({ session_id: sessionId, limit: '500' });
       if (kr && kr.ok && Array.isArray(kr.data)) {
         totalKeys = kr.data.reduce((a, k) => a + (k.keys_pressed_count||0), 0);
       }
@@ -1811,8 +1799,13 @@ async function openSessionDetail(sessionId, pageId, backSubId) {
     const dt  = session ? fmtDate(session.date || session.clock_in) : '—';
     const lo  = session ? esc(locStr(session)) : '—';
     const ip  = session ? esc(session.ip_address || '—') : '—';
-    const cds = (session && session.latitude && session.longitude)
-      ? `${(+session.latitude).toFixed(4)}, ${(+session.longitude).toFixed(4)}` : '—';
+    const lat = session && session.latitude  ? (+session.latitude).toFixed(6)  : null;
+    const lon = session && session.longitude ? (+session.longitude).toFixed(6) : null;
+    const cds = (lat && lon) ? `${lat}, ${lon}` : '—';
+    const city    = session ? esc(session.city    || '—') : '—';
+    const country = session ? esc(session.country || '—') : '—';
+    const netSpeedStart = session && session.network_speed_start
+      ? `${session.network_speed_start} Mbps` : '—';
 
     container.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:20px;">
@@ -1830,6 +1823,7 @@ async function openSessionDetail(sessionId, pageId, backSubId) {
           </div>
         </div>
 
+        <!-- ── Summary tiles ── -->
         <div class="detail-grid">
           <div class="detail-tile">
             <div class="detail-tile-label">🕐 Clock In</div>
@@ -1851,51 +1845,72 @@ async function openSessionDetail(sessionId, pageId, backSubId) {
                data-action="open-keystrokes"
                data-sid="${sessionId}"
                data-page="${pageId}"
-               data-back="${detailSubId}"
-               style="cursor:pointer;">
+               data-back="${detailSubId}">
             <div class="detail-tile-label">⌨️ Total Keystrokes</div>
             <div class="detail-tile-value">${totalKeys.toLocaleString()}</div>
             <div class="detail-tile-sub" style="color:var(--accent);margin-top:4px;">
-              Click to view raw keystrokes →
+              Click to view raw keystroke logs →
             </div>
           </div>
           <div class="detail-tile clickable"
                data-action="open-netspeed"
                data-sid="${sessionId}"
                data-page="${pageId}"
-               data-back="${detailSubId}"
-               style="cursor:pointer;">
-            <div class="detail-tile-label">📶 Network Speed</div>
-            <div class="detail-tile-value">View History</div>
+               data-back="${detailSubId}">
+            <div class="detail-tile-label">📶 Network Speed History</div>
+            <div class="detail-tile-value">View Logs</div>
             <div class="detail-tile-sub" style="color:var(--accent);margin-top:4px;">
               Click to view speed logs →
             </div>
           </div>
+          <div class="detail-tile">
+            <div class="detail-tile-label">🚀 Speed at Clock-In</div>
+            <div class="detail-tile-value">${netSpeedStart}</div>
+          </div>
+          <div class="detail-tile">
+            <div class="detail-tile-label">📋 Session Status</div>
+            <div class="detail-tile-value">${session ? statusBadge(session.session_status) : '—'}</div>
+          </div>
         </div>
 
+        <!-- ── Location ── -->
         <div>
-          <div class="section-title">📍 Location</div>
+          <div class="section-title">📍 Location Information</div>
           <div class="detail-grid">
             <div class="detail-tile">
-              <div class="detail-tile-label">City / Country</div>
-              <div class="detail-tile-value">${lo}</div>
+              <div class="detail-tile-label">City</div>
+              <div class="detail-tile-value">${city}</div>
+            </div>
+            <div class="detail-tile">
+              <div class="detail-tile-label">Country</div>
+              <div class="detail-tile-value">${country}</div>
+            </div>
+            <div class="detail-tile">
+              <div class="detail-tile-label">Location</div>
+              <div class="detail-tile-value">${lo || '—'}</div>
             </div>
             <div class="detail-tile">
               <div class="detail-tile-label">IP Address</div>
               <div class="detail-tile-value" style="font-family:var(--font-mono);">${ip}</div>
             </div>
             <div class="detail-tile">
-              <div class="detail-tile-label">Coordinates</div>
-              <div class="detail-tile-value">${cds}</div>
+              <div class="detail-tile-label">GPS Coordinates</div>
+              <div class="detail-tile-value" style="font-family:var(--font-mono);font-size:12px;">${cds}</div>
+              ${(lat && lon) ? `<div class="detail-tile-sub" style="margin-top:4px;">
+                <a href="https://www.google.com/maps?q=${lat},${lon}" target="_blank"
+                   style="color:var(--accent);font-size:11px;">Open in Maps ↗</a>
+              </div>` : ''}
             </div>
           </div>
         </div>
 
+        <!-- ── Device Info (async) ── -->
         <div id="dev-sec-${sessionId}">
           <div class="section-title">💻 Device Information</div>
           ${spinHtml()}
         </div>
 
+        <!-- ── Network Info (async) ── -->
         <div id="net-sec-${sessionId}">
           <div class="section-title">🌐 Network Information</div>
           ${spinHtml()}
@@ -1933,7 +1948,7 @@ async function loadDeviceSec(sessionId) {
     const d = (r && r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
     if (!d) {
       sec.innerHTML = `<div class="section-title">💻 Device Information</div>
-        <p class="text-muted" style="font-size:13px;padding:8px 0;">No device info recorded.</p>`;
+        <p class="text-muted" style="font-size:13px;padding:8px 0;">No device info recorded for this session.</p>`;
       return;
     }
     sec.innerHTML = `
@@ -1944,7 +1959,7 @@ async function loadDeviceSec(sessionId) {
           <div class="detail-tile-value">${esc(d.device_name||'—')}</div>
         </div>
         <div class="detail-tile">
-          <div class="detail-tile-label">OS</div>
+          <div class="detail-tile-label">Operating System</div>
           <div class="detail-tile-value">${esc(d.os||'—')}</div>
         </div>
         <div class="detail-tile">
@@ -1958,12 +1973,21 @@ async function loadDeviceSec(sessionId) {
         <div class="detail-tile">
           <div class="detail-tile-label">Storage</div>
           <div class="detail-tile-value">
-            ${d.storage_total ? `${d.storage_free} GB free / ${d.storage_total} GB` : '—'}
+            ${d.storage_total ? `${d.storage_free} GB free / ${d.storage_total} GB total` : '—'}
           </div>
+          ${d.storage_total ? `<div class="detail-tile-sub" style="margin-top:6px;">
+            <div class="progress-bar">
+              <div class="progress-fill ${cpuCls(Math.round(((d.storage_total - d.storage_free)/d.storage_total)*100))}"
+                   style="width:${Math.min(Math.round(((d.storage_total-d.storage_free)/d.storage_total)*100),100)}%"></div>
+            </div>
+            <span style="font-size:10px;color:var(--text-muted);margin-top:2px;display:block;">
+              ${Math.round(((d.storage_total-d.storage_free)/d.storage_total)*100)}% used
+            </span>
+          </div>` : ''}
         </div>
         <div class="detail-tile">
           <div class="detail-tile-label">Device ID</div>
-          <div class="detail-tile-value" style="font-family:var(--font-mono);font-size:11px;">
+          <div class="detail-tile-value" style="font-family:var(--font-mono);font-size:11px;word-break:break-all;">
             ${esc(d.device_id||'—')}
           </div>
         </div>
@@ -1984,7 +2008,7 @@ async function loadNetworkSec(sessionId) {
     const n = (r && r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
     if (!n) {
       sec.innerHTML = `<div class="section-title">🌐 Network Information</div>
-        <p class="text-muted" style="font-size:13px;padding:8px 0;">No network info recorded.</p>`;
+        <p class="text-muted" style="font-size:13px;padding:8px 0;">No network info recorded for this session.</p>`;
       return;
     }
     sec.innerHTML = `
@@ -1999,7 +2023,7 @@ async function loadNetworkSec(sessionId) {
           <div class="detail-tile-value">${esc(n.connection_type||'—')}</div>
         </div>
         <div class="detail-tile">
-          <div class="detail-tile-label">WiFi SSID</div>
+          <div class="detail-tile-label">WiFi Network (SSID)</div>
           <div class="detail-tile-value">${esc(n.ssid||'Not detected')}</div>
         </div>
         <div class="detail-tile">
@@ -2026,7 +2050,7 @@ async function openKeystrokesPage(sessionId, pageId, backDetailSubId) {
   container.innerHTML = spinHtml();
   showSub(pageId, ksSubId);
   try {
-    const kr    = await api.getAdminKeystrokes({ session_id: sessionId, limit: '5000' });
+    const kr    = await api.getAdminKeystrokes({ session_id: sessionId, limit: '500' });
     const rows  = (kr && kr.ok && Array.isArray(kr.data)) ? kr.data : [];
     const total = rows.reduce((a, k) => a + (k.keys_pressed_count||0), 0);
 
@@ -2040,26 +2064,62 @@ async function openKeystrokesPage(sessionId, pageId, backDetailSubId) {
             ← Back to Session
           </button>
           <div>
-            <div class="page-title">Raw Keystroke Logs</div>
+            <div class="page-title">⌨️ Raw Keystroke Logs</div>
             <div class="page-subtitle">
-              ${rows.length} entries · Total: ${total.toLocaleString()} keystrokes
+              ${rows.length} entries · Total: <strong>${total.toLocaleString()}</strong> keystrokes recorded
             </div>
           </div>
         </div>
+
+        ${total > 0 ? `
+        <div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));">
+          <div class="stat-card success">
+            <div class="stat-label">Total Keystrokes</div>
+            <div class="stat-value">${total.toLocaleString()}</div>
+          </div>
+          <div class="stat-card accent">
+            <div class="stat-label">Log Entries</div>
+            <div class="stat-value">${rows.length}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Avg per Entry</div>
+            <div class="stat-value">${rows.length ? Math.round(total/rows.length) : 0}</div>
+          </div>
+          ${rows.length >= 2 ? `<div class="stat-card warning">
+            <div class="stat-label">Peak Entry</div>
+            <div class="stat-value">${Math.max(...rows.map(k=>k.keys_pressed_count||0)).toLocaleString()}</div>
+          </div>` : ''}
+        </div>` : ''}
+
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>#</th><th>Keystrokes Count</th><th>Timestamp</th></tr>
+              <tr>
+                <th>#</th>
+                <th>Keystrokes Count</th>
+                <th>Activity Bar</th>
+                <th>Timestamp</th>
+              </tr>
             </thead>
             <tbody>
               ${rows.length
-                ? rows.map((k, i) => `
-                    <tr>
-                      <td class="td-muted">${i+1}</td>
-                      <td><strong>${(k.keys_pressed_count||0).toLocaleString()}</strong> keys</td>
-                      <td class="td-mono td-muted">${fmtDateTime(k.timestamp)}</td>
-                    </tr>`).join('')
-                : emptyRow(3, 'No keystroke logs for this session')}
+                ? (() => {
+                    const maxK = Math.max(...rows.map(k=>k.keys_pressed_count||0), 1);
+                    return rows.map((k, i) => {
+                      const pct = Math.round(((k.keys_pressed_count||0)/maxK)*100);
+                      return `<tr>
+                        <td class="td-muted">${i+1}</td>
+                        <td><strong>${(k.keys_pressed_count||0).toLocaleString()}</strong> keys</td>
+                        <td style="min-width:120px;">
+                          <div class="progress-bar" style="width:100%;max-width:160px;">
+                            <div class="progress-fill success" style="width:${pct}%;"></div>
+                          </div>
+                        </td>
+                        <td class="td-mono td-muted">${fmtDateTime(k.timestamp)}</td>
+                      </tr>`;
+                    }).join('');
+                  })()
+                : emptyRow(4, 'No keystroke logs for this session')}
             </tbody>
           </table>
         </div>
@@ -2091,13 +2151,22 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
   showSub(pageId, nsSubId);
   try {
     const [nsR, smR] = await Promise.all([
-      api.getAdminNetworkSpeed({ session_id: sessionId, limit: '1000' }),
-      api.getAdminSystemMetrics({ session_id: sessionId, limit: '1000' }),
+      api.getAdminNetworkSpeed({ session_id: sessionId, limit: '500' }),
+      api.getAdminSystemMetrics({ session_id: sessionId, limit: '500' }),
     ]);
     const nsRows = (nsR && nsR.ok && Array.isArray(nsR.data)) ? nsR.data : [];
     const smRows = (smR && smR.ok && Array.isArray(smR.data)) ? smR.data : [];
     const len    = Math.max(nsRows.length, smRows.length);
     const rows   = Array.from({ length: len }, (_, i) => ({ ns: nsRows[i]||null, sm: smRows[i]||null }));
+
+    // Compute averages
+    const validNs   = nsRows.filter(r => r.download_speed != null);
+    const avgDown   = validNs.length ? (validNs.reduce((a,r)=>a+(r.download_speed||0),0)/validNs.length).toFixed(1) : '—';
+    const avgUp     = validNs.length ? (validNs.reduce((a,r)=>a+(r.upload_speed||0),0)/validNs.length).toFixed(1) : '—';
+    const avgPing   = validNs.length ? Math.round(validNs.reduce((a,r)=>a+(r.ping||0),0)/validNs.length) : '—';
+    const validSm   = smRows.filter(r => r.cpu_usage != null);
+    const avgCpu    = validSm.length ? (validSm.reduce((a,r)=>a+(r.cpu_usage||0),0)/validSm.length).toFixed(1) : '—';
+    const avgMem    = validSm.length ? (validSm.reduce((a,r)=>a+(r.memory_usage||0),0)/validSm.length).toFixed(1) : '—';
 
     container.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:20px;">
@@ -2109,53 +2178,104 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
             ← Back to Session
           </button>
           <div>
-            <div class="page-title">Network Speed History</div>
+            <div class="page-title">📶 Network & System Metrics</div>
             <div class="page-subtitle">
-              Captured every 5 minutes · ${rows.length} entries
+              Captured every 5 minutes · ${rows.length} snapshot${rows.length !== 1 ? 's' : ''}
             </div>
           </div>
         </div>
+
+        ${rows.length > 0 ? `
+        <div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));">
+          <div class="stat-card accent">
+            <div class="stat-label">Avg Download</div>
+            <div class="stat-value" style="font-size:20px;">${avgDown}</div>
+            <div class="stat-sub">Mbps</div>
+          </div>
+          <div class="stat-card success">
+            <div class="stat-label">Avg Upload</div>
+            <div class="stat-value" style="font-size:20px;">${avgUp}</div>
+            <div class="stat-sub">Mbps</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Avg Ping</div>
+            <div class="stat-value" style="font-size:20px;">${avgPing}</div>
+            <div class="stat-sub">ms</div>
+          </div>
+          <div class="stat-card warning">
+            <div class="stat-label">Avg CPU</div>
+            <div class="stat-value" style="font-size:20px;">${avgCpu}</div>
+            <div class="stat-sub">%</div>
+          </div>
+          <div class="stat-card danger">
+            <div class="stat-label">Avg Memory</div>
+            <div class="stat-value" style="font-size:20px;">${avgMem}</div>
+            <div class="stat-sub">%</div>
+          </div>
+        </div>` : ''}
+
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>#</th><th>Download</th><th>Upload</th><th>Ping</th>
-                <th>CPU %</th><th>Memory %</th><th>Timestamp</th>
+                <th>#</th>
+                <th>Download</th>
+                <th>Upload</th>
+                <th>Ping</th>
+                <th>CPU Usage</th>
+                <th>Memory Usage</th>
+                <th>Timestamp</th>
               </tr>
             </thead>
             <tbody>
               ${rows.length
                 ? rows.map((row, i) => {
                     const ns = row.ns, sm = row.sm;
+                    const cpuPct = sm ? Math.min(sm.cpu_usage, 100) : 0;
+                    const memPct = sm ? Math.min(sm.memory_usage, 100) : 0;
                     return `<tr>
                       <td class="td-muted">${i+1}</td>
-                      <td>${ns ? `↓ ${ns.download_speed} Mbps` : '—'}</td>
-                      <td>${ns ? `↑ ${ns.upload_speed} Mbps`   : '—'}</td>
-                      <td>${(ns && ns.ping != null) ? `${ns.ping}ms` : '—'}</td>
                       <td>
-                        ${sm
-                          ? `<div>${sm.cpu_usage.toFixed(1)}%</div>
-                             <div class="progress-bar" style="width:80px;margin-top:3px;">
-                               <div class="progress-fill ${cpuCls(sm.cpu_usage)}"
-                                    style="width:${Math.min(sm.cpu_usage,100)}%;"></div>
-                             </div>`
-                          : '—'}
+                        ${ns && ns.download_speed != null
+                          ? `<span class="text-success">↓ ${ns.download_speed} Mbps</span>`
+                          : '<span class="td-muted">—</span>'}
                       </td>
                       <td>
-                        ${sm
-                          ? `<div>${sm.memory_usage.toFixed(1)}%</div>
-                             <div class="progress-bar" style="width:80px;margin-top:3px;">
-                               <div class="progress-fill ${cpuCls(sm.memory_usage)}"
-                                    style="width:${Math.min(sm.memory_usage,100)}%;"></div>
+                        ${ns && ns.upload_speed != null
+                          ? `<span class="text-accent">↑ ${ns.upload_speed} Mbps</span>`
+                          : '<span class="td-muted">—</span>'}
+                      </td>
+                      <td>
+                        ${ns && ns.ping != null
+                          ? `<span class="${ns.ping < 50 ? 'text-success' : ns.ping < 100 ? 'text-warning' : 'text-danger'}">${ns.ping}ms</span>`
+                          : '<span class="td-muted">—</span>'}
+                      </td>
+                      <td>
+                        ${sm && sm.cpu_usage != null
+                          ? `<div style="display:flex;align-items:center;gap:6px;">
+                               <span class="${cpuCls(sm.cpu_usage) === 'danger' ? 'text-danger' : cpuCls(sm.cpu_usage) === 'warning' ? 'text-warning' : 'text-success'}">${sm.cpu_usage.toFixed(1)}%</span>
+                               <div class="progress-bar" style="width:60px;">
+                                 <div class="progress-fill ${cpuCls(sm.cpu_usage)}" style="width:${cpuPct}%;"></div>
+                               </div>
                              </div>`
-                          : '—'}
+                          : '<span class="td-muted">—</span>'}
+                      </td>
+                      <td>
+                        ${sm && sm.memory_usage != null
+                          ? `<div style="display:flex;align-items:center;gap:6px;">
+                               <span class="${cpuCls(sm.memory_usage) === 'danger' ? 'text-danger' : cpuCls(sm.memory_usage) === 'warning' ? 'text-warning' : 'text-success'}">${sm.memory_usage.toFixed(1)}%</span>
+                               <div class="progress-bar" style="width:60px;">
+                                 <div class="progress-fill ${cpuCls(sm.memory_usage)}" style="width:${memPct}%;"></div>
+                               </div>
+                             </div>`
+                          : '<span class="td-muted">—</span>'}
                       </td>
                       <td class="td-mono td-muted">
                         ${fmtDateTime((ns || sm)?.timestamp)}
                       </td>
                     </tr>`;
                   }).join('')
-                : emptyRow(7, 'No network speed logs for this session')}
+                : emptyRow(7, 'No network/system snapshots for this session')}
             </tbody>
           </table>
         </div>
@@ -2205,7 +2325,7 @@ async function loadAdmins() {
         <td>
           <button class="btn btn-ghost btn-sm"
                   data-action="view-user"
-                  data-emp-id="${e.employee_id}"
+                  data-emp-id="${esc(String(e.employee_id))}"
                   data-emp-name="${esc(e.employee_name)}"
                   data-page="admins">
             View
@@ -2246,7 +2366,7 @@ async function loadEmployees() {
         <td>
           <button class="btn btn-ghost btn-sm"
                   data-action="view-user"
-                  data-emp-id="${e.employee_id}"
+                  data-emp-id="${esc(String(e.employee_id))}"
                   data-emp-name="${esc(e.employee_name)}"
                   data-page="employees">
             View
@@ -2268,20 +2388,44 @@ async function openUserSessions(empId, empName, pageId) {
   showSub(pageId, sessSubId);
 
   try {
-    // Admin fetching sessions for any employee
-    const r        = await api.getAdminSessions({ employee_id: empId, limit: '500' });
-    const sessions = (r && r.ok && Array.isArray(r.data)) ? r.data : [];
+    const empIdStr = String(empId).trim();
+
+    // Strategy 1: fetch with employee_id filter
+    let sessions = [];
+    const r = await api.getAdminSessions({ employee_id: empIdStr, limit: '200' });
+    console.log(`[openUserSessions] employee_id=${empIdStr}`, 'response:', r);
+
+    if (r && r.ok && Array.isArray(r.data) && r.data.length > 0) {
+      sessions = r.data;
+    } else {
+      // Strategy 2: fetch all sessions and filter client-side
+      // (fallback in case employee_id query param isn't working)
+      console.log('[openUserSessions] Trying fallback: fetch all + filter client-side');
+      const r2 = await api.getAdminSessions({ limit: '200' });
+      console.log('[openUserSessions] fallback response:', r2);
+      if (r2 && r2.ok && Array.isArray(r2.data)) {
+        sessions = r2.data.filter(s =>
+          String(s.employee_id).toLowerCase().trim() === empIdStr.toLowerCase()
+        );
+        console.log(`[openUserSessions] after client-side filter: ${sessions.length} sessions`);
+      }
+    }
 
     // Keystroke totals
     const ksMap = {};
     try {
-      const kr = await api.getAdminKeystrokes({ employee_id: empId, limit: '10000' });
+      const kr = await api.getAdminKeystrokes({ employee_id: String(empId), limit: '500' });
       if (kr && kr.ok && Array.isArray(kr.data)) {
         kr.data.forEach(k => {
           ksMap[k.session_id] = (ksMap[k.session_id]||0) + (k.keys_pressed_count||0);
         });
       }
     } catch { /* optional */ }
+
+    // Calculate totals for header stats
+    const totalActive = sessions.reduce((a, s) => a + (s.total_active_time||0), 0);
+    const totalIdle   = sessions.reduce((a, s) => a + (s.total_idle_time||0), 0);
+    const totalKeys   = Object.values(ksMap).reduce((a, v) => a + v, 0);
 
     container.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:20px;">
@@ -2297,13 +2441,40 @@ async function openUserSessions(empId, empName, pageId) {
             <div class="page-subtitle">All Sessions (${sessions.length})</div>
           </div>
         </div>
+
+        ${sessions.length > 0 ? `
+        <div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));">
+          <div class="stat-card accent">
+            <div class="stat-label">Total Sessions</div>
+            <div class="stat-value">${sessions.length}</div>
+          </div>
+          <div class="stat-card success">
+            <div class="stat-label">Total Active</div>
+            <div class="stat-value" style="font-size:20px;">${sToHm(totalActive)}</div>
+          </div>
+          <div class="stat-card warning">
+            <div class="stat-label">Total Idle</div>
+            <div class="stat-value" style="font-size:20px;">${sToHm(totalIdle)}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Total Keystrokes</div>
+            <div class="stat-value" style="font-size:20px;">${totalKeys.toLocaleString()}</div>
+          </div>
+        </div>` : ''}
+
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Date</th><th>Clock In</th><th>Clock Out</th>
-                <th>Active</th><th>Idle</th><th>Location</th>
-                <th>Keystrokes</th><th>Status</th><th>View</th>
+                <th>Date</th>
+                <th>Clock In</th>
+                <th>Clock Out</th>
+                <th>Active</th>
+                <th>Idle</th>
+                <th>Location</th>
+                <th>Keystrokes</th>
+                <th>Status</th>
+                <th>View</th>
               </tr>
             </thead>
             <tbody>
@@ -2332,12 +2503,21 @@ async function openUserSessions(empId, empName, pageId) {
                         </button>
                       </td>
                     </tr>`).join('')
-                : emptyRow(9, 'No sessions found for this user')}
+                : `<tr><td colspan="9">
+                    <div class="empty-state">
+                      <span class="empty-icon">📭</span>
+                      <span class="empty-title">No sessions found for this user</span>
+                      <span class="empty-sub" style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+                        This user has not clocked in yet, or sessions may not have synced.
+                      </span>
+                    </div>
+                  </td></tr>`}
             </tbody>
           </table>
         </div>
       </div>`;
   } catch (e) {
+    console.error('openUserSessions error:', e);
     container.innerHTML = `
       <div style="padding:20px;">
         <button class="back-btn"
@@ -2346,7 +2526,7 @@ async function openUserSessions(empId, empName, pageId) {
                 data-target-sub="${listSubId}">
           ← Back
         </button>
-        <p class="text-muted" style="margin-top:12px;">Error: ${esc(e.message)}</p>
+        <p class="text-muted" style="margin-top:12px;">Error loading sessions: ${esc(e.message)}</p>
       </div>`;
   }
 }
@@ -2359,6 +2539,47 @@ function bindAdminButtons() {
   g('btn-add-employee').addEventListener('click', () => openEmpModal('employee'));
   g('btn-save-employee').addEventListener('click', saveEmployee);
   g('btn-confirm-reset').addEventListener('click', confirmReset);
+}
+
+// Bind ALL modal close/cancel buttons via addEventListener.
+// Electron CSP (script-src 'self') blocks inline onclick="" attributes,
+// so we wire every close/cancel button here instead.
+function bindModalButtons() {
+  // ── Employee modal ──────────────────────────────────
+  const empOverlay = g('modal-employee');
+  if (empOverlay) {
+    // X close button
+    const empClose = empOverlay.querySelector('.modal-close');
+    if (empClose) empClose.addEventListener('click', () => closeModal('modal-employee'));
+    // Cancel button (first .btn-ghost inside the modal)
+    const empCancel = empOverlay.querySelector('.btn-ghost');
+    if (empCancel) empCancel.addEventListener('click', () => closeModal('modal-employee'));
+    // Click backdrop to close
+    empOverlay.addEventListener('click', e => {
+      if (e.target === empOverlay) closeModal('modal-employee');
+    });
+  }
+
+  // ── Reset-password modal ────────────────────────────
+  const pwOverlay = g('modal-reset-pw');
+  if (pwOverlay) {
+    const pwClose  = pwOverlay.querySelector('.modal-close');
+    if (pwClose)  pwClose.addEventListener('click',  () => closeModal('modal-reset-pw'));
+    const pwCancel = pwOverlay.querySelector('.btn-ghost');
+    if (pwCancel) pwCancel.addEventListener('click', () => closeModal('modal-reset-pw'));
+    pwOverlay.addEventListener('click', e => {
+      if (e.target === pwOverlay) closeModal('modal-reset-pw');
+    });
+  }
+
+  // ── ESC key closes any open modal ──────────────────
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    ['modal-employee', 'modal-reset-pw'].forEach(id => {
+      const el = g(id);
+      if (el && !el.classList.contains('hidden')) closeModal(id);
+    });
+  });
 }
 
 function openEmpModal(defaultRole) {
@@ -2442,9 +2663,7 @@ function showModalAlert(id, msg) {
   el.textContent = '⚠ ' + msg;
   el.className   = 'alert alert-error';
 }
-document.querySelectorAll('.modal-overlay').forEach(o => {
-  o.addEventListener('click', e => { if (e.target === o) o.classList.add('hidden'); });
-});
+// Modal close/cancel bindings are in bindModalButtons()
 
 // ══════════════════════════════════════════════════════════
 // GLOBALS (for inline HTML onclick on modals)
@@ -2508,8 +2727,14 @@ function spinHtml() {
 }
 
 // ══════════════════════════════════════════════════════════
-// KEYSTROKE TRACKER
+// KEYSTROKE TRACKER (renderer-side display + fallback)
 // ══════════════════════════════════════════════════════════
+// The main process now uses a system-wide global keyboard hook (uiohook-napi)
+// that captures ALL keystrokes even when this window is minimized.
+//
+// This renderer code still runs for two purposes:
+//   1. Updates the live display counter on the Overview page
+//   2. Acts as a FALLBACK if uiohook-napi is not installed
 (function () {
   let count = 0, display = 0;
   window.addEventListener('keydown', e => {
@@ -2518,6 +2743,8 @@ function spinHtml() {
     const el = g('stat-keys');
     if (el) el.textContent = display.toLocaleString();
   }, true);
+
+  // Send to main process every 10s (used only as fallback when global hook is off)
   setInterval(async () => {
     if (!count) return;
     try {
@@ -2525,7 +2752,7 @@ function spinHtml() {
       const n = count; count = 0;
       await api.reportKeystrokes(n);
     } catch { /* ignore */ }
-  }, 30_000);
+  }, 10_000);
 })();
 
 // ── Start ─────────────────────────────────────────────────
@@ -2787,6 +3014,7 @@ FILE: src/main/system/network.ts
 import * as os from 'os';
 import * as net from 'net';
 import * as http from 'http';
+import * as https from 'https';
 
 export interface NetworkInfo {
   ip_address: string;
@@ -2796,9 +3024,9 @@ export interface NetworkInfo {
 }
 
 export interface NetworkSpeed {
-  download: number;
-  upload: number;
-  ping: number;
+  download: number;  // Mbps
+  upload: number;    // Mbps
+  ping: number;      // ms
 }
 
 // ── Get local IP and MAC ──────────────────────────────────
@@ -2815,7 +3043,6 @@ export function getNetworkInfo(): NetworkInfo {
       if (iface.family === 'IPv4') {
         ip = iface.address;
         mac = iface.mac;
-        // Heuristic: eth/en → ethernet, wlan/wi → WiFi
         if (/^(eth|en[0-9]|ens|enp)/.test(name.toLowerCase())) {
           connectionType = 'Ethernet';
         } else if (/^(wlan|wi|wlp)/.test(name.toLowerCase())) {
@@ -2852,12 +3079,39 @@ export function getNetworkInfo(): NetworkInfo {
   return { ip_address: ip, connection_type: connectionType, ssid, mac_address: mac };
 }
 
-// ── Ping measurement ──────────────────────────────────────
-function measurePing(host: string, port: number): Promise<number> {
-  return new Promise(resolve => {
+// ══════════════════════════════════════════════════════════
+// ACCURATE SPEED TEST (Ookla-style)
+// Uses multiple CDN endpoints + parallel streams for accuracy
+// ══════════════════════════════════════════════════════════
+
+// CDN endpoints that serve large files reliably and are distributed globally
+// These are public CDN/speed-test servers commonly used for benchmarking
+const DOWNLOAD_ENDPOINTS = [
+  // Cloudflare speed test (100MB chunks available)
+  { host: 'speed.cloudflare.com', path: '/__down?bytes=10000000', useHttps: true },
+  // Fast.com (Netflix CDN) - very reliable
+  { host: 'api.fast.com', path: '/netflix/speedtest/v2?https=true&token=YXNkZmFzZGxmbnNkYWZoYXNkZmhrYWxm&urlCount=1', useHttps: true },
+  // Fallback: Cloudflare 10MB
+  { host: 'speed.cloudflare.com', path: '/__down?bytes=5000000', useHttps: true },
+];
+
+// Upload test: POST random data to Cloudflare's speed test endpoint
+const UPLOAD_ENDPOINT = {
+  host: 'speed.cloudflare.com',
+  path: '/__up',
+  useHttps: true,
+};
+
+/**
+ * Measure ping to a host using TCP connect time (accurate, no ICMP needed)
+ */
+function measureTcpPing(host: string, port: number, samples = 5): Promise<number> {
+  const pings: number[] = [];
+
+  const doOnePing = (): Promise<number> => new Promise(resolve => {
     const start = Date.now();
     const socket = new net.Socket();
-    socket.setTimeout(5000);
+    socket.setTimeout(3000);
     socket.connect(port, host, () => {
       resolve(Date.now() - start);
       socket.destroy();
@@ -2865,35 +3119,208 @@ function measurePing(host: string, port: number): Promise<number> {
     socket.on('error', () => resolve(-1));
     socket.on('timeout', () => { socket.destroy(); resolve(-1); });
   });
+
+  return (async () => {
+    for (let i = 0; i < samples; i++) {
+      const p = await doOnePing();
+      if (p >= 0) pings.push(p);
+      // Small gap between ping samples
+      if (i < samples - 1) await new Promise(r => setTimeout(r, 100));
+    }
+    if (pings.length === 0) return 999;
+    // Use median to discard outliers
+    pings.sort((a, b) => a - b);
+    return pings[Math.floor(pings.length / 2)];
+  })();
 }
 
-// ── Download speed (small file download) ─────────────────
-function measureDownload(): Promise<number> {
+/**
+ * Download a single stream and measure throughput in Mbps
+ */
+function downloadStream(host: string, path: string, useHttps: boolean, timeoutMs = 15000): Promise<number> {
   return new Promise(resolve => {
+    const lib = useHttps ? https : http;
+    const port = useHttps ? 443 : 80;
+    let bytes = 0;
     const start = Date.now();
-    const req = http.get('http://httpbin.org/bytes/500000', (res) => {
-      let bytes = 0;
-      res.on('data', (chunk: Buffer) => (bytes += chunk.length));
+
+    const options: http.RequestOptions = {
+      hostname: host,
+      port,
+      path,
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; SpeedTest/1.0)',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+      timeout: timeoutMs,
+    };
+
+    const req = lib.request(options, (res) => {
+      if (res.statusCode && res.statusCode >= 400) {
+        res.resume();
+        resolve(0);
+        return;
+      }
+      res.on('data', (chunk: Buffer) => {
+        bytes += chunk.length;
+      });
       res.on('end', () => {
         const elapsed = (Date.now() - start) / 1000;
-        resolve(Math.round((bytes * 8) / elapsed / 1_000_000 * 10) / 10); // Mbps
+        if (elapsed < 0.1 || bytes === 0) { resolve(0); return; }
+        // Convert bytes to megabits: (bytes * 8) / elapsed / 1_000_000
+        const mbps = (bytes * 8) / elapsed / 1_000_000;
+        resolve(Math.round(mbps * 100) / 100);
       });
+      res.on('error', () => resolve(0));
     });
-    req.setTimeout(8000, () => { req.destroy(); resolve(0); });
+
+    req.setTimeout(timeoutMs, () => {
+      // On timeout, calculate based on what we've received so far
+      req.destroy();
+      const elapsed = (Date.now() - start) / 1000;
+      if (elapsed > 0.5 && bytes > 100_000) {
+        const mbps = (bytes * 8) / elapsed / 1_000_000;
+        resolve(Math.round(mbps * 100) / 100);
+      } else {
+        resolve(0);
+      }
+    });
+
     req.on('error', () => resolve(0));
+    req.end();
   });
 }
 
+/**
+ * Upload test: POST a buffer of random data and measure throughput
+ */
+function uploadStream(sizeBytes: number, timeoutMs = 15000): Promise<number> {
+  return new Promise(resolve => {
+    // Generate random data buffer to upload
+    const data = Buffer.alloc(sizeBytes, 'x');
+    const start = Date.now();
+
+    const options: https.RequestOptions = {
+      hostname: UPLOAD_ENDPOINT.host,
+      port: 443,
+      path: UPLOAD_ENDPOINT.path,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': sizeBytes,
+        'User-Agent': 'Mozilla/5.0 (compatible; SpeedTest/1.0)',
+        'Cache-Control': 'no-cache',
+      },
+      timeout: timeoutMs,
+    };
+
+    const req = https.request(options, (res) => {
+      res.resume(); // drain response
+      const elapsed = (Date.now() - start) / 1000;
+      if (elapsed < 0.1) { resolve(0); return; }
+      const mbps = (sizeBytes * 8) / elapsed / 1_000_000;
+      resolve(Math.round(mbps * 100) / 100);
+    });
+
+    req.setTimeout(timeoutMs, () => {
+      req.destroy();
+      const elapsed = (Date.now() - start) / 1000;
+      if (elapsed > 0.5) {
+        // Estimate based on how much we've sent (approximation)
+        const mbps = (sizeBytes * 8) / elapsed / 1_000_000;
+        resolve(Math.round(mbps * 100) / 100);
+      } else {
+        resolve(0);
+      }
+    });
+
+    req.on('error', () => resolve(0));
+    req.write(data);
+    req.end();
+  });
+}
+
+/**
+ * Run multiple parallel download streams and sum their throughput.
+ * This is how Ookla measures — single-stream tests are limited by
+ * TCP window size; parallel streams saturate the connection.
+ */
+async function measureDownloadParallel(): Promise<number> {
+  // Try Cloudflare first with 3 parallel streams of 10MB each
+  const PARALLEL_STREAMS = 3;
+  const endpoint = DOWNLOAD_ENDPOINTS[0]; // Cloudflare
+
+  try {
+    const streams = Array.from({ length: PARALLEL_STREAMS }, () =>
+      downloadStream(endpoint.host, endpoint.path, endpoint.useHttps, 12000)
+    );
+    const results = await Promise.all(streams);
+    const valid = results.filter(r => r > 0);
+
+    if (valid.length > 0) {
+      // Sum all parallel streams = total bandwidth
+      const total = valid.reduce((a, b) => a + b, 0);
+      return Math.round(total * 100) / 100;
+    }
+  } catch { /* fall through */ }
+
+  // Fallback: try single stream from Cloudflare 5MB
+  try {
+    const ep = DOWNLOAD_ENDPOINTS[2];
+    const result = await downloadStream(ep.host, ep.path, ep.useHttps, 10000);
+    if (result > 0) return result;
+  } catch { /* fall through */ }
+
+  return 0;
+}
+
+/**
+ * Measure upload speed with parallel streams
+ */
+async function measureUploadParallel(): Promise<number> {
+  const UPLOAD_SIZE = 5 * 1024 * 1024; // 5MB per stream
+  const PARALLEL_STREAMS = 2;
+
+  try {
+    const streams = Array.from({ length: PARALLEL_STREAMS }, () =>
+      uploadStream(UPLOAD_SIZE, 12000)
+    );
+    const results = await Promise.all(streams);
+    const valid = results.filter(r => r > 0);
+
+    if (valid.length > 0) {
+      return Math.round(valid.reduce((a, b) => a + b, 0) * 100) / 100;
+    }
+  } catch { /* fall through */ }
+
+  return 0;
+}
+
+/**
+ * Full speed test — measures ping, download, upload accurately.
+ * Total time: ~20-30 seconds (real measurement takes time)
+ */
 export async function getNetworkSpeed(): Promise<NetworkSpeed> {
   try {
+    // Step 1: Measure latency/ping to Cloudflare (very stable)
+    const pingPromise = measureTcpPing('speed.cloudflare.com', 443, 5);
+
+    // Step 2: Run download and upload in sequence (not parallel)
+    // Running them together would split bandwidth and give wrong readings
     const [ping, download] = await Promise.all([
-      measurePing('8.8.8.8', 53),
-      measureDownload(),
+      pingPromise,
+      measureDownloadParallel(),
     ]);
+
+    // Upload test after download
+    const upload = await measureUploadParallel();
+
     return {
-      download,
-      upload: 0,   // Upload test requires a server endpoint — left as 0
-      ping: ping < 0 ? 0 : ping,
+      download: download > 0 ? download : 0,
+      upload:   upload  > 0 ? upload  : 0,
+      ping:     ping < 999  ? ping    : 0,
     };
   } catch {
     return { download: 0, upload: 0, ping: 0 };
@@ -2940,7 +3367,6 @@ export function getGeoInfo(): Promise<GeoInfo> {
     req.on('error', () => resolve(fallback));
   });
 }
-
 
 
 ====================================
@@ -3438,6 +3864,21 @@ export function registerIpcHandlers(): void {
     activityTracker.start();
     trackingService.start();
 
+    // FIX: Also save initial network speed to network_speed_logs table immediately
+    // so it shows up in the session's network speed history even for short sessions
+    if (netSpeed.download !== undefined) {
+      const token = authService.getToken();
+      if (token) {
+        apiService.post('/tracking/network-speed', {
+          session_id: clockInResult.session!.session_id,
+          download_speed: netSpeed.download,
+          upload_speed: netSpeed.upload,
+          ping: netSpeed.ping,
+          timestamp: new Date().toISOString(),
+        }, token).catch(() => {});
+      }
+    }
+
     return { ...clockInResult, deviceInfo, netInfo, geo, netSpeed };
   });
 
@@ -3445,7 +3886,6 @@ export function registerIpcHandlers(): void {
     activityTracker.stop();
     trackingService.stop();
     const totals = activityTracker.getTotals();
-    // clockOut handles 401 internally — never throws "Invalid or expired token" dialog
     return sessionService.clockOut(totals.active, totals.idle);
   });
 
@@ -3503,14 +3943,29 @@ export function registerIpcHandlers(): void {
   });
 
   // ── Admin: Sessions ───────────────────────────────────
+  // FIX: Always use /admin/sessions for admin users.
+  // The old logic checked authService.getEmployee()?.role which could be null
+  // after a session restore, causing it to fall back to /sessions/my incorrectly.
   ipcMain.handle('admin:getSessions', async (_event, params: Record<string, string> = {}) => {
     const token    = authService.getToken();
     const employee = authService.getEmployee();
     if (!token) return { ok: false, data: [] };
 
+    // ALWAYS use admin endpoint if role is admin (or if we have a token but employee
+    // isn't loaded yet — try admin endpoint first, fall back to /sessions/my)
     if (employee?.role === 'admin') {
-      return safeApi(() => apiService.get('/admin/sessions', token, params), { ok: false, status: 0, data: [] });
+      // Admin: use /admin/sessions which supports employee_id filtering
+      const result = await safeApi(
+        () => apiService.get('/admin/sessions', token, params),
+        { ok: false, status: 0, data: [] }
+      );
+      if ((result as any).status === 401) {
+        authService.handleExpiredToken();
+        return { ok: false, data: [] };
+      }
+      return result;
     } else {
+      // Non-admin: can only see own sessions, ignore employee_id filter
       const p: Record<string, string> = {};
       if (params.limit) p.limit = params.limit;
       return safeApi(() => apiService.get('/sessions/my', token, p), { ok: false, status: 0, data: [] });
@@ -3592,8 +4047,11 @@ export function registerIpcHandlers(): void {
     return { active: totals.active, idle: totals.idle, keystrokes: trackingService.getKeystrokeCount(), lastSpeed: trackingService.getLastSpeed() };
   });
 
-  ipcMain.handle('tracking:reportKeystrokes', (_event, count: number) => {
-    trackingService.incrementKeystrokes(count);
+  ipcMain.handle('tracking:reportKeystrokes', async (_event, count: number) => {
+    // When app is focused, renderer sends keystroke counts here.
+    // globalKeyboard.addRendererCount() decides whether to use them
+    // (only as fallback if uiohook global hook is not running).
+    await trackingService.incrementKeystrokes(count);
     return { ok: true };
   });
 
@@ -3847,49 +4305,53 @@ FILE: src/main/services/tracking.service.ts
 import { apiService } from './api.service';
 import { authService } from './auth.service';
 import { sessionService } from './session.service';
+import { globalKeyboard } from './globalKeyboard';
 
 interface ActivityLog {
-  session_id: string;
-  app_name: string;
-  window_title?: string;
-  start_time: string;
-  end_time: string;
-  duration: number;
-  is_idle: boolean;
+  session_id: string; app_name: string; window_title?: string;
+  start_time: string; end_time: string; duration: number; is_idle: boolean;
 }
-
 interface WebsiteLog {
-  session_id: string;
-  url: string;
-  domain: string;
-  title?: string;
-  duration: number;
-  timestamp: string;
+  session_id: string; url: string; domain: string;
+  title?: string; duration: number; timestamp: string;
 }
 
 let _activityBuffer: ActivityLog[] = [];
-let _websiteBuffer: WebsiteLog[] = [];
-let _keystrokeCount = 0;
+let _websiteBuffer:  WebsiteLog[]  = [];
 let _metricsInterval: NodeJS.Timeout | null = null;
-let _flushInterval: NodeJS.Timeout | null = null;
+let _flushInterval:   NodeJS.Timeout | null = null;
 let _lastSpeed: { download: number; upload: number; ping: number } | null = null;
+
 export const trackingService = {
-  // ── Start tracking engine ─────────────────────────────
   start(): void {
-    // Flush activity/website buffers every 30s
     _flushInterval = setInterval(() => this.flushBuffers(), 30_000);
-    // Send system metrics + network speed every 5 minutes
+
+    // Start system-wide keystroke capture, flush to DB every 10s
+    globalKeyboard.start(async (count: number) => {
+      const session = sessionService.getActiveSession();
+      const token   = authService.getToken();
+      if (!session || !token || count === 0) return;
+      try {
+        await apiService.post('/tracking/keystrokes', {
+          session_id:         session.session_id,
+          keys_pressed_count: count,
+          timestamp:          new Date().toISOString(),
+        }, token);
+      } catch { /* silent */ }
+    });
+
+    // Fire metrics 5s after clock-in, then every 5 min
+    setTimeout(() => this.sendPeriodicMetrics(), 5_000);
     _metricsInterval = setInterval(() => this.sendPeriodicMetrics(), 5 * 60_000);
   },
 
   stop(): void {
-    if (_flushInterval) { clearInterval(_flushInterval); _flushInterval = null; }
+    if (_flushInterval)   { clearInterval(_flushInterval);   _flushInterval   = null; }
     if (_metricsInterval) { clearInterval(_metricsInterval); _metricsInterval = null; }
-    this.flushBuffers(); // flush remaining
-    this.sendKeystrokes();
+    globalKeyboard.stop(); // flushes remaining keystrokes internally
+    this.flushBuffers();
   },
 
-  // ── Activity ──────────────────────────────────────────
   pushActivity(log: Omit<ActivityLog, 'session_id'>): void {
     const session = sessionService.getActiveSession();
     if (!session) return;
@@ -3898,19 +4360,13 @@ export const trackingService = {
   },
 
   async flushActivity(): Promise<void> {
-    if (_activityBuffer.length === 0) return;
-    const token = authService.getToken();
-    if (!token) return;
-    const logs = [..._activityBuffer];
-    _activityBuffer = [];
-    try {
-      await apiService.post('/tracking/activity/batch', { logs }, token);
-    } catch {
-      _activityBuffer = [...logs, ..._activityBuffer]; // put back on error
-    }
+    if (!_activityBuffer.length) return;
+    const token = authService.getToken(); if (!token) return;
+    const logs = [..._activityBuffer]; _activityBuffer = [];
+    try { await apiService.post('/tracking/activity/batch', { logs }, token); }
+    catch { _activityBuffer = [...logs, ..._activityBuffer]; }
   },
 
-  // ── Website ───────────────────────────────────────────
   pushWebsite(log: Omit<WebsiteLog, 'session_id'>): void {
     const session = sessionService.getActiveSession();
     if (!session) return;
@@ -3919,91 +4375,55 @@ export const trackingService = {
   },
 
   async flushWebsite(): Promise<void> {
-    if (_websiteBuffer.length === 0) return;
-    const token = authService.getToken();
-    if (!token) return;
-    const logs = [..._websiteBuffer];
-    _websiteBuffer = [];
-    try {
-      await apiService.post('/tracking/website/batch', { logs }, token);
-    } catch {
-      _websiteBuffer = [...logs, ..._websiteBuffer];
-    }
+    if (!_websiteBuffer.length) return;
+    const token = authService.getToken(); if (!token) return;
+    const logs = [..._websiteBuffer]; _websiteBuffer = [];
+    try { await apiService.post('/tracking/website/batch', { logs }, token); }
+    catch { _websiteBuffer = [...logs, ..._websiteBuffer]; }
   },
 
-  // ── Keystrokes ────────────────────────────────────────
-  incrementKeystrokes(count = 1): void {
-    _keystrokeCount += count;
+  // Called from IPC when renderer reports keystrokes (app focused)
+  // globalKeyboard.addRendererCount is a no-op to prevent double-counting
+  incrementKeystrokes(count = 1): Promise<void> {
+    globalKeyboard.addRendererCount(count);
+    return Promise.resolve();
   },
 
-  async sendKeystrokes(): Promise<void> {
-    const session = sessionService.getActiveSession();
-    const token = authService.getToken();
-    if (!session || !token || _keystrokeCount === 0) return;
-    const count = _keystrokeCount;
-    _keystrokeCount = 0;
-    try {
-      await apiService.post('/tracking/keystrokes', {
-        session_id: session.session_id,
-        keys_pressed_count: count,
-        timestamp: new Date().toISOString(),
-      }, token);
-    } catch {
-      _keystrokeCount += count; // restore on failure
-    }
-  },
-
-  // ── System Metrics + Network Speed (every 5 min) ──────
   async sendPeriodicMetrics(): Promise<void> {
     const session = sessionService.getActiveSession();
-    const token = authService.getToken();
+    const token   = authService.getToken();
     if (!session || !token) return;
 
     const { getCpuUsage, getMemoryUsage } = await import('../system/metrics');
-    const { getNetworkSpeed } = await import('../system/network');
+    const { getNetworkSpeed }              = await import('../system/network');
 
     const [cpu, mem] = await Promise.all([getCpuUsage(), getMemoryUsage()]);
+    await apiService.post('/tracking/system-metrics', {
+      session_id: session.session_id, cpu_usage: cpu,
+      memory_usage: mem, timestamp: new Date().toISOString(),
+    }, token).catch(() => {});
+
     const speed = await getNetworkSpeed();
     _lastSpeed = speed;
 
-    const now = new Date().toISOString();
+    const s2 = sessionService.getActiveSession();
+    const t2 = authService.getToken();
+    if (!s2 || !t2) return;
 
-    await Promise.allSettled([
-      apiService.post('/tracking/system-metrics', {
-        session_id: session.session_id,
-        cpu_usage: cpu,
-        memory_usage: mem,
-        timestamp: now,
-      }, token),
-
-      apiService.post('/tracking/network-speed', {
-        session_id: session.session_id,
-        download_speed: speed.download,
-        upload_speed: speed.upload,
-        ping: speed.ping,
-        timestamp: now,
-      }, token),
-
-      this.sendKeystrokes(),
-    ]);
+    await apiService.post('/tracking/network-speed', {
+      session_id: s2.session_id, download_speed: speed.download,
+      upload_speed: speed.upload, ping: speed.ping,
+      timestamp: new Date().toISOString(),
+    }, t2).catch(() => {});
   },
 
   async flushBuffers(): Promise<void> {
-    await Promise.allSettled([
-      this.flushActivity(),
-      this.flushWebsite(),
-    ]);
+    await Promise.allSettled([this.flushActivity(), this.flushWebsite()]);
   },
 
-  getKeystrokeCount(): number {
-    return _keystrokeCount;
-  },
-
-  getLastSpeed(): { download: number; upload: number; ping: number } | null {
-    return _lastSpeed;
-  },
+  getKeystrokeCount(): number { return globalKeyboard.getCurrentCount(); },
+  getLastSpeed(): { download: number; upload: number; ping: number } | null { return _lastSpeed; },
 };
-
 
 
 ====================================

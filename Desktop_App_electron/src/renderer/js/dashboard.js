@@ -58,6 +58,8 @@ async function boot() {
     }
 
     statsInterval = setInterval(refreshStats, 10_000);
+    setInterval(refreshKeystrokesFromDB, 2 * 60_000);
+    refreshKeystrokesFromDB();
     await loadOverview();
     bindNav();
     bindWindowControls();
@@ -146,6 +148,11 @@ async function doClockIn() {
         deviceInfo: r.deviceInfo||{}, netInfo: r.netInfo||{},
         geo: r.geo||{}, netSpeed: r.netSpeed||{}, session: r.session||{},
       }));
+      // Reset keystrokes display on new clock-in
+      const keysEl = g('stat-keys');
+      if (keysEl) keysEl.textContent = '0';
+      // Start fetching from DB after 15s (give worker time to flush first batch)
+      setTimeout(refreshKeystrokesFromDB, 15_000);
     } else {
       alert('Clock-in failed: ' + (r.error || 'Unknown'));
       setClocked(false);
@@ -163,12 +170,18 @@ async function doClockOut() {
       stopTimer(); setClocked(false); clockInTime = null;
       g('clockin-details').classList.add('hidden');
       sessionStorage.removeItem('clockin_data');
+      // Reset keystrokes display on clock-out
+      const keysEl = g('stat-keys');
+      if (keysEl) keysEl.textContent = '0';
       await loadOverview();
     } else {
       const err = r.error || '';
       if (err.toLowerCase().includes('token') || err.toLowerCase().includes('expired') || err.toLowerCase().includes('auth')) {
         stopTimer(); setClocked(false); clockInTime = null;
         sessionStorage.removeItem('clockin_data');
+        // Reset keystrokes display on auth error
+        const keysEl = g('stat-keys');
+        if (keysEl) keysEl.textContent = '0';
         await api.showLogin();
       } else {
         alert('Clock-out failed: ' + err);
@@ -177,6 +190,9 @@ async function doClockOut() {
   } catch (e) {
     stopTimer(); setClocked(false); clockInTime = null;
     sessionStorage.removeItem('clockin_data');
+    // Reset keystrokes display on error
+    const keysEl = g('stat-keys');
+    if (keysEl) keysEl.textContent = '0';
   }
   finally { btn.disabled = false; btn.innerHTML = '■ Clock Out'; }
 }
@@ -225,8 +241,12 @@ async function refreshStats() {
   if (!await api.isClocked()) return;
   try {
     const s = await api.getTrackingStats();
-    if (clockInTime) { const el = g('stat-active'); if (el) el.textContent = sToHm(Math.floor((Date.now()-clockInTime)/1000)); }
-    const el = g('stat-idle'); if (el) el.textContent = sToHm(s.idle||0);
+    if (clockInTime) { 
+      const el = g('stat-active'); 
+      if (el) el.textContent = sToHm(Math.floor((Date.now()-clockInTime)/1000)); 
+    }
+    const el = g('stat-idle'); 
+    if (el) el.textContent = sToHm(s.idle||0);
   } catch { /* ignore */ }
 }
 
@@ -1264,6 +1284,26 @@ async function confirmReset() {
   } finally { btn.disabled = false; btn.textContent = 'Reset Password'; }
 }
 
+async function refreshKeystrokesFromDB() {
+  try {
+    const session = await api.getActiveSession();
+    if (!session) {
+      const el = g('stat-keys');
+      if (el) el.textContent = '0';
+      return;
+    }
+    const kr = await api.getAdminKeystrokes({ 
+      session_id: session.session_id, 
+      limit: '500' 
+    });
+    if (kr && kr.ok && Array.isArray(kr.data)) {
+      const total = kr.data.reduce((a, k) => a + (k.keys_pressed_count || 0), 0);
+      const el = g('stat-keys');
+      if (el) el.textContent = total.toLocaleString();
+    }
+  } catch { /* ignore */ }
+}
+
 function closeModal(id) { const el = g(id); if (el) el.classList.add('hidden'); }
 function showModalAlert(id, msg) {
   const el = g(id);
@@ -1294,19 +1334,27 @@ function sToHm(s) {
   const h=Math.floor(s/3600), m=Math.floor((s%3600)/60);
   return h ? `${h}h ${m}m` : `${m}m`;
 }
+// AFTER
+// AFTER
+function toUtc(v) {
+  // If the string has no timezone indicator, append Z so JS treats it as UTC
+  if (!v) return null;
+  const s = String(v);
+  return new Date(s.endsWith('Z') || s.includes('+') ? s : s + 'Z');
+}
 function fmtDate(v) {
   if (!v) return '—';
-  try { return new Date(v).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
+  try { return toUtc(v).toLocaleDateString('en-IN',{month:'short',day:'numeric',year:'numeric',timeZone:'Asia/Kolkata'}); }
   catch { return String(v); }
 }
 function fmtTime(v) {
   if (!v) return '—';
-  try { return new Date(v).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true}); }
+  try { return toUtc(v).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true,timeZone:'Asia/Kolkata'}); }
   catch { return String(v); }
 }
 function fmtDateTime(v) {
   if (!v) return '—';
-  try { return new Date(v).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true}); }
+  try { return toUtc(v).toLocaleString('en-IN',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true,timeZone:'Asia/Kolkata'}); }
   catch { return String(v); }
 }
 function pad(n)  { return String(n).padStart(2,'0'); }
@@ -1335,17 +1383,24 @@ function spinHtml() {
 }
 
 // ══════════════════════════════════════════════════════════
-// KEYSTROKE TRACKER
+// KEYSTROKE TRACKER (renderer-side display + fallback)
 // ══════════════════════════════════════════════════════════
+// The main process now uses a system-wide global keyboard hook (uiohook-napi)
+// that captures ALL keystrokes even when this window is minimized.
+//
+// This renderer code still runs for two purposes:
+//   1. Updates the live display counter on the Overview page
+//   2. Acts as a FALLBACK if uiohook-napi is not installed
 (function () {
   let count = 0, display = 0;
   window.addEventListener('keydown', e => {
     if (['Shift','Control','Alt','Meta','CapsLock','Tab'].includes(e.key)) return;
     count++; display++;
     const el = g('stat-keys');
-    if (el) el.textContent = display.toLocaleString();
+    
   }, true);
-  // FIX: Flush every 10 seconds (was 30s) so keystrokes appear in DB quickly
+
+  // Send to main process every 10s (used only as fallback when global hook is off)
   setInterval(async () => {
     if (!count) return;
     try {

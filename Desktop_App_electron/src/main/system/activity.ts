@@ -80,19 +80,18 @@ function extractUrl(appName: string, windowTitle: string): { url: string; domain
 
 // ── Idle detection constants ──────────────────────────────
 const IDLE_THRESHOLD_SECONDS = 5 * 60; // 5 minutes of no activity = idle
-const POLL_INTERVAL_MS = 2000;
+const POLL_INTERVAL_MS = 2000;         // check every 2 seconds
 
 // ── Activity tracker state ────────────────────────────────
-let _lastWindow: ActiveWindow | null = null;
-let _windowStart: number = Date.now();
-let _totalActive = 0;
-let _totalIdle = 0;
-let _pollInterval: NodeJS.Timeout | null = null;
-
-// Track last user activity time (keyboard/mouse activity signalled from renderer)
+let _lastWindow:      ActiveWindow | null = null;
+let _windowStart:     number = Date.now();
+let _totalActive      = 0;
+let _totalIdle        = 0;
+let _pollInterval:    NodeJS.Timeout | null = null;
 let _lastActivityTime: number = Date.now();
+let _wasIdle          = false; // track idle→active transitions
 
-// Called from IPC when renderer detects user input
+// ── Called from globalKeyboard on every keypress/mouse click ──
 export function signalUserActivity(): void {
   _lastActivityTime = Date.now();
 }
@@ -101,69 +100,89 @@ function isCurrentlyIdle(): boolean {
   return (Date.now() - _lastActivityTime) >= (IDLE_THRESHOLD_SECONDS * 1000);
 }
 
+// ── Log the current window's elapsed time and reset window start ──
+function closeCurrentWindow(now: number): void {
+  if (!_lastWindow) return;
+  const elapsed = Math.floor((now - _windowStart) / 1000);
+  if (elapsed > 1) {
+    trackingService.pushActivity({
+      app_name:     _lastWindow.appName,
+      window_title: _lastWindow.windowTitle,
+      start_time:   new Date(_windowStart).toISOString(),
+      end_time:     new Date(now).toISOString(),
+      duration:     elapsed,
+      is_idle:      false,
+    });
+
+    const urlInfo = extractUrl(_lastWindow.appName, _lastWindow.windowTitle);
+    if (urlInfo) {
+      trackingService.pushWebsite({
+        url:       urlInfo.url,
+        domain:    urlInfo.domain,
+        title:     _lastWindow.windowTitle,
+        duration:  elapsed,
+        timestamp: new Date(_windowStart).toISOString(),
+      });
+    }
+
+    // ── KEY FIX: active time is added ONLY here, ONCE per window close ──
+    _totalActive += elapsed;
+  }
+  _windowStart = now;
+}
+
 export const activityTracker = {
+
   start(): void {
-    _lastWindow = null;
-    _windowStart = Date.now();
-    _totalActive = 0;
-    _totalIdle = 0;
+    _lastWindow       = null;
+    _windowStart      = Date.now();
+    _totalActive      = 0;
+    _totalIdle        = 0;
+    _wasIdle          = false;
     _lastActivityTime = Date.now(); // reset idle timer on clock-in
 
     _pollInterval = setInterval(async () => {
-      const now = Date.now();
+      const now  = Date.now();
       const idle = isCurrentlyIdle();
 
+      // ── IDLE branch ───────────────────────────────────────
       if (idle) {
-        // User has been idle for >= 5 minutes — count these 2 seconds as idle
+        if (!_wasIdle) {
+          // Just became idle — close off the active window first
+          closeCurrentWindow(now);
+          _lastWindow = null;
+          _wasIdle    = true;
+        }
+        // Count these 2 seconds as idle
         _totalIdle += POLL_INTERVAL_MS / 1000;
         return;
       }
 
-      // User is active
-      const current = await getActiveWindow();
-      if (!current) {
-        _totalActive += POLL_INTERVAL_MS / 1000;
-        return;
+      // ── ACTIVE branch ─────────────────────────────────────
+      if (_wasIdle) {
+        // Just returned from idle — reset window start
+        _wasIdle     = false;
+        _windowStart = now;
+        _lastWindow  = null;
       }
 
-      const elapsed = Math.floor((now - _windowStart) / 1000);
+      const current = await getActiveWindow();
+      if (!current) return;
 
       const isDifferentWindow =
         !_lastWindow ||
-        _lastWindow.appName !== current.appName ||
+        _lastWindow.appName     !== current.appName ||
         _lastWindow.windowTitle !== current.windowTitle;
 
-      if (isDifferentWindow && _lastWindow && elapsed > 1) {
-        // Log the previous window
-        trackingService.pushActivity({
-          app_name: _lastWindow.appName,
-          window_title: _lastWindow.windowTitle,
-          start_time: new Date(_windowStart).toISOString(),
-          end_time: new Date(now).toISOString(),
-          duration: elapsed,
-          is_idle: false,
-        });
-
-        const urlInfo = extractUrl(_lastWindow.appName, _lastWindow.windowTitle);
-        if (urlInfo) {
-          trackingService.pushWebsite({
-            url: urlInfo.url,
-            domain: urlInfo.domain,
-            title: _lastWindow.windowTitle,
-            duration: elapsed,
-            timestamp: new Date(_windowStart).toISOString(),
-          });
-        }
-
-        _totalActive += elapsed;
-        _windowStart = now;
-        _lastWindow = current;
-      } else if (!isDifferentWindow) {
-        _totalActive += POLL_INTERVAL_MS / 1000;
-      } else {
-        _lastWindow = current;
+      if (isDifferentWindow) {
+        // Window changed — close previous window (adds elapsed to _totalActive ONCE)
+        closeCurrentWindow(now);
+        // Start tracking new window
+        _lastWindow  = current;
         _windowStart = now;
       }
+      // If same window — do nothing. Time is counted when window closes.
+
     }, POLL_INTERVAL_MS);
   },
 
@@ -173,20 +192,9 @@ export const activityTracker = {
       _pollInterval = null;
     }
 
-    if (_lastWindow) {
-      const now = Date.now();
-      const elapsed = Math.floor((now - _windowStart) / 1000);
-      if (elapsed > 1) {
-        trackingService.pushActivity({
-          app_name: _lastWindow.appName,
-          window_title: _lastWindow.windowTitle,
-          start_time: new Date(_windowStart).toISOString(),
-          end_time: new Date(now).toISOString(),
-          duration: elapsed,
-          is_idle: false,
-        });
-        _totalActive += elapsed;
-      }
+    // Close the final window at clock-out
+    if (_lastWindow && !_wasIdle) {
+      closeCurrentWindow(Date.now());
     }
   },
 

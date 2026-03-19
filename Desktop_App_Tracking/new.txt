@@ -1,208 +1,5 @@
-.
-├── alembic
-│   ├── env.py
-│   ├── script.py.mako
-│   └── versions
-│       └── README
-├── alembic.ini
-├── app
-│   ├── api
-│   │   ├── deps.py
-│   │   ├── __init__.py
-│   │   └── routes
-│   │       ├── admin.py
-│   │       ├── auth.py
-│   │       ├── employee.py
-│   │       ├── __init__.py
-│   │       ├── session.py
-│   │       └── tracking.py
-│   ├── core
-│   │   ├── config.py
-│   │   ├── database.py
-│   │   ├── exceptions.py
-│   │   ├── __init__.py
-│   │   ├── middleware.py
-│   │   └── security.py
-│   ├── {core,models,schemas,api
-│   │   └── routes,services,workers,utils}
-│   ├── __init__.py
-│   ├── main.py
-│   ├── models
-│   │   ├── activity.py
-│   │   ├── device.py
-│   │   ├── employee.py
-│   │   ├── __init__.py
-│   │   ├── keystroke.py
-│   │   ├── network.py
-│   │   ├── session.py
-│   │   ├── system_metrics.py
-│   │   └── website.py
-│   ├── schemas
-│   │   ├── common.py
-│   │   ├── device.py
-│   │   ├── employee.py
-│   │   ├── __init__.py
-│   │   ├── password.py
-│   │   ├── session.py
-│   │   └── tracking.py
-│   ├── services
-│   │   ├── analytics_service.py
-│   │   ├── auth_service.py
-│   │   ├── employee_service.py
-│   │   ├── __init__.py
-│   │   ├── session_service.py
-│   │   └── tracking_service.py
-│   ├── utils
-│   │   ├── helpers.py
-│   │   ├── __init__.py
-│   │   └── logger.py
-│   └── workers
-│       ├── background_tasks.py
-│       └── __init__.py
-├── app.txt
-├── database_script.py
-├── new.txt
-├── pytest.ini
-├── README.md
-├── requirements.txt
-├── run.py
-└── tests
-    ├── conftest.py
-    ├── __init__.py
-    ├── test_admin.py
-    ├── test_auth.py
-    ├── test_employees.py
-    ├── test_sessions.py
-    └── test_tracking.py
-
-14 directories, 61 files
 ====================================
-FILE: ./alembic.ini
-====================================
-[alembic]
-script_location = alembic
-prepend_sys_path = .
-version_path_separator = os
-sqlalchemy.url = postgresql+psycopg2://postgres:sohamsoni22@localhost:5432/employee_monitor_newer
-
-[post_write_hooks]
-
-[loggers]
-keys = root,sqlalchemy,alembic
-
-[handlers]
-keys = console
-
-[formatters]
-keys = generic
-
-[logger_root]
-level = WARN
-handlers = console
-qualname =
-
-[logger_sqlalchemy]
-level = WARN
-handlers =
-qualname = sqlalchemy.engine
-
-[logger_alembic]
-level = INFO
-handlers =
-qualname = alembic
-
-[handler_console]
-class = StreamHandler
-args = (sys.stderr,)
-level = NOTSET
-formatter = generic
-
-[formatter_generic]
-format = %(levelname)-5.5s [%(name)s] %(message)s
-datefmt = %H:%M:%S
-
-
-====================================
-FILE: ./new.txt
-====================================
-
-
-
-====================================
-FILE: ./alembic/env.py
-====================================
-import os
-import sys
-from logging.config import fileConfig
-
-from sqlalchemy import engine_from_config, pool
-from alembic import context
-
-# Make sure the app package is importable
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
-# Load .env before importing settings
-from dotenv import load_dotenv
-load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
-
-from app.core.config import settings
-from app.core.database import Base
-
-# Import every model so Alembic can detect them
-from app.models import (  # noqa: F401
-    employee, session, device, network,
-    activity, system_metrics, keystroke, website,
-)
-
-config = context.config
-
-# Override sqlalchemy.url from settings so .env is the single source of truth
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
-
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
-
-target_metadata = Base.metadata
-
-
-def run_migrations_offline() -> None:
-    url = config.get_main_option("sqlalchemy.url")
-    context.configure(
-        url=url,
-        target_metadata=target_metadata,
-        literal_binds=True,
-        dialect_opts={"paramstyle": "named"},
-        compare_type=True,
-    )
-    with context.begin_transaction():
-        context.run_migrations()
-
-
-def run_migrations_online() -> None:
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
-    with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-            compare_type=True,
-        )
-        with context.begin_transaction():
-            context.run_migrations()
-
-
-if context.is_offline_mode():
-    run_migrations_offline()
-else:
-    run_migrations_online()
-
-
-
-====================================
-FILE: ./app/models/session.py
+FILE: app/models/session.py
 ====================================
 import uuid
 from sqlalchemy import Column, String, Integer, Float, Date, TIMESTAMP, ForeignKey
@@ -246,13 +43,13 @@ class Session(Base):
 
 
 ====================================
-FILE: ./app/models/__init__.py
+FILE: app/models/__init__.py
 ====================================
 
 
 
 ====================================
-FILE: ./app/models/device.py
+FILE: app/models/device.py
 ====================================
 import uuid
 from sqlalchemy import Column, String, Integer, TIMESTAMP, ForeignKey
@@ -297,7 +94,7 @@ class Device(Base):
 
 
 ====================================
-FILE: ./app/models/activity.py
+FILE: app/models/activity.py
 ====================================
 import uuid
 from sqlalchemy import Column, String, Integer, Boolean, Text, TIMESTAMP, ForeignKey
@@ -326,7 +123,7 @@ class ActivityLog(Base):
 
 
 ====================================
-FILE: ./app/models/website.py
+FILE: app/models/website.py
 ====================================
 import uuid
 from sqlalchemy import Column, String, Integer, Text, TIMESTAMP, ForeignKey
@@ -354,7 +151,7 @@ class WebsiteLog(Base):
 
 
 ====================================
-FILE: ./app/models/employee.py
+FILE: app/models/employee.py
 ====================================
 import uuid
 from sqlalchemy import Column, String, Boolean, Date, TIMESTAMP, Text
@@ -392,7 +189,7 @@ class Employee(Base):
 
 
 ====================================
-FILE: ./app/models/system_metrics.py
+FILE: app/models/system_metrics.py
 ====================================
 import uuid
 from sqlalchemy import Column, Float, TIMESTAMP, ForeignKey
@@ -418,7 +215,7 @@ class SystemMetric(Base):
 
 
 ====================================
-FILE: ./app/models/keystroke.py
+FILE: app/models/keystroke.py
 ====================================
 import uuid
 from sqlalchemy import Column, Integer, Text, TIMESTAMP, ForeignKey
@@ -444,7 +241,7 @@ class Keystroke(Base):
 
 
 ====================================
-FILE: ./app/models/network.py
+FILE: app/models/network.py
 ====================================
 import uuid
 from sqlalchemy import Column, String, Float, TIMESTAMP, ForeignKey
@@ -487,7 +284,7 @@ class NetworkSpeedLog(Base):
 
 
 ====================================
-FILE: ./app/schemas/session.py
+FILE: app/schemas/session.py
 ====================================
 from pydantic import BaseModel
 from typing import Optional
@@ -536,7 +333,7 @@ class SessionOut(BaseModel):
 
 
 ====================================
-FILE: ./app/schemas/common.py
+FILE: app/schemas/common.py
 ====================================
 from pydantic import BaseModel
 from typing import Optional, Any
@@ -555,13 +352,13 @@ class PaginationParams(BaseModel):
 
 
 ====================================
-FILE: ./app/schemas/__init__.py
+FILE: app/schemas/__init__.py
 ====================================
 
 
 
 ====================================
-FILE: ./app/schemas/password.py
+FILE: app/schemas/password.py
 ====================================
 from pydantic import BaseModel, field_validator
 
@@ -591,7 +388,7 @@ class AdminPasswordResetRequest(BaseModel):
 
 
 ====================================
-FILE: ./app/schemas/device.py
+FILE: app/schemas/device.py
 ====================================
 from pydantic import BaseModel
 from typing import Optional
@@ -664,7 +461,7 @@ class DeviceMasterOut(BaseModel):
 
 
 ====================================
-FILE: ./app/schemas/employee.py
+FILE: app/schemas/employee.py
 ====================================
 from pydantic import BaseModel, EmailStr
 from typing import Optional
@@ -716,7 +513,7 @@ class TokenResponse(BaseModel):
 
 
 ====================================
-FILE: ./app/schemas/tracking.py
+FILE: app/schemas/tracking.py
 ====================================
 from pydantic import BaseModel
 from typing import Optional, List
@@ -846,13 +643,13 @@ class WebsiteBatch(BaseModel):
 
 
 ====================================
-FILE: ./app/utils/__init__.py
+FILE: app/utils/__init__.py
 ====================================
 
 
 
 ====================================
-FILE: ./app/utils/logger.py
+FILE: app/utils/logger.py
 ====================================
 import logging
 import sys
@@ -873,7 +670,7 @@ def get_logger(name: str) -> logging.Logger:
 
 
 ====================================
-FILE: ./app/utils/helpers.py
+FILE: app/utils/helpers.py
 ====================================
 from datetime import datetime, timezone
 import uuid
@@ -898,19 +695,19 @@ def seconds_to_hms(seconds: int) -> str:
 
 
 ====================================
-FILE: ./app/__init__.py
+FILE: app/__init__.py
 ====================================
 
 
 
 ====================================
-FILE: ./app/workers/__init__.py
+FILE: app/workers/__init__.py
 ====================================
 
 
 
 ====================================
-FILE: ./app/workers/background_tasks.py
+FILE: app/workers/background_tasks.py
 ====================================
 """
 Background worker — runs inside the FastAPI process using asyncio.
@@ -967,7 +764,7 @@ async def run_background_tasks():
 
 
 ====================================
-FILE: ./app/api/deps.py
+FILE: app/api/deps.py
 ====================================
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -1013,13 +810,13 @@ def require_admin(employee: Employee = Depends(get_current_employee)) -> Employe
 
 
 ====================================
-FILE: ./app/api/__init__.py
+FILE: app/api/__init__.py
 ====================================
 
 
 
 ====================================
-FILE: ./app/api/routes/session.py
+FILE: app/api/routes/session.py
 ====================================
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -1185,13 +982,13 @@ def get_session_network_info(
 
 
 ====================================
-FILE: ./app/api/routes/__init__.py
+FILE: app/api/routes/__init__.py
 ====================================
 
 
 
 ====================================
-FILE: ./app/api/routes/admin.py
+FILE: app/api/routes/admin.py
 ====================================
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -1385,7 +1182,7 @@ def admin_devices(
 
 
 ====================================
-FILE: ./app/api/routes/employee.py
+FILE: app/api/routes/employee.py
 ====================================
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
@@ -1533,7 +1330,7 @@ def admin_reset_password(
 
 
 ====================================
-FILE: ./app/api/routes/auth.py
+FILE: app/api/routes/auth.py
 ====================================
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -1569,7 +1366,7 @@ def get_me(current_employee: Employee = Depends(get_current_employee)):
 
 
 ====================================
-FILE: ./app/api/routes/tracking.py
+FILE: app/api/routes/tracking.py
 ====================================
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -1758,13 +1555,13 @@ def get_network_speed(
 
 
 ====================================
-FILE: ./app/services/__init__.py
+FILE: app/services/__init__.py
 ====================================
 
 
 
 ====================================
-FILE: ./app/services/tracking_service.py
+FILE: app/services/tracking_service.py
 ====================================
 import uuid
 from sqlalchemy.orm import Session
@@ -1993,7 +1790,7 @@ def get_network_speed_logs(
 
 
 ====================================
-FILE: ./app/services/employee_service.py
+FILE: app/services/employee_service.py
 ====================================
 """
 Employee CRUD helpers extracted from the route layer so they can be
@@ -2105,7 +1902,7 @@ def reactivate(db: Session, employee_id: UUID) -> None:
 
 
 ====================================
-FILE: ./app/services/session_service.py
+FILE: app/services/session_service.py
 ====================================
 import uuid
 from datetime import date
@@ -2268,7 +2065,7 @@ def get_sessions(
 
 
 ====================================
-FILE: ./app/services/auth_service.py
+FILE: app/services/auth_service.py
 ====================================
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -2327,7 +2124,7 @@ def seed_default_admin(db: Session, cfg) -> None:
 
 
 ====================================
-FILE: ./app/services/analytics_service.py
+FILE: app/services/analytics_service.py
 ====================================
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
@@ -2429,13 +2226,13 @@ def get_avg_system_metrics(db: Session, session_id: UUID):
 
 
 ====================================
-FILE: ./app/core/__init__.py
+FILE: app/core/__init__.py
 ====================================
 
 
 
 ====================================
-FILE: ./app/core/config.py
+FILE: app/core/config.py
 ====================================
 from pydantic_settings import BaseSettings
 from typing import Optional
@@ -2461,7 +2258,7 @@ settings = Settings()
 
 
 ====================================
-FILE: ./app/core/middleware.py
+FILE: app/core/middleware.py
 ====================================
 import time
 from fastapi import Request
@@ -2491,7 +2288,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
 
 ====================================
-FILE: ./app/core/security.py
+FILE: app/core/security.py
 ====================================
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Union
@@ -2529,7 +2326,7 @@ def decode_token(token: str) -> Optional[dict]:
 
 
 ====================================
-FILE: ./app/core/database.py
+FILE: app/core/database.py
 ====================================
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
@@ -2557,7 +2354,7 @@ def get_db():
 
 
 ====================================
-FILE: ./app/core/exceptions.py
+FILE: app/core/exceptions.py
 ====================================
 from fastapi import HTTPException, status
 
@@ -2589,7 +2386,7 @@ class ConflictException(HTTPException):
 
 
 ====================================
-FILE: ./app/main.py
+FILE: app/main.py
 ====================================
 import asyncio
 from contextlib import asynccontextmanager
@@ -2720,501 +2517,13 @@ def health():
 
 
 ====================================
-FILE: ./README.md
-====================================
-# Employee Monitor — FastAPI Backend
-
-Production-ready REST API for the Employee Monitoring desktop application.
-Built with **FastAPI**, **PostgreSQL**, **SQLAlchemy 2**, and **Pydantic v2**.
-
----
-
-## Table of Contents
-
-1. [Quick Start](#quick-start)
-2. [Project Structure](#project-structure)
-3. [Environment Variables](#environment-variables)
-4. [Database Setup](#database-setup)
-5. [Running the Server](#running-the-server)
-6. [API Reference](#api-reference)
-7. [Authentication Flow](#authentication-flow)
-8. [Role-Based Access](#role-based-access)
-9. [Tracking Flow (Desktop Client)](#tracking-flow-desktop-client)
-10. [Alembic Migrations](#alembic-migrations)
-11. [Running Tests](#running-tests)
-12. [Architecture Notes](#architecture-notes)
-
----
-
-## Quick Start
-
-```bash
-# 1. Clone / extract the project
-cd employee_monitor_backend
-
-# 2. Create a virtual environment
-python -m venv venv
-source venv/bin/activate          # Windows: venv\Scripts\activate
-
-# 3. Install dependencies
-pip install -r requirements.txt
-
-# 4. Configure the environment
-cp .env .env.local                # edit .env with your DB credentials
-
-# 5. Start the server
-python run.py
-```
-
-The API will be live at **http://localhost:8000**
-Interactive docs: **http://localhost:8000/docs**
-
-> **Default admin is auto-seeded on first startup:**
-> Email: `admin@avdevs.com` | Password: `1234`
-
----
-
-## Project Structure
-
-```
-employee_monitor_backend/
-│
-├── app/
-│   ├── main.py                   # FastAPI app, middleware, lifespan
-│   │
-│   ├── core/
-│   │   ├── config.py             # Pydantic settings (reads .env)
-│   │   ├── database.py           # SQLAlchemy engine + session factory
-│   │   ├── security.py           # JWT creation/verification, bcrypt
-│   │   ├── exceptions.py         # Custom HTTP exception classes
-│   │   └── middleware.py         # Request logging middleware
-│   │
-│   ├── models/                   # SQLAlchemy ORM models (one per table)
-│   │   ├── employee.py
-│   │   ├── session.py
-│   │   ├── device.py             # DeviceInfo + Device (master)
-│   │   ├── network.py            # NetworkInfo + NetworkSpeedLog
-│   │   ├── activity.py
-│   │   ├── system_metrics.py
-│   │   ├── keystroke.py
-│   │   └── website.py
-│   │
-│   ├── schemas/                  # Pydantic v2 request/response schemas
-│   │   ├── employee.py
-│   │   ├── session.py
-│   │   ├── device.py
-│   │   ├── tracking.py           # Activity, Website, Keystrokes, Metrics, Speed
-│   │   ├── password.py
-│   │   └── common.py
-│   │
-│   ├── api/
-│   │   ├── deps.py               # JWT auth dependency + role guard
-│   │   └── routes/
-│   │       ├── auth.py           # /auth/login, /auth/me
-│   │       ├── employee.py       # CRUD + password management
-│   │       ├── session.py        # clock-in, clock-out, device/network info
-│   │       ├── tracking.py       # All 5 tracking endpoints (+ batch)
-│   │       └── admin.py          # Admin-only reports and filters
-│   │
-│   ├── services/                 # Business logic layer
-│   │   ├── auth_service.py       # Authenticate + seed default admin
-│   │   ├── employee_service.py   # Employee CRUD operations
-│   │   ├── session_service.py    # Clock-in/out, device & network capture
-│   │   ├── tracking_service.py   # All tracking inserts + queries
-│   │   └── analytics_service.py  # Productivity summaries
-│   │
-│   ├── workers/
-│   │   └── background_tasks.py   # Async task: auto-close stale sessions
-│   │
-│   └── utils/
-│       ├── logger.py             # Structured stdout logger
-│       └── helpers.py            # utcnow(), seconds_to_hms(), etc.
-│
-├── alembic/                      # Database migration scripts
-│   ├── env.py
-│   ├── script.py.mako
-│   └── versions/
-│
-├── tests/
-│   ├── conftest.py               # Pytest fixtures (SQLite in-memory)
-│   ├── test_auth.py
-│   ├── test_employees.py
-│   ├── test_sessions.py
-│   ├── test_tracking.py
-│   └── test_admin.py
-│
-├── alembic.ini
-├── requirements.txt
-├── run.py
-└── .env
-```
-
----
-
-## Environment Variables
-
-Edit `.env` before running:
-
-```env
-DATABASE_URL=postgresql+psycopg2://postgres:PASSWORD@localhost:5432/employee_monitor_newer
-SECRET_KEY=your-super-secret-key-change-in-production-min-32-chars
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=480          # 8 hours
-
-DEFAULT_ADMIN_EMAIL=admin@avdevs.com
-DEFAULT_ADMIN_PASSWORD=1234
-DEFAULT_ADMIN_NAME=Super Admin
-DEFAULT_ADMIN_DEPARTMENT=IT
-```
-
----
-
-## Database Setup
-
-### Option A — Let the app create tables (recommended for first run)
-
-`Base.metadata.create_all()` is called automatically at startup.
-All tables will be created if they don't exist yet.
-
-### Option B — Alembic migrations (recommended for production)
-
-```bash
-# Generate initial migration from current models
-alembic revision --autogenerate -m "initial schema"
-
-# Apply it
-alembic upgrade head
-```
-
-After any model change:
-
-```bash
-alembic revision --autogenerate -m "describe your change"
-alembic upgrade head
-```
-
-Rollback one migration:
-
-```bash
-alembic downgrade -1
-```
-
----
-
-## Running the Server
-
-```bash
-# Development (auto-reload)
-python run.py
-
-# Production with Gunicorn + Uvicorn workers
-pip install gunicorn
-gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w 4 -b 0.0.0.0:8000
-```
-
----
-
-## API Reference
-
-All endpoints are prefixed with `/api/v1`.
-
-### Authentication
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | `/auth/login` | Public | Login, get JWT token |
-| GET | `/auth/me` | Any | Get current user profile |
-
-**Login request:**
-```json
-{ "email": "admin@avdevs.com", "password": "1234" }
-```
-
-**Login response:**
-```json
-{
-  "access_token": "eyJ...",
-  "token_type": "bearer",
-  "employee": { "employee_id": "...", "role": "admin", ... }
-}
-```
-
----
-
-### Employees
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | `/employees` | Admin | Create employee |
-| GET | `/employees` | Admin | List all employees |
-| GET | `/employees/me` | Any | Own profile |
-| GET | `/employees/{id}` | Any* | Get employee by ID |
-| PATCH | `/employees/{id}` | Admin | Update employee |
-| DELETE | `/employees/{id}` | Admin | Deactivate employee |
-| PATCH | `/employees/{id}/reactivate` | Admin | Reactivate employee |
-| POST | `/employees/me/change-password` | Any | Self password change |
-| POST | `/employees/{id}/reset-password` | Admin | Admin resets password |
-
-*Employees can only fetch their own profile.
-
-**Create employee body:**
-```json
-{
-  "employee_name": "Jane Doe",
-  "email": "jane@company.com",
-  "password": "securepass",
-  "department": "Engineering",
-  "role": "employee"
-}
-```
-
----
-
-### Sessions
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | `/sessions/clock-in` | Any | Start a session |
-| POST | `/sessions/clock-out` | Any | End a session |
-| GET | `/sessions/active` | Any | Get own active session |
-| GET | `/sessions/my` | Any | Own session history |
-| GET | `/sessions` | Admin | All sessions (filterable) |
-| GET | `/sessions/{id}` | Any* | Get single session |
-| POST | `/sessions/device-info` | Any | Save device info at clock-in |
-| POST | `/sessions/network-info` | Any | Save network info at clock-in |
-
-**Clock-in body:**
-```json
-{
-  "ip_address": "192.168.1.10",
-  "latitude": 22.307,
-  "longitude": 73.181,
-  "city": "Vadodara",
-  "country": "India",
-  "location": "Vadodara, India",
-  "network_speed_start": 95.5,
-  "device_id": "DESKTOP-ABC123"
-}
-```
-
-**Clock-out body:**
-```json
-{
-  "session_id": "uuid-here",
-  "total_active_time": 18000,
-  "total_idle_time": 1200
-}
-```
-
----
-
-### Tracking
-
-All tracking endpoints require a valid JWT. Employees can only read their own data.
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/tracking/activity` | Log one activity window |
-| POST | `/tracking/activity/batch` | Batch insert activity logs |
-| GET | `/tracking/activity` | Read own activity |
-| POST | `/tracking/website` | Log one website visit |
-| POST | `/tracking/website/batch` | Batch insert website logs |
-| GET | `/tracking/website` | Read own website logs |
-| POST | `/tracking/keystrokes` | Log keystroke count |
-| GET | `/tracking/keystrokes` | Read own keystroke logs |
-| POST | `/tracking/system-metrics` | Log CPU/memory snapshot |
-| GET | `/tracking/system-metrics` | Read own metrics |
-| POST | `/tracking/network-speed` | Log network speed snapshot |
-| GET | `/tracking/network-speed` | Read own speed logs |
-
-**Activity log body:**
-```json
-{
-  "session_id": "uuid",
-  "app_name": "VS Code",
-  "window_title": "main.py - my_project",
-  "start_time": "2025-01-01T09:00:00Z",
-  "end_time": "2025-01-01T09:05:00Z",
-  "duration": 300,
-  "is_idle": false
-}
-```
-
-**System metrics body (send every 5 minutes):**
-```json
-{
-  "session_id": "uuid",
-  "cpu_usage": 34.5,
-  "memory_usage": 61.2
-}
-```
-
-**Network speed body (send every 5 minutes):**
-```json
-{
-  "session_id": "uuid",
-  "download_speed": 95.3,
-  "upload_speed": 48.1,
-  "ping": 12.0
-}
-```
-
----
-
-### Admin
-
-All admin endpoints require `role = admin`.
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/admin/summary` | All employees productivity summary |
-| GET | `/admin/summary/{employee_id}` | Single employee summary |
-| GET | `/admin/session-metrics/{session_id}` | Avg CPU/memory for a session |
-| GET | `/admin/sessions` | All sessions (filter by employee, date, status) |
-| GET | `/admin/activity` | All activity logs |
-| GET | `/admin/website` | All website logs |
-| GET | `/admin/keystrokes` | All keystroke logs |
-| GET | `/admin/system-metrics` | All system metric snapshots |
-| GET | `/admin/network-speed` | All network speed logs |
-| GET | `/admin/device-info` | All device info records |
-| GET | `/admin/network-info` | All network info records |
-| GET | `/admin/devices` | Device master registry |
-
-**Common query params for admin list endpoints:**
-- `employee_id` — filter by specific employee
-- `session_id` — filter by specific session
-- `skip` / `limit` — pagination
-
----
-
-## Authentication Flow
-
-```
-1. POST /api/v1/auth/login
-   Body: { email, password }
-   Response: { access_token, employee }
-
-2. Include in all subsequent requests:
-   Header: Authorization: Bearer <access_token>
-
-3. Token expires after ACCESS_TOKEN_EXPIRE_MINUTES (default 480 = 8h)
-```
-
----
-
-## Role-Based Access
-
-| Feature | Employee | Admin |
-|---------|----------|-------|
-| Login | ✅ | ✅ |
-| View own profile | ✅ | ✅ |
-| Clock in / out | ✅ | ✅ |
-| Track own activity | ✅ | ✅ |
-| View own sessions | ✅ | ✅ |
-| Create employees | ❌ | ✅ |
-| View all employees | ❌ | ✅ |
-| View all sessions | ❌ | ✅ |
-| View all activity | ❌ | ✅ |
-| Productivity reports | ❌ | ✅ |
-| Reset any password | ❌ | ✅ |
-
----
-
-## Tracking Flow (Desktop Client)
-
-This is the recommended sequence the Electron app should follow:
-
-```
-1. POST /auth/login              → receive JWT
-
-2. POST /sessions/clock-in       → receive session_id
-   (send IP, location, device_id, network_speed_start)
-
-3. POST /sessions/device-info    → send OS, CPU, RAM, storage
-4. POST /sessions/network-info   → send SSID, MAC, connection type
-
-── Every 5 minutes ──────────────────────────────────────────
-5. POST /tracking/system-metrics  → CPU %, memory %
-6. POST /tracking/network-speed   → download, upload, ping
-
-── Continuous / on window change ────────────────────────────
-7. POST /tracking/activity/batch  → array of window focus events
-8. POST /tracking/website/batch   → array of URL visits
-9. POST /tracking/keystrokes      → keys_pressed_count for interval
-
-── On clock-out ─────────────────────────────────────────────
-10. POST /sessions/clock-out      → send session_id, active/idle totals
-```
-
----
-
-## Running Tests
-
-Tests use SQLite (no Postgres required):
-
-```bash
-pip install pytest httpx pytest-asyncio
-pytest tests/ -v
-```
-
-Run a specific file:
-```bash
-pytest tests/test_auth.py -v
-pytest tests/test_tracking.py -v
-```
-
----
-
-## Architecture Notes
-
-- **Clean layering:** Routes → Services → Models. Routes never touch the DB directly.
-- **No double clock-in:** `clock_in()` returns the existing active session silently.
-- **Stale session cleanup:** Background worker auto-closes sessions open for 12+ hours.
-- **Batch inserts:** `/tracking/activity/batch` and `/tracking/website/batch` accept arrays, reducing round trips from the desktop client.
-- **Pagination:** All list endpoints support `skip` + `limit` query params.
-- **Global exception handler:** Catches unhandled errors and returns clean JSON (no stack traces to client).
-- **Request logging:** Every non-health request is logged with method, path, status, and duration.
-
-
-
-====================================
-FILE: ./requirements.txt
-====================================
-fastapi==0.109.2
-uvicorn[standard]==0.27.1
-sqlalchemy==2.0.27
-psycopg2-binary==2.9.9
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-python-multipart==0.0.9
-pydantic==2.6.1
-pydantic-settings==2.2.1
-python-dotenv==1.0.1
-alembic==1.13.1
-httpx==0.26.0
-
-
-
-====================================
-FILE: ./pytest.ini
-====================================
-[pytest]
-testpaths = tests
-addopts = -v --tb=short
-python_files = test_*.py
-python_classes = Test*
-python_functions = test_*
-
-
-
-====================================
-FILE: ./tests/__init__.py
+FILE: tests/__init__.py
 ====================================
 
 
 
 ====================================
-FILE: ./tests/test_sessions.py
+FILE: tests/test_sessions.py
 ====================================
 import uuid
 
@@ -3312,7 +2621,7 @@ def test_clock_out_wrong_session(client, admin_headers):
 
 
 ====================================
-FILE: ./tests/test_auth.py
+FILE: tests/test_auth.py
 ====================================
 def test_login_success(client):
     resp = client.post(
@@ -3354,7 +2663,7 @@ def test_me_no_token(client):
 
 
 ====================================
-FILE: ./tests/test_employees.py
+FILE: tests/test_employees.py
 ====================================
 import uuid
 
@@ -3425,7 +2734,7 @@ def test_deactivate_employee(client, admin_headers):
 
 
 ====================================
-FILE: ./tests/test_tracking.py
+FILE: tests/test_tracking.py
 ====================================
 import uuid
 from datetime import datetime, timezone
@@ -3561,7 +2870,7 @@ def test_get_own_activity(client, admin_headers):
 
 
 ====================================
-FILE: ./tests/conftest.py
+FILE: tests/conftest.py
 ====================================
 """
 Pytest fixtures for integration tests.
@@ -3631,7 +2940,7 @@ def admin_headers(admin_token):
 
 
 ====================================
-FILE: ./tests/test_admin.py
+FILE: tests/test_admin.py
 ====================================
 import uuid
 
@@ -3747,231 +3056,6 @@ def test_admin_route_blocked_for_employee(client, admin_headers):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 403
-
-
-
-====================================
-FILE: ./database_script.py
-====================================
-# db_init.py
-
-from sqlalchemy import (
-    create_engine, MetaData, Table, Column,
-    String, Integer, Float, Boolean, Text, Date, TIMESTAMP, ForeignKey
-)
-from sqlalchemy.dialects.postgresql import UUID
-import uuid
-
-# ==============================
-# CONFIG (CHANGE THIS)
-# ==============================
-DATABASE_URL = "postgresql+psycopg2://postgres:sohamsoni22@localhost:5432/employee_monitor_newer"
-
-engine = create_engine(DATABASE_URL)
-metadata = MetaData()
-
-# ==============================
-# 1️⃣ EMPLOYEES TABLE
-# ==============================
-employees = Table(
-    "employees",
-    metadata,
-    Column("employee_id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
-    Column("employee_name", String),
-    Column("email", String, unique=True),
-    Column("password_hash", Text),
-    Column("department", String),
-    Column("role", String),  # admin / employee
-    Column("created_by", UUID(as_uuid=True)),
-    Column("date_of_joining", Date),
-    Column("status", Boolean),
-    Column("created_at", TIMESTAMP),
-)
-
-# ==============================
-# 2️⃣ SESSIONS TABLE (CORE)
-# ==============================
-sessions = Table(
-    "sessions",
-    metadata,
-    Column("session_id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
-    Column("employee_id", UUID(as_uuid=True), ForeignKey("employees.employee_id")),
-    Column("date", Date),
-    Column("clock_in", TIMESTAMP),
-    Column("clock_out", TIMESTAMP),
-    Column("total_active_time", Integer),
-    Column("total_idle_time", Integer),
-    Column("session_status", String),
-
-    # NEW FIELDS
-    Column("ip_address", String),
-    Column("location", String),
-    Column("latitude", Float),
-    Column("longitude", Float),
-    Column("city", String),
-    Column("country", String),
-    Column("network_speed_start", Float),
-    Column("device_id", String),
-)
-
-# ==============================
-# 3️⃣ DEVICE INFO
-# ==============================
-device_info = Table(
-    "device_info",
-    metadata,
-    Column("id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
-    Column("session_id", UUID(as_uuid=True), ForeignKey("sessions.session_id")),
-    Column("employee_id", UUID(as_uuid=True), ForeignKey("employees.employee_id")),
-    Column("device_id", String),
-    Column("device_name", String),
-    Column("os", String),
-    Column("cpu", String),
-    Column("ram", String),
-    Column("storage_total", Integer),
-    Column("storage_free", Integer),
-    Column("captured_at", TIMESTAMP),
-)
-
-# ==============================
-# 4️⃣ NETWORK INFO
-# ==============================
-network_info = Table(
-    "network_info",
-    metadata,
-    Column("id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
-    Column("session_id", UUID(as_uuid=True), ForeignKey("sessions.session_id")),
-    Column("employee_id", UUID(as_uuid=True), ForeignKey("employees.employee_id")),
-    Column("ip_address", String),
-    Column("connection_type", String),
-    Column("ssid", String),
-    Column("mac_address", String),
-    Column("captured_at", TIMESTAMP),
-)
-
-# ==============================
-# 5️⃣ NETWORK SPEED LOGS
-# ==============================
-network_speed_logs = Table(
-    "network_speed_logs",
-    metadata,
-    Column("id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
-    Column("session_id", UUID(as_uuid=True), ForeignKey("sessions.session_id")),
-    Column("employee_id", UUID(as_uuid=True), ForeignKey("employees.employee_id")),
-    Column("download_speed", Float),
-    Column("upload_speed", Float),
-    Column("ping", Float),
-    Column("timestamp", TIMESTAMP),
-)
-
-# ==============================
-# 6️⃣ SYSTEM METRICS
-# ==============================
-system_metrics = Table(
-    "system_metrics",
-    metadata,
-    Column("id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
-    Column("session_id", UUID(as_uuid=True), ForeignKey("sessions.session_id")),
-    Column("employee_id", UUID(as_uuid=True), ForeignKey("employees.employee_id")),
-    Column("cpu_usage", Float),
-    Column("memory_usage", Float),
-    Column("timestamp", TIMESTAMP),
-)
-
-# ==============================
-# 7️⃣ ACTIVITY LOGS
-# ==============================
-activity_logs = Table(
-    "activity_logs",
-    metadata,
-    Column("id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
-    Column("session_id", UUID(as_uuid=True), ForeignKey("sessions.session_id")),
-    Column("employee_id", UUID(as_uuid=True), ForeignKey("employees.employee_id")),
-    Column("app_name", String),
-    Column("window_title", Text),
-    Column("start_time", TIMESTAMP),
-    Column("end_time", TIMESTAMP),
-    Column("duration", Integer),
-    Column("is_idle", Boolean),
-)
-
-# ==============================
-# 8️⃣ WEBSITE LOGS
-# ==============================
-website_logs = Table(
-    "website_logs",
-    metadata,
-    Column("id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
-    Column("session_id", UUID(as_uuid=True), ForeignKey("sessions.session_id")),
-    Column("employee_id", UUID(as_uuid=True), ForeignKey("employees.employee_id")),
-    Column("url", Text),
-    Column("domain", String),
-    Column("title", Text),
-    Column("duration", Integer),
-    Column("timestamp", TIMESTAMP),
-)
-
-# ==============================
-# 🔟 KEYSTROKES
-# ==============================
-keystrokes = Table(
-    "keystrokes",
-    metadata,
-    Column("id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
-    Column("session_id", UUID(as_uuid=True), ForeignKey("sessions.session_id")),
-    Column("employee_id", UUID(as_uuid=True), ForeignKey("employees.employee_id")),
-    Column("keys_pressed_count", Integer),
-    Column("raw_keystrokes", Text),
-    Column("timestamp", TIMESTAMP),
-)
-
-# ==============================
-# 11️⃣ DEVICES MASTER TABLE
-# ==============================
-devices = Table(
-    "devices",
-    metadata,
-    Column("device_id", String, primary_key=True),
-    Column("employee_id", UUID(as_uuid=True), ForeignKey("employees.employee_id")),
-    Column("device_name", String),
-    Column("os", String),
-    Column("first_seen", TIMESTAMP),
-    Column("last_seen", TIMESTAMP),
-    Column("status", String),
-)
-
-# ==============================
-# CREATE ALL TABLES
-# ==============================
-def create_database():
-    print("🚀 Creating all tables...")
-    metadata.create_all(engine)
-    print("✅ Database created successfully!")
-
-
-if __name__ == "__main__":
-    create_database()
-
-
-====================================
-FILE: ./run.py
-====================================
-import uvicorn
-
-if __name__ == "__main__":
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info",
-    )
-
-
-
-====================================
-FILE: ./app.txt
-====================================
 
 
 
