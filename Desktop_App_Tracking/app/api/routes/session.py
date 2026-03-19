@@ -171,3 +171,32 @@ def get_session_network_info(
         raise HTTPException(status_code=403, detail="Access denied")
     records = db.query(NetworkInfo).filter(NetworkInfo.session_id == session_id).all()
     return [NetworkInfoOut.model_validate(r) for r in records]
+
+from pydantic import BaseModel
+
+class UpdateTotalsRequest(BaseModel):
+    total_active_time: Optional[int] = None
+    total_idle_time:   Optional[int] = None
+
+@router.patch("/{session_id}/update-totals")
+def update_session_totals(
+    session_id: UUID,
+    payload: UpdateTotalsRequest,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    """Called every 60s by desktop app to persist current active/idle totals."""
+    from app.models.session import Session as SessionModel
+    session = db.query(SessionModel).filter(
+        SessionModel.session_id == session_id,
+        SessionModel.employee_id == current_employee.employee_id,
+        SessionModel.session_status == "active",
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Active session not found")
+    if payload.total_active_time is not None:
+        session.total_active_time = payload.total_active_time
+    if payload.total_idle_time is not None:
+        session.total_idle_time = payload.total_idle_time
+    db.commit()
+    return {"ok": True}

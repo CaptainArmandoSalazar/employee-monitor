@@ -54,6 +54,19 @@ export const trackingService = {
       }
     }, 30_000);
 
+    setInterval(async () => {
+  const token   = authService.getToken();
+  const session = sessionService.getActiveSession();
+  if (!token || !session) return;
+  try {
+    const totals = activityTracker.getTotals();
+    await apiService.patch(`/sessions/${session.session_id}/update-totals`, {
+      total_active_time: totals.active,
+      total_idle_time:   totals.idle,
+    }, token);
+  } catch { /* silent */ }
+}, 60_000);
+
     // ── Global keystroke + mouse capture ──────────────────
     globalKeyboard.start(async (count: number) => {
       if (count > 0) {

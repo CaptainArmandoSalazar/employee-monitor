@@ -38,6 +38,7 @@ class SessionOut(BaseModel):
     country: Optional[str]
     network_speed_start: Optional[float]
     device_id: Optional[str]
+    last_heartbeat: Optional[datetime]
 
     class Config:
         from_attributes = True

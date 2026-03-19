@@ -143,35 +143,58 @@ ipcMain.handle('session:getActive', async () => {
         activityTracker.stop();
         trackingService.stop();
 
-        // Calculate elapsed time from actual clock_in timestamp
         let activeTime = 0;
+        let idleTime   = 0;
+
         if (session.clock_in) {
           const clockInStr = String(session.clock_in);
           const clockInISO = clockInStr.endsWith('Z') || clockInStr.includes('+')
             ? clockInStr : clockInStr + 'Z';
-          const clockInMs    = new Date(clockInISO).getTime();
-          const totalElapsed = Math.floor((Date.now() - clockInMs) / 1000);
-          activeTime = Math.max(0, totalElapsed);
-          console.log(`[IPC] Orphan session elapsed time: ${activeTime}s`);
+          const clockInMs = new Date(clockInISO).getTime();
+          const nowMs     = Date.now();
+
+          // ── Use last_heartbeat to find how long app was running ──
+          let lastActiveMs = nowMs;
+          if ((session as any).last_heartbeat) {
+            const hbStr = String((session as any).last_heartbeat);
+            const hbISO = hbStr.endsWith('Z') || hbStr.includes('+')
+              ? hbStr : hbStr + 'Z';
+            lastActiveMs = new Date(hbISO).getTime();
+          }
+
+          // Time since last heartbeat = additional idle (app was dead)
+          const timeSinceHeartbeat = Math.max(0, Math.floor((nowMs - lastActiveMs) / 1000));
+
+          // ── KEY FIX: use already-saved active/idle from DB + add the gap ──
+          // session.total_active_time and total_idle_time were saved periodically
+          // during the session by clock-out calls or activity tracking
+          const savedActive = (session as any).total_active_time || 0;
+          const savedIdle   = (session as any).total_idle_time   || 0;
+
+          if (savedActive > 0 || savedIdle > 0) {
+            // Session had saved data — add gap since last heartbeat as idle
+            activeTime = savedActive;
+            idleTime   = savedIdle + timeSinceHeartbeat;
+            console.log(`[IPC] Using saved data — active: ${activeTime}s, idle: ${idleTime}s, gap: ${timeSinceHeartbeat}s`);
+          } else {
+            // No saved data — calculate from timestamps
+            activeTime = Math.max(0, Math.floor((lastActiveMs - clockInMs) / 1000));
+            idleTime   = timeSinceHeartbeat;
+            console.log(`[IPC] Using timestamps — active: ${activeTime}s, idle: ${idleTime}s`);
+          }
         }
 
-        await sessionService.clockOut(activeTime, 0);
-        console.log('[IPC] Orphan session clocked out with time:', activeTime, 's');
+        await sessionService.clockOut(activeTime, idleTime);
+        console.log('[IPC] Orphan session clocked out — active:', activeTime, 'idle:', idleTime);
       } catch (err) {
         console.error('[IPC] Failed to clock out orphan session:', err);
         try {
           const token = authService.getToken();
           if (token && session) {
-            const clockInStr = String(session.clock_in || '');
-            const clockInISO = clockInStr.endsWith('Z') || clockInStr.includes('+')
-              ? clockInStr : clockInStr + 'Z';
-            const elapsed = clockInStr
-              ? Math.floor((Date.now() - new Date(clockInISO).getTime()) / 1000)
-              : 0;
             await apiService.post('/sessions/clock-out', {
               session_id:        session.session_id,
-              total_active_time: Math.max(0, elapsed),
-              total_idle_time:   0,
+              total_active_time: (session as any).total_active_time || 0,
+              total_idle_time:   (session as any).total_idle_time   || 0,
             }, token);
           }
         } catch { /* ignore */ }

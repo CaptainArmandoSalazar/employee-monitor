@@ -33,24 +33,33 @@ async function forceClockOut(): Promise<void> {
     const totals  = activityTracker.getTotals();
     const session = sessionService.getActiveSession();
 
-    // ── Calculate active/idle from real timestamps if in-memory is 0 ──
     let activeTime = totals.active;
     let idleTime   = totals.idle;
 
-    if (session && session.clock_in && (activeTime === 0 && idleTime === 0)) {
-      // Fall back to wall-clock calculation
+    // If in-memory counters are 0, calculate from timestamps
+    if (session && session.clock_in && activeTime === 0 && idleTime === 0) {
       const clockInStr = String(session.clock_in);
       const clockInISO = clockInStr.endsWith('Z') || clockInStr.includes('+')
         ? clockInStr : clockInStr + 'Z';
-      const clockInMs   = new Date(clockInISO).getTime();
-      const totalElapsed = Math.floor((Date.now() - clockInMs) / 1000);
-      // Assume all elapsed time is active (conservative — better than 0)
-      activeTime = Math.max(0, totalElapsed);
-      idleTime   = 0;
-      console.log(`[App] Using wall-clock active time: ${activeTime}s`);
+      const clockInMs = new Date(clockInISO).getTime();
+      const nowMs     = Date.now();
+
+      // Use last_heartbeat to split active vs idle
+      let lastActiveMs = nowMs;
+      if ((session as any).last_heartbeat) {
+        const hbStr = String((session as any).last_heartbeat);
+        const hbISO = hbStr.endsWith('Z') || hbStr.includes('+')
+          ? hbStr : hbStr + 'Z';
+        lastActiveMs = new Date(hbISO).getTime();
+      }
+
+      activeTime = Math.max(0, Math.floor((lastActiveMs - clockInMs) / 1000));
+      idleTime   = Math.max(0, Math.floor((nowMs - lastActiveMs) / 1000));
+
+      console.log(`[App] Wall-clock — active: ${activeTime}s, idle: ${idleTime}s`);
     }
 
-    console.log('[App] Totals — active:', activeTime, 'idle:', idleTime);
+    console.log('[App] Final totals — active:', activeTime, 'idle:', idleTime);
 
     const result = await Promise.race([
       sessionService.clockOut(activeTime, idleTime),
@@ -62,7 +71,6 @@ async function forceClockOut(): Promise<void> {
     if (result.success) {
       console.log('[App] ✅ Force clock-out successful.');
     } else {
-      // Direct API fallback
       const token = authService.getToken();
       if (token && session) {
         await Promise.race([
