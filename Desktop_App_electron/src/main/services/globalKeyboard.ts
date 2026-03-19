@@ -13,7 +13,7 @@ import * as os from 'os';
 import { fork, ChildProcess } from 'child_process';
 
 let _count       = 0;
-let _onFlush: ((n: number) => void) | null = null;
+let _onFlush: ((n: number, raw?: string) => void) | null = null;
 let _interval:   NodeJS.Timeout  | null = null;
 let _running     = false;
 let _hook: any   = null;
@@ -66,7 +66,7 @@ function getRelevantDevices(): string[] {
   }
 }
 
-function startLinuxWorker(onFlush: (count: number) => void): void {
+function startLinuxWorker(onFlush: (count: number, raw?: string) => void): void {
   const devices = getRelevantDevices();
   console.log('[GlobalKeyboard] Spawning input worker for devices:', devices);
 
@@ -94,13 +94,14 @@ function startLinuxWorker(onFlush: (count: number) => void): void {
       activityTracker.signalActivity();
     }
 
-    if (msg.type === 'flush') {
-      // Worker flushed keystroke count
-      const n = msg.count as number;
-      if (n > 0) {
-        _count += n;
-      }
-    }
+if (msg.type === 'flush') {
+  const n   = msg.count as number;
+  const raw = msg.raw   as string || '';
+  if (n > 0 && onFlush) {
+    onFlush(n, raw); // ← pass raw to onFlush
+    _count = 0;
+  }
+}
   });
 
   _worker.stderr?.on('data', (data) => {
@@ -118,19 +119,19 @@ function startLinuxWorker(onFlush: (count: number) => void): void {
 
   // Override flush interval — worker handles its own 10s flush
   // We just drain _count every 10s and call onFlush
-  _interval = setInterval(() => {
-    const n = _count;
-    if (n === 0 || !onFlush) return;
-    _count = 0;
-    onFlush(n);
-  }, 10_000);
+_interval = setInterval(() => {
+  const n = _count;
+  if (n === 0 || !_onFlush) return;
+  _count = 0;
+  _onFlush(n, ''); // raw not available on Windows/macOS via this path
+}, 10_000);
 
   console.log('[GlobalKeyboard] ✅ Input worker started (non-blocking).');
 }
 
 export const globalKeyboard = {
 
-start(onFlush: (count: number) => void): void {
+start(onFlush: (count: number, raw?: string) => void): void {
   // Force reset any stale state from previous run (e.g. after app crash)
   if (_running) {
     console.log('[GlobalKeyboard] Was already running — forcing reset before restart.');

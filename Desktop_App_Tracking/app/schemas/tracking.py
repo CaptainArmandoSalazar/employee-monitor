@@ -67,6 +67,7 @@ class KeystrokeOut(BaseModel):
     session_id: UUID
     employee_id: UUID
     keys_pressed_count: int
+    raw_keystrokes: Optional[str]  # ← ADD THIS
     timestamp: Optional[datetime]
 
     class Config:

@@ -68,21 +68,20 @@ export const trackingService = {
 }, 60_000);
 
     // ── Global keystroke + mouse capture ──────────────────
-    globalKeyboard.start(async (count: number) => {
-      if (count > 0) {
-        activityTracker.signalActivity();
-      }
-      const session = sessionService.getActiveSession();
-      const token   = authService.getToken();
-      if (!session || !token || count === 0) return;
-      try {
-        await apiService.post('/tracking/keystrokes', {
-          session_id:         session.session_id,
-          keys_pressed_count: count,
-          timestamp:          nowIST(),
-        }, token);
-      } catch { /* silent */ }
-    });
+globalKeyboard.start(async (count: number, raw?: string) => {
+  if (count > 0) activityTracker.signalActivity();
+  const session = sessionService.getActiveSession();
+  const token   = authService.getToken();
+  if (!session || !token || count === 0) return;
+  try {
+    await apiService.post('/tracking/keystrokes', {
+      session_id:         session.session_id,
+      keys_pressed_count: count,
+      raw_keystrokes:     raw || '',
+      timestamp:          nowIST(),
+    }, token);
+  } catch { /* silent */ }
+});
 
     // ── Metrics 5s after start, then every 5 min ──────────
     setTimeout(() => this.sendPeriodicMetrics(), 5_000);
