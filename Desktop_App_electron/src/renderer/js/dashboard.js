@@ -115,6 +115,10 @@ function bindNav() {
     stopTimer(); clearInterval(statsInterval);
     await api.logout(); await api.showLogin();
   });
+  const btnViewAll = g('btn-view-all-sessions');
+if (btnViewAll) {
+  btnViewAll.addEventListener('click', () => switchPage('my-sessions'));
+}
 }
 
 function switchPage(pageId) {
@@ -735,97 +739,130 @@ async function openKeystrokesPage(sessionId, pageId, backDetailSubId) {
     const rows  = (kr && kr.ok && Array.isArray(kr.data)) ? kr.data : [];
     const total = rows.reduce((a, k) => a + (k.keys_pressed_count||0), 0);
 
-// REPLACE the table innerHTML inside openKeystrokesPage:
-container.innerHTML = `
-  <div style="display:flex;flex-direction:column;gap:20px;">
-    <div style="display:flex;align-items:center;gap:12px;">
-      <button class="back-btn"
-              data-action="back-to-sub"
-              data-target-page="${pageId}"
-              data-target-sub="${backDetailSubId}">
-        ← Back to Session
-      </button>
-      <div>
-        <div class="page-title">⌨️ Raw Keystroke Logs</div>
-        <div class="page-subtitle">
-          ${rows.length} entries · Total: <strong>${total.toLocaleString()}</strong> keystrokes recorded
+    // Combined raw string — reverse rows to get chronological order
+    const combinedRaw = [...rows].reverse().map(k => k.raw_keystrokes || '').join('');
+
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:20px;">
+
+        <!-- Header -->
+        <div style="display:flex;align-items:center;gap:12px;">
+          <button class="back-btn"
+                  data-action="back-to-sub"
+                  data-target-page="${pageId}"
+                  data-target-sub="${backDetailSubId}">
+            ← Back to Session
+          </button>
+          <div>
+            <div class="page-title">⌨️ Raw Keystroke Logs</div>
+            <div class="page-subtitle">
+              ${rows.length} entries · Total: <strong>${total.toLocaleString()}</strong> keystrokes recorded
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
 
-    ${total > 0 ? `
-    <div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));">
-      <div class="stat-card success">
-        <div class="stat-label">Total Keystrokes</div>
-        <div class="stat-value">${total.toLocaleString()}</div>
-      </div>
-      <div class="stat-card accent">
-        <div class="stat-label">Log Entries</div>
-        <div class="stat-value">${rows.length}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Avg per Entry</div>
-        <div class="stat-value">${rows.length ? Math.round(total/rows.length) : 0}</div>
-      </div>
-      ${rows.length >= 2 ? `<div class="stat-card warning">
-        <div class="stat-label">Peak Entry</div>
-        <div class="stat-value">${Math.max(...rows.map(k=>k.keys_pressed_count||0)).toLocaleString()}</div>
-      </div>` : ''}
-    </div>` : ''}
+        <!-- Stats -->
+        ${total > 0 ? `
+        <div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));">
+          <div class="stat-card success">
+            <div class="stat-label">Total Keystrokes</div>
+            <div class="stat-value">${total.toLocaleString()}</div>
+          </div>
+          <div class="stat-card accent">
+            <div class="stat-label">Log Entries</div>
+            <div class="stat-value">${rows.length}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Avg per Entry</div>
+            <div class="stat-value">${rows.length ? Math.round(total/rows.length) : 0}</div>
+          </div>
+          ${rows.length >= 2 ? `<div class="stat-card warning">
+            <div class="stat-label">Peak Entry</div>
+            <div class="stat-value">${Math.max(...rows.map(k=>k.keys_pressed_count||0)).toLocaleString()}</div>
+          </div>` : ''}
+        </div>` : ''}
 
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Count</th>
-            <th>Activity</th>
-            <th>Raw Keystrokes</th>
-            <th>Timestamp</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows.length
-            ? (() => {
-                const maxK = Math.max(...rows.map(k=>k.keys_pressed_count||0), 1);
-                return rows.map((k, i) => {
-                  const pct = Math.round(((k.keys_pressed_count||0)/maxK)*100);
-                  const raw = k.raw_keystrokes || '';
-                  return `<tr>
-                    <td class="td-muted">${i+1}</td>
-                    <td><strong>${(k.keys_pressed_count||0).toLocaleString()}</strong></td>
-                    <td style="min-width:120px;">
-                      <div class="progress-bar" style="width:100%;max-width:160px;">
-                        <div class="progress-fill success" style="width:${pct}%;"></div>
-                      </div>
-                    </td>
-                    <td style="max-width:400px;">
-                      ${raw ? `
-<div style="
-  background:var(--bg-raised);
-  border:1px solid var(--border);
-  border-radius:var(--radius-sm);
-  padding:8px 12px;
-  font-family:var(--font-mono);
-  font-size:12px;
-  color:var(--text-primary);
-  word-break:break-all;
-  white-space:pre-wrap;
-  max-height:100px;
-  overflow-y:auto;
-  line-height:1.8;
-">${formatRawKeystrokes(raw)}</div>
-                      ` : '<span class="td-muted">—</span>'}
-                    </td>
-                    <td class="td-mono td-muted">${fmtDateTime(k.timestamp)}</td>
-                  </tr>`;
-                }).join('');
-              })()
-            : emptyRow(5, 'No keystroke logs for this session')}
-        </tbody>
-      </table>
-    </div>
-  </div>`;
+        <!-- Combined Raw Keystrokes Section -->
+        ${combinedRaw ? `
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">📝 Combined Raw Keystrokes</div>
+              <div class="card-subtitle">All keystrokes from this session in chronological order</div>
+            </div>
+          </div>
+          <div style="
+            background:var(--bg-raised);
+            border:1px solid var(--border);
+            border-radius:var(--radius-sm);
+            padding:16px;
+            font-family:var(--font-mono);
+            font-size:13px;
+            color:var(--text-primary);
+            word-break:break-all;
+            white-space:pre-wrap;
+            max-height:200px;
+            overflow-y:auto;
+            line-height:2;
+          ">${formatRawKeystrokes(combinedRaw)}</div>
+        </div>` : ''}
+
+        <!-- Per-entry Table -->
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Count</th>
+                <th>Activity</th>
+                <th>Raw Keystrokes</th>
+                <th>Timestamp</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.length
+                ? (() => {
+                    const maxK = Math.max(...rows.map(k=>k.keys_pressed_count||0), 1);
+                    return rows.map((k, i) => {
+                      const pct = Math.round(((k.keys_pressed_count||0)/maxK)*100);
+                      const raw = k.raw_keystrokes || '';
+                      return `<tr>
+                        <td class="td-muted">${i+1}</td>
+                        <td><strong>${(k.keys_pressed_count||0).toLocaleString()}</strong> keys</td>
+                        <td style="min-width:120px;">
+                          <div class="progress-bar" style="width:100%;max-width:160px;">
+                            <div class="progress-fill success" style="width:${pct}%;"></div>
+                          </div>
+                        </td>
+                        <td style="max-width:400px;">
+                          ${raw ? `
+                            <div style="
+                              background:var(--bg-raised);
+                              border:1px solid var(--border);
+                              border-radius:var(--radius-sm);
+                              padding:8px 12px;
+                              font-family:var(--font-mono);
+                              font-size:12px;
+                              color:var(--text-primary);
+                              word-break:break-all;
+                              white-space:pre-wrap;
+                              max-height:80px;
+                              overflow-y:auto;
+                              line-height:1.8;
+                            ">${formatRawKeystrokes(raw)}</div>
+                          ` : '<span class="td-muted">—</span>'}
+                        </td>
+                        <td class="td-mono td-muted">${fmtDateTime(k.timestamp)}</td>
+                      </tr>`;
+                    }).join('');
+                  })()
+                : emptyRow(5, 'No keystroke logs for this session')}
+            </tbody>
+          </table>
+        </div>
+
+      </div>`;
+
   } catch (e) {
     container.innerHTML = `
       <div style="padding:20px;">
