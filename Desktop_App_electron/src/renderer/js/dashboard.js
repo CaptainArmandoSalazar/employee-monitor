@@ -423,8 +423,270 @@ document.addEventListener('click', function(e) {
   if (action === 'open-netspeed') {
     openNetSpeedPage(sid, pageId, backSub);
   }
+  if (action === 'open-activity') {
+  openActivityPage(sid, pageId, backSub);
+}
 });
+async function openActivityPage(sessionId, pageId, backDetailSubId) {
+  const actSubId  = pageId === 'my-sessions' ? 'my-session-activity'
+                  : pageId === 'admins'       ? 'admin-session-activity'
+                  :                             'emp-session-activity';
+  const container = g(actSubId);
+  if (!container) return;
+  container.innerHTML = spinHtml();
+  showSub(pageId, actSubId);
 
+  try {
+    // Fetch both activity logs and website logs in parallel
+    const [actR, webR] = await Promise.all([
+      api.getAdminActivity({ session_id: sessionId, limit: '500' }),
+      api.getAdminWebsite({  session_id: sessionId, limit: '500' }),
+    ]);
+
+    const actRows = (actR && actR.ok && Array.isArray(actR.data)) ? actR.data : [];
+    const webRows = (webR && webR.ok && Array.isArray(webR.data)) ? webR.data : [];
+
+    // ── Stats ──────────────────────────────────────────────
+    const totalAppTime  = actRows.reduce((a, r) => a + (r.duration || 0), 0);
+    const totalWebTime  = webRows.reduce((a, r) => a + (r.duration || 0), 0);
+    const uniqueApps    = new Set(actRows.map(r => r.app_name)).size;
+    const uniqueDomains = new Set(webRows.map(r => r.domain)).size;
+
+    // ── Top apps aggregation ───────────────────────────────
+    const appMap = {};
+    actRows.forEach(r => {
+      const app = r.app_name || 'Unknown';
+      if (!appMap[app]) appMap[app] = { name: app, duration: 0, count: 0 };
+      appMap[app].duration += r.duration || 0;
+      appMap[app].count++;
+    });
+    const topApps = Object.values(appMap)
+      .sort((a, b) => b.duration - a.duration)
+      .slice(0, 10);
+
+    // ── Top domains aggregation ────────────────────────────
+    const domainMap = {};
+    webRows.forEach(r => {
+      const domain = r.domain || 'Unknown';
+      if (!domainMap[domain]) domainMap[domain] = { domain, duration: 0, count: 0, title: r.title || '' };
+      domainMap[domain].duration += r.duration || 0;
+      domainMap[domain].count++;
+    });
+    const topDomains = Object.values(domainMap)
+      .sort((a, b) => b.duration - a.duration)
+      .slice(0, 10);
+
+    const maxAppDur    = topApps.length    ? Math.max(...topApps.map(a => a.duration))    : 1;
+    const maxDomainDur = topDomains.length ? Math.max(...topDomains.map(d => d.duration)) : 1;
+
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:20px;">
+
+        <!-- Header -->
+        <div style="display:flex;align-items:center;gap:12px;">
+          <button class="back-btn"
+                  data-action="back-to-sub"
+                  data-target-page="${pageId}"
+                  data-target-sub="${backDetailSubId}">
+            ← Back to Session
+          </button>
+          <div>
+            <div class="page-title">🌐 Activity Tracking</div>
+            <div class="page-subtitle">
+              App usage &amp; website visits for this session
+            </div>
+          </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));">
+          <div class="stat-card accent">
+            <div class="stat-label">App Time</div>
+            <div class="stat-value" style="font-size:20px;">${sToHm(totalAppTime)}</div>
+            <div class="stat-sub">${uniqueApps} unique apps</div>
+          </div>
+          <div class="stat-card success">
+            <div class="stat-label">Web Time</div>
+            <div class="stat-value" style="font-size:20px;">${sToHm(totalWebTime)}</div>
+            <div class="stat-sub">${uniqueDomains} unique sites</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">App Switches</div>
+            <div class="stat-value" style="font-size:20px;">${actRows.length}</div>
+            <div class="stat-sub">Total events</div>
+          </div>
+          <div class="stat-card warning">
+            <div class="stat-label">Website Visits</div>
+            <div class="stat-value" style="font-size:20px;">${webRows.length}</div>
+            <div class="stat-sub">Total visits</div>
+          </div>
+        </div>
+
+        <!-- Top Apps -->
+        ${topApps.length ? `
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">💻 Top Applications</div>
+              <div class="card-subtitle">Most used apps this session</div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            ${topApps.map(app => `
+              <div style="display:flex;align-items:center;gap:12px;">
+                <div style="
+                  min-width:140px;
+                  font-size:13px;
+                  font-weight:600;
+                  color:var(--text-primary);
+                  overflow:hidden;
+                  text-overflow:ellipsis;
+                  white-space:nowrap;
+                ">${esc(app.name)}</div>
+                <div style="flex:1;">
+                  <div class="progress-bar">
+                    <div class="progress-fill accent"
+                         style="width:${Math.round((app.duration/maxAppDur)*100)}%;">
+                    </div>
+                  </div>
+                </div>
+                <div style="min-width:60px;text-align:right;font-size:12px;color:var(--text-secondary);">
+                  ${sToHm(app.duration)}
+                </div>
+                <div style="min-width:50px;text-align:right;font-size:11px;color:var(--text-muted);">
+                  ${app.count}x
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>` : ''}
+
+        <!-- Top Websites -->
+        ${topDomains.length ? `
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">🌐 Top Websites</div>
+              <div class="card-subtitle">Most visited websites this session</div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            ${topDomains.map(d => `
+              <div style="display:flex;align-items:center;gap:12px;">
+                <div style="
+                  min-width:160px;
+                  font-size:13px;
+                  font-weight:600;
+                  color:var(--accent);
+                  overflow:hidden;
+                  text-overflow:ellipsis;
+                  white-space:nowrap;
+                ">${esc(d.domain)}</div>
+                <div style="flex:1;">
+                  <div class="progress-bar">
+                    <div class="progress-fill success"
+                         style="width:${Math.round((d.duration/maxDomainDur)*100)}%;">
+                    </div>
+                  </div>
+                </div>
+                <div style="min-width:60px;text-align:right;font-size:12px;color:var(--text-secondary);">
+                  ${sToHm(d.duration)}
+                </div>
+                <div style="min-width:50px;text-align:right;font-size:11px;color:var(--text-muted);">
+                  ${d.count}x
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>` : ''}
+
+        <!-- Detailed App Log Table -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">📋 Detailed App Activity Log</div>
+            <div class="card-subtitle">${actRows.length} events recorded</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>#</th>
+                <th>Application</th>
+                <th>Window Title</th>
+                <th>Duration</th>
+                <th>Start Time</th>
+                <th>End Time</th>
+              </tr></thead>
+              <tbody>
+                ${actRows.length
+                  ? actRows.map((r, i) => `
+                    <tr>
+                      <td class="td-muted">${i+1}</td>
+                      <td><strong>${esc(r.app_name || '—')}</strong></td>
+                      <td class="td-muted" style="max-width:250px;">
+                        <div class="truncate">${esc(r.window_title || '—')}</div>
+                      </td>
+                      <td class="text-success">${sToHm(r.duration || 0)}</td>
+                      <td class="td-mono td-muted">${fmtDateTime(r.start_time)}</td>
+                      <td class="td-mono td-muted">${fmtDateTime(r.end_time)}</td>
+                    </tr>`).join('')
+                  : emptyRow(6, 'No app activity recorded for this session')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Detailed Website Log Table -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🌍 Detailed Website Activity Log</div>
+            <div class="card-subtitle">${webRows.length} visits recorded</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>#</th>
+                <th>Domain</th>
+                <th>Page Title</th>
+                <th>Duration</th>
+                <th>Visited At</th>
+              </tr></thead>
+              <tbody>
+                ${webRows.length
+                  ? webRows.map((r, i) => `
+                    <tr>
+                      <td class="td-muted">${i+1}</td>
+                      <td>
+                        <span style="color:var(--accent);font-weight:600;">
+                          ${esc(r.domain || '—')}
+                        </span>
+                      </td>
+                      <td class="td-muted" style="max-width:300px;">
+                        <div class="truncate">${esc(r.title || '—')}</div>
+                      </td>
+                      <td class="text-success">${sToHm(r.duration || 0)}</td>
+                      <td class="td-mono td-muted">${fmtDateTime(r.timestamp)}</td>
+                    </tr>`).join('')
+                  : emptyRow(5, 'No website activity recorded for this session')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>`;
+
+  } catch (e) {
+    container.innerHTML = `
+      <div style="padding:20px;">
+        <button class="back-btn"
+                data-action="back-to-sub"
+                data-target-page="${pageId}"
+                data-target-sub="${backDetailSubId}">
+          ← Back
+        </button>
+        <p class="text-muted" style="margin-top:12px;">Error: ${esc(e.message)}</p>
+      </div>`;
+  }
+}
 // ══════════════════════════════════════════════════════════
 // SESSION DETAIL
 // ══════════════════════════════════════════════════════════
@@ -537,6 +799,17 @@ async function openSessionDetail(sessionId, pageId, backSubId) {
               Click to view raw keystroke logs →
             </div>
           </div>
+          <div class="detail-tile clickable"
+     data-action="open-activity"
+     data-sid="${sessionId}"
+     data-page="${pageId}"
+     data-back="${detailSubId}">
+  <div class="detail-tile-label">🌐 Activity Tracking</div>
+  <div class="detail-tile-value">View Logs</div>
+  <div class="detail-tile-sub" style="color:var(--accent);margin-top:4px;">
+    Click to view app &amp; website logs →
+  </div>
+</div>
           <div class="detail-tile clickable"
                data-action="open-netspeed"
                data-sid="${sessionId}"

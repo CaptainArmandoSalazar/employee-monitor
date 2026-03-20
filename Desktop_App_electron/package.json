@@ -7,7 +7,10 @@
     "build": "tsc",
     "start": "npm run build && electron .",
     "dev": "concurrently \"tsc --watch\" \"cp src/main/services/inputWorker.js dist/main/services/inputWorker.js && wait-on dist/main/main.js && electron . --dev\"",
-    "dist": "npm run build && electron-builder",
+    "dist": "npm run build && cp src/main/services/inputWorker.js dist/main/services/inputWorker.js && electron-builder",
+    "dist:linux": "npm run build && cp src/main/services/inputWorker.js dist/main/services/inputWorker.js && electron-builder --linux AppImage deb",
+    "dist:win": "npm run build && electron-builder --windows nsis",
+    "dist:mac": "npm run build && electron-builder --mac dmg",
     "postinstall": "electron-rebuild -f -w uiohook-napi",
     "rebuild": "electron-rebuild -f -w uiohook-napi"
   },
@@ -37,19 +40,51 @@
     },
     "files": [
       "dist/**/*",
-      "src/renderer/**/*"
+      "src/renderer/**/*",
+      "assets/**/*",
+      "node_modules/**/*"
+    ],
+    "extraFiles": [
+      {
+        "from": "src/main/services/inputWorker.js",
+        "to": "resources/app/inputWorker.js"
+      }
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/uiohook-napi/**/*",
+      "node_modules/node-global-key-listener/**/*"
     ],
     "win": {
-      "target": "nsis",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
       "icon": "assets/icon.ico"
     },
     "mac": {
       "target": "dmg",
-      "icon": "assets/icon.icns"
+      "icon": "assets/icon.icns",
+      "extendInfo": {
+        "NSAccessibilityUsageDescription": "Employee Monitor needs accessibility access to track keystrokes for productivity monitoring."
+      }
     },
     "linux": {
-      "target": "AppImage",
-      "icon": "assets/icon.png"
+      "target": ["AppImage", "deb"],
+      "icon": "assets/icon.png",
+      "category": "Utility",
+      "executableName": "employee-monitor"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "deb": {
+      "depends": ["libxtst6", "libx11-6"]
     }
   }
 }

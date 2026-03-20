@@ -18,7 +18,14 @@ let _interval:   NodeJS.Timeout  | null = null;
 let _running     = false;
 let _hook: any   = null;
 let _worker: ChildProcess | null = null;
-
+const possiblePaths = [
+  path.join(__dirname, 'inputWorker.js'),
+  path.join(__dirname, '..', 'main', 'services', 'inputWorker.js'),
+  path.join(__dirname, '..', 'services', 'inputWorker.js'),
+  path.join(process.cwd(), 'dist', 'main', 'services', 'inputWorker.js'),
+  path.join(process.resourcesPath || '', 'app', 'inputWorker.js'), // ← production
+  path.join(process.cwd(), 'src', 'main', 'services', 'inputWorker.js'),
+];
 // uiohook-napi modifier keycodes (Windows/macOS)
 const IGNORED_KEYCODES_UIOHOOK = new Set([
   0xFFE1, 0xFFE2, 0xFFE3, 0xFFE4,

@@ -8,9 +8,63 @@ export interface ActiveWindow {
   domain?: string;
 }
 
+// ── Friendly name map ─────────────────────────────────────
+function getFriendlyName(rawApp: string): string {
+  const nameMap: Record<string, string> = {
+    'google chrome':      'Google Chrome',
+    'chromium':           'Chromium',
+    'firefox':            'Firefox',
+    'mozilla firefox':    'Firefox',
+    'microsoft edge':     'Microsoft Edge',
+    'brave':              'Brave',
+    'opera':              'Opera',
+    'vivaldi':            'Vivaldi',
+    'visual studio code': 'VS Code',
+    'code':               'VS Code',
+    'code - oss':         'VS Code',
+    'electron':           'Electron',
+    'slack':              'Slack',
+    'telegram desktop':   'Telegram',
+    'discord':            'Discord',
+    'spotify':            'Spotify',
+    'files':              'Files',
+    'nautilus':           'Files',
+    'gedit':              'Text Editor',
+    'kate':               'Kate',
+    'sublime text':       'Sublime Text',
+    'atom':               'Atom',
+    'terminal':           'Terminal',
+    'gnome terminal':     'Terminal',
+    'konsole':            'Terminal',
+    'alacritty':          'Terminal',
+    'kitty':              'Terminal',
+    'bash':               'Terminal',
+    'zsh':                'Terminal',
+    'gimp':               'GIMP',
+    'inkscape':           'Inkscape',
+    'vlc':                'VLC',
+    'mpv':                'MPV',
+    'thunderbird':        'Thunderbird',
+    'zoom':               'Zoom',
+    'microsoft teams':    'Microsoft Teams',
+    'postman':            'Postman',
+    'dbeaver':            'DBeaver',
+    'libreoffice':        'LibreOffice',
+    'libreoffice writer': 'LibreOffice Writer',
+    'libreoffice calc':   'LibreOffice Calc',
+    'libreoffice impress':'LibreOffice Impress',
+    'evince':             'Document Viewer',
+    'eog':                'Image Viewer',
+    'rhythmbox':          'Rhythmbox',
+    'skype':              'Skype',
+  };
+  return nameMap[rawApp.toLowerCase()] || rawApp || 'Unknown';
+}
+
 // ── Get active window (cross-platform) ───────────────────
 function getActiveWindow(): Promise<ActiveWindow | null> {
   return new Promise(resolve => {
+
     if (process.platform === 'win32') {
       const script = `
         Add-Type @"
@@ -28,7 +82,8 @@ function getActiveWindow(): Promise<ActiveWindow | null> {
       exec(`powershell -Command "${script.replace(/\n/g, ' ')}"`, (err, out) => {
         if (err || !out) return resolve(null);
         const [app, ...titleParts] = out.trim().split('|');
-        resolve({ appName: app?.trim() || 'Unknown', windowTitle: titleParts.join('|').trim() });
+        const appName = getFriendlyName(app?.trim() || '');
+        resolve({ appName, windowTitle: titleParts.join('|').trim() });
       });
 
     } else if (process.platform === 'darwin') {
@@ -46,52 +101,102 @@ function getActiveWindow(): Promise<ActiveWindow | null> {
       exec(`osascript -e '${script}'`, (err, out) => {
         if (err || !out) return resolve(null);
         const [app, ...titleParts] = out.trim().split('|');
-        resolve({ appName: app?.trim() || 'Unknown', windowTitle: titleParts.join('|').trim() });
+        const appName = getFriendlyName(app?.trim() || '');
+        resolve({ appName, windowTitle: titleParts.join('|').trim() });
       });
 
     } else {
-      exec('xdotool getactivewindow getwindowname', (err, titleOut) => {
-        exec('xdotool getactivewindow getwindowpid | xargs -I{} cat /proc/{}/comm 2>/dev/null', (err2, appOut) => {
-          resolve({
-            appName: (appOut || 'Unknown').trim(),
-            windowTitle: (titleOut || '').trim(),
-          });
-        });
-      });
+      // Linux/Wayland — use custom GNOME Shell extension via DBus
+      exec(
+        `gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell/Extensions/WindowTracker --method org.gnome.Shell.Extensions.WindowTracker.GetActiveWindow 2>/dev/null`,
+        (err, out) => {
+          if (err || !out) {
+            // Fallback to xdotool for X11 sessions
+            exec('xdotool getactivewindow getwindowpid getwindowname 2>/dev/null', (err2, out2) => {
+              if (err2 || !out2) return resolve(null);
+              const lines = out2.trim().split('\n');
+              const pid   = lines[0]?.trim();
+              const title = lines.slice(1).join(' ').trim();
+              if (!pid) return resolve({ appName: 'Unknown', windowTitle: title });
+              exec(`cat /proc/${pid}/status 2>/dev/null | grep "^Name:" | awk '{print $2}'`, (e3, nameOut) => {
+                const rawName = (nameOut || '').trim();
+                resolve({ appName: getFriendlyName(rawName), windowTitle: title });
+              });
+            });
+            return;
+          }
+
+          try {
+            // Output format: ('{"title":"...","app":"...","pid":123}',)
+            const match = out.match(/'(.+)'/);
+            if (!match) return resolve(null);
+            const data = JSON.parse(match[1]);
+            if (!data.title && !data.app) return resolve(null);
+            const appName = getFriendlyName(data.app || '');
+            resolve({ appName, windowTitle: data.title || '' });
+          } catch {
+            resolve(null);
+          }
+        }
+      );
     }
   });
 }
 
 // ── Extract domain from browser window title ─────────────
-const BROWSER_NAMES = ['chrome', 'firefox', 'safari', 'edge', 'opera', 'brave', 'chromium'];
+const BROWSER_NAMES = [
+  'google chrome', 'chromium', 'firefox', 'mozilla firefox',
+  'safari', 'microsoft edge', 'edge', 'opera', 'brave', 'vivaldi',
+];
 
 function extractUrl(appName: string, windowTitle: string): { url: string; domain: string } | null {
   const app = appName.toLowerCase();
   if (!BROWSER_NAMES.some(b => app.includes(b))) return null;
+  if (!windowTitle) return null;
 
-  const match = windowTitle.match(/[-–—]\s*([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\s*[-–—]?\s*[A-Z]/) ||
-                windowTitle.match(/([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
-  if (match) {
-    const domain = match[1].toLowerCase();
-    return { url: `https://${domain}`, domain };
+  // Pattern 1: "Page Title - domain.com - Google Chrome"
+  const p1 = windowTitle.match(/[-–—]\s*((?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})\s*[-–—]/);
+  if (p1) {
+    const domain = p1[1].toLowerCase();
+    if (!domain.includes('electron') && !domain.includes('localhost') && domain.includes('.')) {
+      return { url: `https://${domain}`, domain };
+    }
   }
+
+  // Pattern 2: "Page Title - domain.com" at end
+  const p2 = windowTitle.match(/[-–—]\s*((?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})\s*$/);
+  if (p2) {
+    const domain = p2[1].toLowerCase();
+    if (!domain.includes('electron') && !domain.includes('localhost') && domain.includes('.')) {
+      return { url: `https://${domain}`, domain };
+    }
+  }
+
+  // Pattern 3: any recognizable TLD domain in title
+  const p3 = windowTitle.match(/((?:[a-zA-Z0-9-]+\.)+(?:com|org|net|io|dev|co|in|uk|edu|gov|app|ai|me|info|tech))/i);
+  if (p3) {
+    const domain = p3[1].toLowerCase();
+    if (!domain.includes('electron') && !domain.includes('localhost')) {
+      return { url: `https://${domain}`, domain };
+    }
+  }
+
   return null;
 }
 
 // ── Idle detection constants ──────────────────────────────
-const IDLE_THRESHOLD_SECONDS = 5 * 60; // 5 minutes of no activity = idle
-const POLL_INTERVAL_MS = 2000;         // check every 2 seconds
+const IDLE_THRESHOLD_SECONDS = 5 * 60;
+const POLL_INTERVAL_MS       = 2000;
 
 // ── Activity tracker state ────────────────────────────────
-let _lastWindow:      ActiveWindow | null = null;
-let _windowStart:     number = Date.now();
-let _totalActive      = 0;
-let _totalIdle        = 0;
-let _pollInterval:    NodeJS.Timeout | null = null;
+let _lastWindow:       ActiveWindow | null = null;
+let _windowStart:      number = Date.now();
+let _totalActive       = 0;
+let _totalIdle         = 0;
+let _pollInterval:     NodeJS.Timeout | null = null;
 let _lastActivityTime: number = Date.now();
-let _wasIdle          = false; // track idle→active transitions
+let _wasIdle           = false;
 
-// ── Called from globalKeyboard on every keypress/mouse click ──
 export function signalUserActivity(): void {
   _lastActivityTime = Date.now();
 }
@@ -100,7 +205,6 @@ function isCurrentlyIdle(): boolean {
   return (Date.now() - _lastActivityTime) >= (IDLE_THRESHOLD_SECONDS * 1000);
 }
 
-// ── Log the current window's elapsed time and reset window start ──
 function closeCurrentWindow(now: number): void {
   if (!_lastWindow) return;
   const elapsed = Math.floor((now - _windowStart) / 1000);
@@ -125,7 +229,6 @@ function closeCurrentWindow(now: number): void {
       });
     }
 
-    // ── KEY FIX: active time is added ONLY here, ONCE per window close ──
     _totalActive += elapsed;
   }
   _windowStart = now;
@@ -134,33 +237,32 @@ function closeCurrentWindow(now: number): void {
 export const activityTracker = {
 
   start(): void {
+    if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
+
     _lastWindow       = null;
     _windowStart      = Date.now();
     _totalActive      = 0;
     _totalIdle        = 0;
     _wasIdle          = false;
-    _lastActivityTime = Date.now(); // reset idle timer on clock-in
+    _lastActivityTime = Date.now();
 
     _pollInterval = setInterval(async () => {
       const now  = Date.now();
       const idle = isCurrentlyIdle();
 
-      // ── IDLE branch ───────────────────────────────────────
+      // ── IDLE ──────────────────────────────────────────────
       if (idle) {
         if (!_wasIdle) {
-          // Just became idle — close off the active window first
           closeCurrentWindow(now);
           _lastWindow = null;
           _wasIdle    = true;
         }
-        // Count these 2 seconds as idle
         _totalIdle += POLL_INTERVAL_MS / 1000;
         return;
       }
 
-      // ── ACTIVE branch ─────────────────────────────────────
+      // ── ACTIVE ────────────────────────────────────────────
       if (_wasIdle) {
-        // Just returned from idle — reset window start
         _wasIdle     = false;
         _windowStart = now;
         _lastWindow  = null;
@@ -175,13 +277,10 @@ export const activityTracker = {
         _lastWindow.windowTitle !== current.windowTitle;
 
       if (isDifferentWindow) {
-        // Window changed — close previous window (adds elapsed to _totalActive ONCE)
         closeCurrentWindow(now);
-        // Start tracking new window
         _lastWindow  = current;
         _windowStart = now;
       }
-      // If same window — do nothing. Time is counted when window closes.
 
     }, POLL_INTERVAL_MS);
   },
@@ -191,8 +290,6 @@ export const activityTracker = {
       clearInterval(_pollInterval);
       _pollInterval = null;
     }
-
-    // Close the final window at clock-out
     if (_lastWindow && !_wasIdle) {
       closeCurrentWindow(Date.now());
     }
