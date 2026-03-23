@@ -1,0 +1,40 @@
+name: Build macOS
+
+on:
+  push:
+    branches: [ add/pipeline ]
+  workflow_dispatch:
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        working-directory: Desktop_App_electron
+        run: npm install
+
+      - name: Build
+        working-directory: Desktop_App_electron
+        run: |
+          npm run build
+          cp src/main/services/inputWorker.js dist/main/services/inputWorker.js
+
+      - name: Package macOS
+        working-directory: Desktop_App_electron
+        run: npx electron-builder --mac dmg
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Upload macOS dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-build
+          path: Desktop_App_electron/release/*.dmg
