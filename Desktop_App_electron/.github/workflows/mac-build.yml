@@ -1,8 +1,7 @@
 name: Build macOS
-
 on:
   push:
-    branches: [ main, master ]
+    branches: [ add/pipeline ]
   workflow_dispatch:
 
 jobs:
@@ -11,27 +10,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '22'
 
       - name: Install dependencies
-        run: npm install
+        working-directory: Desktop_App_electron
+        run: |
+          npm install --ignore-scripts
+          npx @electron/rebuild -f -w uiohook-napi
 
       - name: Build
-        run: |
-          npm run build
-          cp src/main/services/inputWorker.js dist/main/services/inputWorker.js
+        working-directory: Desktop_App_electron
+        run: npm run build
 
-      - name: Package macOS
-        run: npx electron-builder --mac dmg
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - name: Package
+        working-directory: Desktop_App_electron
+        run: npm run dist
 
-      - name: Upload macOS dmg
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mac-build
-          path: release/*.dmg
+          name: mac-dmg
+          path: Desktop_App_electron/release/*.dmg
