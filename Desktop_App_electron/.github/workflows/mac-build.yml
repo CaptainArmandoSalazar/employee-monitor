@@ -22,17 +22,15 @@ jobs:
 
       - name: Install dependencies
         working-directory: Desktop_App_electron
-        run: |
-          npm install --ignore-scripts
-          npx @electron/rebuild -f -w uiohook-napi
+        run: npm install
 
       - name: Build
         working-directory: Desktop_App_electron
         run: npm run build
 
-      - name: Package
+      - name: Package macOS
         working-directory: Desktop_App_electron
-        run: npm run dist
+        run: npx electron-builder --mac dmg --publish never
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
