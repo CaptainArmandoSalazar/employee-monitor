@@ -1,0 +1,10 @@
+Package: employee-monitor
+Version: 1.0.0
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: AvDevs <admin@avdevs.com>
+Homepage: https://avdevs.com
+Depends: libfuse2, xdotool, wmctrl, python3, libxtst6, libx11-6, zenity
+Description: Employee Monitor Desktop Application
+ Monitors employee work sessions, keystrokes, activity and websites.

@@ -1,0 +1,87 @@
+#!/bin/bash
+set -e
+
+echo "Setting up Employee Monitor..."
+
+# ── 1. Add all human users to input group ─────────────────
+for user in $(getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 {print $1}'); do
+    if id "$user" &>/dev/null; then
+        usermod -a -G input "$user" 2>/dev/null || true
+        echo "Added $user to input group"
+    fi
+done
+
+# ── 2. Install GNOME extension for all users ──────────────
+for user in $(getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 {print $1}'); do
+    HOME_DIR=$(getent passwd "$user" | cut -d: -f6)
+    if [ -d "$HOME_DIR" ]; then
+
+        # Install extension files
+        EXT_DIR="$HOME_DIR/.local/share/gnome-shell/extensions/window-tracker@employeemonitor"
+        mkdir -p "$EXT_DIR"
+        cp /usr/share/employee-monitor/extension.js "$EXT_DIR/extension.js"
+        cp /usr/share/employee-monitor/metadata.json "$EXT_DIR/metadata.json"
+        chown -R "$user:$user" "$EXT_DIR"
+        echo "Installed extension for $user"
+
+        # Install systemd user service to auto-enable extension on every login
+        SERVICE_DIR="$HOME_DIR/.config/systemd/user"
+        mkdir -p "$SERVICE_DIR"
+        cat > "$SERVICE_DIR/employee-monitor-setup.service" << 'SVCEOF'
+[Unit]
+Description=Enable Employee Monitor GNOME Extension
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'gnome-extensions enable window-tracker@employeemonitor 2>/dev/null || true'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target
+SVCEOF
+        chown -R "$user:$user" "$SERVICE_DIR"
+
+        # Enable the systemd service for this user
+        sudo -u "$user" systemctl --user enable employee-monitor-setup.service 2>/dev/null || true
+        echo "Installed auto-enable service for $user"
+
+    fi
+done
+
+# ── 3. Make AppImage executable ───────────────────────────
+chmod +x /usr/share/employee-monitor/employee-monitor.AppImage
+
+# ── 4. Create launcher script ─────────────────────────────
+cat > /usr/local/bin/employee-monitor << 'LAUNCHER'
+#!/bin/bash
+# Auto-enable GNOME extension on every launch
+gnome-extensions enable window-tracker@employeemonitor 2>/dev/null || true
+# Launch app
+exec /usr/share/employee-monitor/employee-monitor.AppImage "$@"
+LAUNCHER
+chmod +x /usr/local/bin/employee-monitor
+
+# ── 5. Show logout prompt ─────────────────────────────────
+REAL_USER="${SUDO_USER:-$USER}"
+REAL_UID=$(id -u "$REAL_USER" 2>/dev/null || echo "1000")
+
+if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
+    sudo -u "$REAL_USER" \
+        DISPLAY=:0 \
+        DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${REAL_UID}/bus" \
+        zenity \
+        --question \
+        --title="Employee Monitor - Installation Complete" \
+        --text="✅ Employee Monitor installed successfully!\n\nYou need to log out ONCE to complete setup.\nAfter logging back in, the app will work automatically.\n\nLog out now?" \
+        --ok-label="Log Out Now" \
+        --cancel-label="I'll do it later" \
+        --width=400 2>/dev/null && \
+        sudo -u "$REAL_USER" \
+        DISPLAY=:0 \
+        DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${REAL_UID}/bus" \
+        gnome-session-quit --logout --no-prompt 2>/dev/null || true
+fi
+
+echo "Employee Monitor setup complete!"
+exit 0

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Employee Monitor
+Comment=Employee Monitoring System
+Exec=employee-monitor
+Icon=/usr/share/employee-monitor/icon.png
+Terminal=false
+Categories=Utility;
+StartupNotify=true

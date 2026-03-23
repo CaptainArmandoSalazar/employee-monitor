@@ -2,7 +2,7 @@ import * as https from 'https';
 import * as http from 'http';
 import { URL } from 'url';
 
-const BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1';
+const BASE_URL = process.env.API_BASE_URL || 'http://172.16.16.186:8000/api/v1';
 
 export interface ApiResponse<T = unknown> {
   ok: boolean;

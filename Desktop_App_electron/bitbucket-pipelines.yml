@@ -1,0 +1,53 @@
+image: node:20
+
+definitions:
+  caches:
+    node: node_modules
+
+pipelines:
+  default:
+    - parallel:
+
+        # ── Linux Build ──────────────────────────────────────
+        - step:
+            name: Build Linux (AppImage + deb)
+            image: node:20
+            caches:
+              - node
+            script:
+              - apt-get update -qq
+              - apt-get install -y -qq rpm libarchive-tools fakeroot dpkg
+              - npm install
+              - npm run build
+              - cp src/main/services/inputWorker.js dist/main/services/inputWorker.js
+              - npx electron-builder --linux AppImage deb
+            artifacts:
+              - release/*.AppImage
+              - release/*.deb
+
+        # ── Windows Build ────────────────────────────────────
+        - step:
+            name: Build Windows (.exe)
+            image: electronuserland/builder:wine
+            caches:
+              - node
+            script:
+              - npm install
+              - npm run build
+              - cp src/main/services/inputWorker.js dist/main/services/inputWorker.js
+              - npx electron-builder --windows nsis
+            artifacts:
+              - release/*.exe
+
+  # ── macOS — runs only on manual trigger ─────────────────
+  custom:
+    build-mac:
+      - step:
+          name: Build macOS (.dmg)
+          image: node:20
+          caches:
+            - node
+          script:
+            - echo "macOS builds require a Mac runner"
+            - echo "Bitbucket does not provide macOS runners on free plan"
+            - echo "Use GitHub Actions for macOS builds (it has free macOS runners)"

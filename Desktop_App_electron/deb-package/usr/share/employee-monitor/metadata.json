@@ -1,0 +1,7 @@
+{
+  "name": "Window Tracker",
+  "description": "Exposes active window info for Employee Monitor",
+  "uuid": "window-tracker@employeemonitor",
+  "shell-version": ["42", "43", "44", "45", "46"],
+  "version": 1
+}

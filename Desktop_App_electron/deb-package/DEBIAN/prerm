@@ -1,0 +1,19 @@
+#!/bin/bash
+set -e
+
+# Remove extension and service from all users
+for user in $(getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 {print $1}'); do
+    HOME_DIR=$(getent passwd "$user" | cut -d: -f6)
+    if [ -d "$HOME_DIR" ]; then
+        # Remove extension
+        rm -rf "$HOME_DIR/.local/share/gnome-shell/extensions/window-tracker@employeemonitor" 2>/dev/null || true
+        # Disable and remove service
+        sudo -u "$user" systemctl --user disable employee-monitor-setup.service 2>/dev/null || true
+        rm -f "$HOME_DIR/.config/systemd/user/employee-monitor-setup.service" 2>/dev/null || true
+    fi
+done
+
+# Remove launcher
+rm -f /usr/local/bin/employee-monitor
+
+exit 0
