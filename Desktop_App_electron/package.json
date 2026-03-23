@@ -16,7 +16,6 @@
     "dist:linux": "npm run build && cp src/main/services/inputWorker.js dist/main/services/inputWorker.js && electron-builder --linux AppImage deb",
     "dist:win": "npm run build && electron-builder --windows nsis",
     "dist:mac": "npm run build && electron-builder --mac dmg",
-    "postinstall": "electron-rebuild -f -w uiohook-napi",
     "rebuild": "electron-rebuild -f -w uiohook-napi"
   },
   "keywords": [],
@@ -63,7 +62,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "assets/icon.ico"
@@ -76,7 +77,10 @@
       }
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "icon": "assets/icon.png",
       "category": "Utility",
       "executableName": "employee-monitor",
@@ -89,7 +93,13 @@
       "createStartMenuShortcut": true
     },
     "deb": {
-      "depends": ["libxtst6", "libx11-6", "libfuse2", "xdotool", "wmctrl"]
+      "depends": [
+        "libxtst6",
+        "libx11-6",
+        "libfuse2",
+        "xdotool",
+        "wmctrl"
+      ]
     }
   }
 }
