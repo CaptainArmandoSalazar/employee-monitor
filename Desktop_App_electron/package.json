@@ -74,7 +74,10 @@
       "icon": "assets/icon.icns",
       "extendInfo": {
         "NSAccessibilityUsageDescription": "Employee Monitor needs accessibility access to track keystrokes for productivity monitoring."
-      }
+      },
+      "identity": "null",
+      "hardenedRuntime": "false",
+      "gatekeeperAssess": "false"
     },
     "linux": {
       "target": [
