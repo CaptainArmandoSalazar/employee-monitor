@@ -72,12 +72,13 @@
     "mac": {
       "target": "dmg",
       "icon": "assets/icon.icns",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
       "extendInfo": {
-        "NSAccessibilityUsageDescription": "Employee Monitor needs accessibility access to track keystrokes for productivity monitoring."
-      },
-      "identity": "null",
-      "hardenedRuntime": "false",
-      "gatekeeperAssess": "false"
+        "NSAccessibilityUsageDescription": "Employee Monitor needs accessibility access to track keystrokes for productivity monitoring.",
+        "NSScreenCaptureUsageDescription": "Employee Monitor needs screen recording access to track active windows."
+      }
     },
     "linux": {
       "target": [
@@ -96,16 +97,14 @@
       "createStartMenuShortcut": true
     },
     "deb": {
+      "afterInstall": "build/linux/postinst",
       "depends": [
         "libxtst6",
         "libx11-6",
         "libfuse2",
         "xdotool",
         "wmctrl"
-      ],
-      "scripts": {
-        "postinst": "build/linux/postinst"
-      }
+      ]
     }
   },
   "repository": {
