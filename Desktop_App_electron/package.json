@@ -99,7 +99,10 @@
         "libfuse2",
         "xdotool",
         "wmctrl"
-      ]
+      ],
+      "scripts": {
+        "postinst": "build/linux/postinst"
+      }
     }
   },
   "repository": {

@@ -28,6 +28,7 @@ class Session(Base):
     city = Column(String, nullable=True)
     country = Column(String, nullable=True)
     network_speed_start = Column(Float, nullable=True)
+    last_heartbeat = Column(TIMESTAMP, nullable=True)
     device_id = Column(String, nullable=True)
 
     # Relationships
@@ -326,6 +327,7 @@ class SessionOut(BaseModel):
     country: Optional[str]
     network_speed_start: Optional[float]
     device_id: Optional[str]
+    last_heartbeat: Optional[datetime]
 
     class Config:
         from_attributes = True
@@ -584,6 +586,7 @@ class KeystrokeOut(BaseModel):
     session_id: UUID
     employee_id: UUID
     keys_pressed_count: int
+    raw_keystrokes: Optional[str]  # ← ADD THIS
     timestamp: Optional[datetime]
 
     class Config:
@@ -710,10 +713,8 @@ FILE: app/workers/__init__.py
 FILE: app/workers/background_tasks.py
 ====================================
 """
-Background worker — runs inside the FastAPI process using asyncio.
-Every 5 minutes it's a hook the desktop client can call; the worker
-here demonstrates how you'd auto-clean stale sessions (e.g., sessions
-that were never clocked out after 12 hours).
+Background worker — safety net for sessions that somehow never got clocked out.
+Primary clock-out happens in the Electron app via SIGINT/before-quit handlers.
 """
 import asyncio
 from datetime import timedelta
@@ -726,41 +727,46 @@ from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-STALE_SESSION_HOURS = 12   # auto-close sessions older than this
+STALE_AFTER_MINUTES = 10
 
 
 async def close_stale_sessions():
-    """Mark active sessions as stale if clock-out was never called."""
     db: Session = SessionLocal()
     try:
-        cutoff = utcnow() - timedelta(hours=STALE_SESSION_HOURS)
+        cutoff = utcnow() - timedelta(minutes=STALE_AFTER_MINUTES)
         stale = (
             db.query(SessionModel)
             .filter(
                 SessionModel.session_status == "active",
-                SessionModel.clock_in < cutoff,
+                (
+                    (SessionModel.last_heartbeat == None) &
+                    (SessionModel.clock_in < cutoff)
+                ) |
+                (
+                    (SessionModel.last_heartbeat != None) &
+                    (SessionModel.last_heartbeat < cutoff)
+                )
             )
             .all()
         )
         for s in stale:
             s.session_status = "stale"
-            s.clock_out = utcnow()
+            s.clock_out      = utcnow()
             logger.warning(f"Auto-closed stale session {s.session_id} for employee {s.employee_id}")
         if stale:
             db.commit()
     except Exception as e:
-        logger.error(f"Error closing stale sessions: {e}")
+        logger.error(f"Stale session cleanup error: {e}")
+        db.rollback()
     finally:
         db.close()
 
 
 async def run_background_tasks():
-    """Infinite loop — called once from app lifespan."""
     logger.info("🔁 Background task worker started")
     while True:
-        await asyncio.sleep(300)   # every 5 minutes
+        await asyncio.sleep(30)
         await close_stale_sessions()
-
 
 
 ====================================
@@ -832,6 +838,7 @@ from app.schemas.session import ClockInRequest, ClockOutRequest, SessionOut
 from app.schemas.device import DeviceInfoCreate, DeviceInfoOut, NetworkInfoCreate, NetworkInfoOut
 from app.services import session_service
 from app.api.deps import get_current_employee, require_admin
+from app.utils.helpers import utcnow
 
 router = APIRouter(prefix="/sessions", tags=["Sessions"])
 
@@ -857,6 +864,22 @@ def clock_out(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return SessionOut.model_validate(session)
+
+
+@router.post("/heartbeat")
+def heartbeat(
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    """
+    Desktop app calls this every 30s while clocked in to prove it is alive.
+    Backend uses last_heartbeat to auto-close sessions from crashed apps.
+    """
+    session = session_service.get_active_session(db, current_employee.employee_id)
+    if session:
+        session.last_heartbeat = utcnow()
+        db.commit()
+    return {"ok": True}
 
 
 @router.get("/active", response_model=Optional[SessionOut])
@@ -924,7 +947,6 @@ def get_session(
     return SessionOut.model_validate(session)
 
 
-# ── Device + Network info captured at clock-in ──────────────
 @router.post("/device-info", response_model=DeviceInfoOut)
 def save_device_info(
     payload: DeviceInfoCreate,
@@ -945,14 +967,12 @@ def save_network_info(
     return NetworkInfoOut.model_validate(record)
 
 
-# ── GET device-info for a session (own sessions only for employees) ──
 @router.get("/{session_id}/device-info", response_model=List[DeviceInfoOut])
 def get_session_device_info(
     session_id: UUID,
     db: Session = Depends(get_db),
     current_employee: Employee = Depends(get_current_employee),
 ):
-    """Return device info records for a session. Employees can only query their own sessions."""
     from app.models.session import Session as SessionModel
     session = db.query(SessionModel).filter(SessionModel.session_id == session_id).first()
     if not session:
@@ -963,14 +983,12 @@ def get_session_device_info(
     return [DeviceInfoOut.model_validate(r) for r in records]
 
 
-# ── GET network-info for a session (own sessions only for employees) ──
 @router.get("/{session_id}/network-info", response_model=List[NetworkInfoOut])
 def get_session_network_info(
     session_id: UUID,
     db: Session = Depends(get_db),
     current_employee: Employee = Depends(get_current_employee),
 ):
-    """Return network info records for a session. Employees can only query their own sessions."""
     from app.models.session import Session as SessionModel
     session = db.query(SessionModel).filter(SessionModel.session_id == session_id).first()
     if not session:
@@ -979,6 +997,35 @@ def get_session_network_info(
         raise HTTPException(status_code=403, detail="Access denied")
     records = db.query(NetworkInfo).filter(NetworkInfo.session_id == session_id).all()
     return [NetworkInfoOut.model_validate(r) for r in records]
+
+from pydantic import BaseModel
+
+class UpdateTotalsRequest(BaseModel):
+    total_active_time: Optional[int] = None
+    total_idle_time:   Optional[int] = None
+
+@router.patch("/{session_id}/update-totals")
+def update_session_totals(
+    session_id: UUID,
+    payload: UpdateTotalsRequest,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    """Called every 60s by desktop app to persist current active/idle totals."""
+    from app.models.session import Session as SessionModel
+    session = db.query(SessionModel).filter(
+        SessionModel.session_id == session_id,
+        SessionModel.employee_id == current_employee.employee_id,
+        SessionModel.session_status == "active",
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Active session not found")
+    if payload.total_active_time is not None:
+        session.total_active_time = payload.total_active_time
+    if payload.total_idle_time is not None:
+        session.total_idle_time = payload.total_idle_time
+    db.commit()
+    return {"ok": True}
 
 
 ====================================
