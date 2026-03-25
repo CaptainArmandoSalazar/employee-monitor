@@ -34,7 +34,17 @@ export function registerIpcHandlers(): void {
     sessionService.clearState();
     return { success: true };
   });
-
+ipcMain.handle('auth:changeMyPassword', async (_event, currentPassword: string, newPassword: string) => {
+  const token = authService.getToken();
+  if (!token) return { ok: false, status: 401, data: { detail: 'Not authenticated' } };
+  return safeApi(
+    () => apiService.post('/employees/me/change-password', {
+      current_password: currentPassword,
+      new_password: newPassword,
+    }, token),
+    { ok: false, status: 0, data: { detail: 'Request failed' } }
+  );
+});
   ipcMain.handle('auth:getEmployee', () => {
     return authService.getEmployee();
   });

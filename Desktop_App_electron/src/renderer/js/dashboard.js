@@ -122,6 +122,8 @@ function bindNav() {
   });
   const btnViewAll = g('btn-view-all-sessions');
   if (btnViewAll) btnViewAll.addEventListener('click', () => switchPage('my-sessions'));
+  const btnChangePw = g('btn-change-password');
+if (btnChangePw) btnChangePw.addEventListener('click', openChangePasswordModal);
 }
 
 function switchPage(pageId) {
@@ -1682,11 +1684,26 @@ function bindModalButtons() {
       if (e.target === pwOverlay) closeModal('modal-reset-pw');
     });
   }
+  // ── Change My Password modal ────────────────────────────
+const changePwOverlay = g('modal-change-pw');
+if (changePwOverlay) {
+  const cpClose  = changePwOverlay.querySelector('.modal-close');
+  if (cpClose)  cpClose.addEventListener('click',  () => closeModal('modal-change-pw'));
+  const cpCancel = changePwOverlay.querySelector('.btn-ghost');
+  if (cpCancel) cpCancel.addEventListener('click', () => closeModal('modal-change-pw'));
+  changePwOverlay.addEventListener('click', e => {
+    if (e.target === changePwOverlay) closeModal('modal-change-pw');
+  });
+  // add to ESC handler array too — handled already since we loop ['modal-employee','modal-reset-pw']
+}
+const btnConfirmChangePw = g('btn-confirm-change-pw');
+if (btnConfirmChangePw) btnConfirmChangePw.addEventListener('click', confirmChangePassword);
 
   // ── ESC key closes any open modal ──────────────────
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
-    ['modal-employee', 'modal-reset-pw'].forEach(id => {
+    ['modal-employee', 'modal-reset-pw', 'modal-change-pw'].forEach(id => {
+
       const el = g(id);
       if (el && !el.classList.contains('hidden')) closeModal(id);
     });
@@ -1834,7 +1851,44 @@ async function confirmReset() {
     else showModalAlert('modal-pw-alert', 'Reset failed');
   } finally { btn.disabled = false; btn.textContent = 'Reset Password'; }
 }
+function openChangePasswordModal() {
+  g('change-pw-current').value = '';
+  g('change-pw-new').value     = '';
+  g('change-pw-confirm').value = '';
+  g('modal-change-pw-alert').classList.add('hidden');
+  g('modal-change-pw').classList.remove('hidden');
+}
 
+async function confirmChangePassword() {
+  const btn     = g('btn-confirm-change-pw');
+  const current = g('change-pw-current').value;
+  const newPw   = g('change-pw-new').value;
+  const confirm = g('change-pw-confirm').value;
+
+  g('modal-change-pw-alert').classList.add('hidden');
+
+  if (!current) { showModalAlert('modal-change-pw-alert', 'Current password is required'); return; }
+  if (!newPw || newPw.length < 6) { showModalAlert('modal-change-pw-alert', 'New password must be at least 6 characters'); return; }
+  if (newPw !== confirm) { showModalAlert('modal-change-pw-alert', 'Passwords do not match'); return; }
+
+  btn.disabled = true; btn.textContent = 'Updating…';
+  try {
+    const token = await api.getEmployee(); // just to confirm logged in
+    const r = await api.changeMyPassword(current, newPw);
+    if (r && (r.ok || r.status === 204)) {
+      closeModal('modal-change-pw');
+      // Brief success flash — reuse alert styling inline
+      alert('Password updated successfully!');
+    } else {
+      const detail = r?.data?.detail || 'Failed to update password';
+      showModalAlert('modal-change-pw-alert', detail);
+    }
+  } catch(e) {
+    showModalAlert('modal-change-pw-alert', 'Error: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Update Password';
+  }
+}
 async function refreshKeystrokesFromDB() {
   try {
     const session = await api.getActiveSession();

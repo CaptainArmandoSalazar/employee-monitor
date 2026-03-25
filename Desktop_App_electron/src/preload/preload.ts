@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  changeMyPassword: (current: string, newPw: string) => ipcRenderer.invoke('auth:changeMyPassword', current, newPw),
   // ── Auth ────────────────────────────────────────────
   login:        (email: string, pw: string) => ipcRenderer.invoke('auth:login', email, pw),
   logout:       ()                          => ipcRenderer.invoke('auth:logout'),

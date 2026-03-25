@@ -36,6 +36,8 @@ window.API = {
   getAdminSystemMetrics:(p) => electronAPI.getAdminSystemMetrics(p),
   getAdminSummary:     (p)  => electronAPI.getAdminSummary(p),
   getEmployeeSummary:  (id, p) => electronAPI.getEmployeeSummary(id, p),
+  changeMyPassword: (current, newPw) => electronAPI.changeMyPassword(current, newPw),
+
 
   // ── Navigation ───────────────────────────────────────
   showDashboard: ()         => electronAPI.showDashboard(),
