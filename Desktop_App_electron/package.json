@@ -30,6 +30,7 @@
     "wait-on": "^7.2.0"
   },
   "dependencies": {
+    "electron-updater": "^6.8.3",
     "node-fetch": "^2.7.0",
     "node-global-key-listener": "^0.3.0",
     "uiohook-napi": "^1.5.4",
@@ -41,6 +42,14 @@
     "directories": {
       "output": "release"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "CaptainArmandoSalazar",
+        "repo": "employee-monitor-releases",
+        "releaseType": "release"
+      }
+    ],
     "files": [
       "dist/**/*",
       "src/renderer/**/*",

@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, dialog } from 'electron';
 import * as path from 'path';
 import { createLoginWindow, createDashboardWindow, getMainWindow, setMainWindow } from './window';
 import { registerIpcHandlers } from './ipc';
@@ -7,6 +7,7 @@ import { trackingService } from './services/tracking.service';
 import { sessionService } from './services/session.service';
 import { authService } from './services/auth.service';
 import { apiService } from './services/api.service';
+import { autoUpdater } from 'electron-updater';
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) { app.quit(); process.exit(0); }
@@ -15,6 +16,105 @@ app.on('second-instance', () => {
   const win = getMainWindow();
   if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
 });
+
+// ── Auto Updater Setup ────────────────────────────────────
+function setupAutoUpdater(): void {
+  // Disable auto download — we'll control when to install
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  // Set your GitHub repo
+  autoUpdater.setFeedURL({
+    provider: 'github',
+    owner: 'CaptainArmandoSalazar',
+    repo: 'employee-monitor-releases',
+  });
+
+  // ── Update available ───────────────────────────────────
+  autoUpdater.on('update-available', (info) => {
+    console.log('[Updater] Update available:', info.version);
+    const win = getMainWindow();
+    if (!win) return;
+
+    dialog.showMessageBox(win, {
+      type: 'info',
+      title: 'Update Available',
+      message: `A new version (v${info.version}) is available.`,
+      detail: 'Would you like to download and install it now?',
+      buttons: ['Download Now', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+    }).then(({ response }) => {
+      if (response === 0) {
+        autoUpdater.downloadUpdate();
+      }
+    });
+  });
+
+  // ── No update ──────────────────────────────────────────
+  autoUpdater.on('update-not-available', () => {
+    console.log('[Updater] App is up to date.');
+  });
+
+  // ── Download progress ──────────────────────────────────
+  autoUpdater.on('download-progress', (progress) => {
+    const win = getMainWindow();
+    if (win) {
+      win.setProgressBar(progress.percent / 100);
+      win.setTitle(`Downloading update… ${Math.round(progress.percent)}%`);
+    }
+    console.log(`[Updater] Download progress: ${Math.round(progress.percent)}%`);
+  });
+
+  // ── Downloaded — ready to install ─────────────────────
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('[Updater] Update downloaded:', info.version);
+    const win = getMainWindow();
+
+    // Reset progress bar and title
+    if (win) {
+      win.setProgressBar(-1);
+      win.setTitle('Employee Monitor');
+    }
+
+    dialog.showMessageBox(win!, {
+      type: 'info',
+      title: 'Update Ready',
+      message: `v${info.version} has been downloaded.`,
+      detail: 'The update will be installed when you restart the app. Restart now?',
+      buttons: ['Restart Now', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+    }).then(({ response }) => {
+      if (response === 0) {
+        // Clock out before restarting
+        forceClockOut().then(() => {
+          autoUpdater.quitAndInstall(false, true);
+        });
+      }
+    });
+  });
+
+  // ── Error ──────────────────────────────────────────────
+  autoUpdater.on('error', (err) => {
+    console.error('[Updater] Error:', err?.message || err);
+    // Don't show dialog for update errors — just log silently
+  });
+
+  // ── Check on startup (delay 10s to let app fully load) ─
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch(err => {
+      console.error('[Updater] Check failed:', err?.message);
+    });
+  }, 10_000);
+
+  // ── Check every 30 minutes while app is running ────────
+  setInterval(() => {
+    autoUpdater.checkForUpdates().catch(err => {
+      console.error('[Updater] Periodic check failed:', err?.message);
+    });
+  }, 30 * 60 * 1000);
+}
 
 // ── Force clock-out ───────────────────────────────────────
 let _clockOutDone = false;
@@ -36,7 +136,6 @@ async function forceClockOut(): Promise<void> {
     let activeTime = totals.active;
     let idleTime   = totals.idle;
 
-    // If in-memory counters are 0, calculate from timestamps
     if (session && session.clock_in && activeTime === 0 && idleTime === 0) {
       const clockInStr = String(session.clock_in);
       const clockInISO = clockInStr.endsWith('Z') || clockInStr.includes('+')
@@ -44,7 +143,6 @@ async function forceClockOut(): Promise<void> {
       const clockInMs = new Date(clockInISO).getTime();
       const nowMs     = Date.now();
 
-      // Use last_heartbeat to split active vs idle
       let lastActiveMs = nowMs;
       if ((session as any).last_heartbeat) {
         const hbStr = String((session as any).last_heartbeat);
@@ -104,6 +202,14 @@ app.whenReady().then(() => {
   registerIpcHandlers();
   const win = createLoginWindow();
   setMainWindow(win);
+
+  // Start auto updater (only in production builds)
+  if (app.isPackaged) {
+    setupAutoUpdater();
+  } else {
+    console.log('[Updater] Skipping auto-update in dev mode.');
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       const w = createLoginWindow();
@@ -155,7 +261,6 @@ process.on('uncaughtException', (err) => {
 
 process.on('unhandledRejection', (reason) => {
   console.error('[App] Unhandled rejection:', reason);
-  // Don't exit on unhandled rejection — just log
 });
 
 // ── Security ──────────────────────────────────────────────
