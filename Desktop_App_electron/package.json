@@ -18,8 +18,13 @@
     "dist:mac": "npm run build && electron-builder --mac dmg",
     "rebuild": "electron-rebuild -f -w uiohook-napi"
   },
-  "keywords": [],
-  "license": "MIT",
+  "dependencies": {
+    "electron-updater": "^6.1.0",
+    "node-fetch": "^2.7.0",
+    "node-global-key-listener": "^0.3.0",
+    "uiohook-napi": "^1.5.4",
+    "uuid": "^9.0.0"
+  },
   "devDependencies": {
     "@types/node": "^20.11.0",
     "concurrently": "^8.2.2",
@@ -29,17 +34,16 @@
     "typescript": "^5.3.3",
     "wait-on": "^7.2.0"
   },
-  "dependencies": {
-    "node-fetch": "^2.7.0",
-    "node-global-key-listener": "^0.3.0",
-    "uiohook-napi": "^1.5.4",
-    "uuid": "^9.0.0"
-  },
   "build": {
     "appId": "com.avdevs.employeemonitor",
     "productName": "Employee Monitor",
     "directories": {
       "output": "release"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "CaptainArmandoSalazar",
+      "repo": "employee-monitor-releases"
     },
     "files": [
       "dist/**/*",
@@ -62,9 +66,7 @@
       "target": [
         {
           "target": "nsis",
-          "arch": [
-            "x64"
-          ]
+          "arch": ["x64"]
         }
       ],
       "icon": "assets/icon.ico"
@@ -74,17 +76,10 @@
       "icon": "assets/icon.icns",
       "identity": null,
       "hardenedRuntime": false,
-      "gatekeeperAssess": false,
-      "extendInfo": {
-        "NSAccessibilityUsageDescription": "Employee Monitor needs accessibility access to track keystrokes for productivity monitoring.",
-        "NSScreenCaptureUsageDescription": "Employee Monitor needs screen recording access to track active windows."
-      }
+      "gatekeeperAssess": false
     },
     "linux": {
-      "target": [
-        "AppImage",
-        "deb"
-      ],
+      "target": ["AppImage", "deb"],
       "icon": "assets/icon.png",
       "category": "Utility",
       "executableName": "employee-monitor",
@@ -106,9 +101,5 @@
         "wmctrl"
       ]
     }
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/CaptainArmandoSalazar/employee-monitor.git"
   }
 }

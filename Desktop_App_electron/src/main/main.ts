@@ -7,7 +7,8 @@ import { trackingService } from './services/tracking.service';
 import { sessionService } from './services/session.service';
 import { authService } from './services/auth.service';
 import { apiService } from './services/api.service';
-
+import { autoUpdater } from 'electron-updater';
+import { dialog } from 'electron';
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) { app.quit(); process.exit(0); }
 
@@ -98,12 +99,70 @@ async function handleExit(code: number = 0): Promise<void> {
   await forceClockOut();
   app.exit(code);
 }
+function setupAutoUpdater(): void {
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
 
+  autoUpdater.on('checking-for-update', () => {
+    console.log('[Updater] Checking for updates...');
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    console.log('[Updater] Update available:', info.version);
+  });
+
+  autoUpdater.on('update-not-available', () => {
+    console.log('[Updater] App is up to date.');
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    console.log(`[Updater] Download speed: ${Math.round(progress.bytesPerSecond / 1024)} KB/s — ${Math.round(progress.percent)}%`);
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('[Updater] Update downloaded:', info.version);
+    const win = getMainWindow();
+    if (win) {
+      dialog.showMessageBox(win, {
+        type: 'info',
+        title: 'Update Ready',
+        message: `Version ${info.version} has been downloaded.`,
+        detail: 'Restart the app now to apply the update.',
+        buttons: ['Restart Now', 'Later'],
+        defaultId: 0,
+      }).then(result => {
+        if (result.response === 0) {
+          autoUpdater.quitAndInstall();
+        }
+      });
+    }
+  });
+
+  autoUpdater.on('error', (err) => {
+    console.error('[Updater] Error:', err?.message);
+  });
+
+  // Check on startup after 5 seconds
+  setTimeout(() => {
+    autoUpdater.checkForUpdatesAndNotify();
+  }, 5000);
+
+  // Check every 1 hour while app is running
+  setInterval(() => {
+    autoUpdater.checkForUpdatesAndNotify();
+  }, 60 * 60 * 1000);
+}
 // ── App lifecycle ─────────────────────────────────────────
 app.whenReady().then(() => {
   registerIpcHandlers();
   const win = createLoginWindow();
   setMainWindow(win);
+
+  // Auto updater — only in production build
+  if (app.isPackaged) {
+    setupAutoUpdater();
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       const w = createLoginWindow();

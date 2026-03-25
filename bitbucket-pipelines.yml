@@ -1,0 +1,154 @@
+image: node:20
+
+definitions:
+  caches:
+    node: Desktop_App_electron/node_modules
+
+pipelines:
+  tags:
+    'v*':
+      - parallel:
+
+          # ── Windows Build & Release ──────────────────────
+          - step:
+              name: Build & Release Windows
+              image: electronuserland/builder:wine
+              caches:
+                - node
+              script:
+                - cd Desktop_App_electron
+                - npm install
+                - npm run build
+                - cp src/main/services/inputWorker.js dist/main/services/inputWorker.js
+                - npx electron-builder --windows nsis --publish never
+
+                # ── Upload to GitHub Releases ──────────────
+                - apt-get install -y curl jq
+                - VERSION=$(node -p "require('./package.json').version")
+                - GITHUB_OWNER="CaptainArmandoSalazar"
+                - GITHUB_REPO="employee-monitor-releases"
+                - GITHUB_TOKEN="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"
+                - echo "Creating GitHub release v$VERSION..."
+                - |
+                  EXISTING=$(curl -s \
+                    -H "Authorization: token $GITHUB_TOKEN" \
+                    https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/releases/tags/v$VERSION)
+                  RELEASE_ID=$(echo $EXISTING | jq -r '.id // empty')
+
+                  if [ -z "$RELEASE_ID" ]; then
+                    RESPONSE=$(curl -s -X POST \
+                      -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Content-Type: application/json" \
+                      https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/releases \
+                      -d "{\"tag_name\":\"v$VERSION\",\"name\":\"v$VERSION\",\"draft\":false,\"prerelease\":false,\"body\":\"Release v$VERSION\"}")
+                    RELEASE_ID=$(echo $RESPONSE | jq -r '.id')
+                    UPLOAD_URL=$(echo $RESPONSE | jq -r '.upload_url' | sed 's/{?name,label}//')
+                  else
+                    UPLOAD_URL=$(echo $EXISTING | jq -r '.upload_url' | sed 's/{?name,label}//')
+                  fi
+
+                  echo "Release ID: $RELEASE_ID"
+                  echo "Upload URL: $UPLOAD_URL"
+
+                  for FILE in release/*.exe release/*.yml; do
+                    [ -f "$FILE" ] || continue
+                    FILENAME=$(basename "$FILE")
+                    echo "Uploading $FILENAME..."
+                    curl -s -X POST \
+                      -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Content-Type: application/octet-stream" \
+                      "$UPLOAD_URL?name=$FILENAME" \
+                      --data-binary @"$FILE"
+                    echo "Uploaded $FILENAME"
+                  done
+
+                  echo "Windows release done!"
+
+          # ── Linux Build & Release ────────────────────────
+          - step:
+              name: Build & Release Linux
+              image: node:20
+              caches:
+                - node
+              script:
+                - apt-get update -qq
+                - apt-get install -y -qq rpm libarchive-tools fakeroot dpkg curl jq
+                - cd Desktop_App_electron
+                - npm install
+                - npm run build
+                - cp src/main/services/inputWorker.js dist/main/services/inputWorker.js
+                - npx electron-builder --linux AppImage deb --publish never
+
+                # ── Upload to GitHub Releases ──────────────
+                - VERSION=$(node -p "require('./package.json').version")
+                - GITHUB_OWNER="CaptainArmandoSalazar"
+                - GITHUB_REPO="employee-monitor-releases"
+                - GITHUB_TOKEN="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"
+                - echo "Creating/finding GitHub release v$VERSION..."
+                - |
+                  EXISTING=$(curl -s \
+                    -H "Authorization: token $GITHUB_TOKEN" \
+                    https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/releases/tags/v$VERSION)
+                  RELEASE_ID=$(echo $EXISTING | jq -r '.id // empty')
+
+                  if [ -z "$RELEASE_ID" ]; then
+                    RESPONSE=$(curl -s -X POST \
+                      -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Content-Type: application/json" \
+                      https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/releases \
+                      -d "{\"tag_name\":\"v$VERSION\",\"name\":\"v$VERSION\",\"draft\":false,\"prerelease\":false,\"body\":\"Release v$VERSION\"}")
+                    RELEASE_ID=$(echo $RESPONSE | jq -r '.id')
+                    UPLOAD_URL=$(echo $RESPONSE | jq -r '.upload_url' | sed 's/{?name,label}//')
+                  else
+                    UPLOAD_URL=$(echo $EXISTING | jq -r '.upload_url' | sed 's/{?name,label}//')
+                  fi
+
+                  echo "Release ID: $RELEASE_ID"
+
+                  for FILE in release/*.AppImage release/*.deb release/*.yml; do
+                    [ -f "$FILE" ] || continue
+                    FILENAME=$(basename "$FILE")
+                    echo "Uploading $FILENAME..."
+                    curl -s -X POST \
+                      -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Content-Type: application/octet-stream" \
+                      "$UPLOAD_URL?name=$FILENAME" \
+                      --data-binary @"$FILE"
+                    echo "Uploaded $FILENAME"
+                  done
+
+                  echo "Linux release done!"
+
+  # ── Default: test builds only, no release ───────────────
+  default:
+    - parallel:
+        - step:
+            name: Build Linux (test only)
+            image: node:20
+            caches:
+              - node
+            script:
+              - apt-get update -qq
+              - apt-get install -y -qq rpm libarchive-tools fakeroot dpkg
+              - cd Desktop_App_electron
+              - npm install
+              - npm run build
+              - cp src/main/services/inputWorker.js dist/main/services/inputWorker.js
+              - npx electron-builder --linux AppImage deb --publish never
+            artifacts:
+              - Desktop_App_electron/release/*.AppImage
+              - Desktop_App_electron/release/*.deb
+
+        - step:
+            name: Build Windows (test only)
+            image: electronuserland/builder:wine
+            caches:
+              - node
+            script:
+              - cd Desktop_App_electron
+              - npm install
+              - npm run build
+              - cp src/main/services/inputWorker.js dist/main/services/inputWorker.js
+              - npx electron-builder --windows nsis --publish never
+            artifacts:
+              - Desktop_App_electron/release/*.exe
