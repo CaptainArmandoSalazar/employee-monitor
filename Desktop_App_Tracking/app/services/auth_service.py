@@ -31,10 +31,16 @@ def create_token_for_employee(employee: Employee) -> str:
     )
 
 
+# REPLACE seed_default_admin function:
 def seed_default_admin(db: Session, cfg) -> None:
-    """Create default admin if not present — called once at startup."""
+    """Create default super_admin if not present — called once at startup."""
     existing = db.query(Employee).filter(Employee.email == cfg.DEFAULT_ADMIN_EMAIL).first()
     if existing:
+        # Migrate old 'admin' role to 'super_admin'
+        if existing.role == "admin":
+            existing.role = "super_admin"
+            db.commit()
+            logger.info(f"✅ Migrated admin role to super_admin: {cfg.DEFAULT_ADMIN_EMAIL}")
         return
     import uuid
     from datetime import date
@@ -44,10 +50,10 @@ def seed_default_admin(db: Session, cfg) -> None:
         email=cfg.DEFAULT_ADMIN_EMAIL,
         password_hash=hash_password(cfg.DEFAULT_ADMIN_PASSWORD),
         department=cfg.DEFAULT_ADMIN_DEPARTMENT,
-        role="admin",
+        role="super_admin",          # ← changed from "admin"
         status=True,
         date_of_joining=date.today(),
     )
     db.add(admin)
     db.commit()
-    logger.info(f"✅ Default admin seeded: {cfg.DEFAULT_ADMIN_EMAIL}")
+    logger.info(f"✅ Default super_admin seeded: {cfg.DEFAULT_ADMIN_EMAIL}")

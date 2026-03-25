@@ -121,7 +121,7 @@
         </div>
       </div>
 
-      <!-- Common nav -->
+      <!-- Common nav (all roles) -->
       <div class="nav-section-label">Workspace</div>
       <button class="nav-item active" data-page="overview">
         <span class="nav-icon">🏠</span> Overview
@@ -130,16 +130,43 @@
         <span class="nav-icon">📅</span> My Sessions
       </button>
 
-      <!-- Admin nav -->
-      <div class="nav-section-label admin-only hidden">Admin</div>
-      <button class="nav-item admin-only hidden" data-page="admins">
-        <span class="nav-icon">🛡️</span> Admins
+      <!-- ── Super Admin only ── -->
+      <div class="nav-section-label role-only role-super_admin hidden">Admin</div>
+      <button class="nav-item role-only role-super_admin hidden" data-page="super-admins">
+        <span class="nav-icon">🛡️</span> Super Admins
       </button>
-      <button class="nav-item admin-only hidden" data-page="employees">
+      <button class="nav-item role-only role-super_admin hidden" data-page="hrs">
+        <span class="nav-icon">👔</span> HRs
+      </button>
+      <button class="nav-item role-only role-super_admin hidden" data-page="managers">
+        <span class="nav-icon">🏢</span> Managers
+      </button>
+      <button class="nav-item role-only role-super_admin hidden" data-page="employees">
         <span class="nav-icon">👥</span> Employees
       </button>
-      <button class="nav-item admin-only hidden" data-page="settings">
+      <button class="nav-item role-only role-super_admin hidden" data-page="settings">
         <span class="nav-icon">⚙️</span> Settings
+      </button>
+
+      <!-- ── HR only ── -->
+      <div class="nav-section-label role-only role-hr hidden">HR Panel</div>
+      <button class="nav-item role-only role-hr hidden" data-page="hrs">
+        <span class="nav-icon">👔</span> HRs
+      </button>
+      <button class="nav-item role-only role-hr hidden" data-page="managers">
+        <span class="nav-icon">🏢</span> Managers
+      </button>
+      <button class="nav-item role-only role-hr hidden" data-page="employees">
+        <span class="nav-icon">👥</span> Employees
+      </button>
+      <button class="nav-item role-only role-hr hidden" data-page="settings">
+        <span class="nav-icon">⚙️</span> Settings
+      </button>
+
+      <!-- ── Manager only ── -->
+      <div class="nav-section-label role-only role-manager hidden">My Team</div>
+      <button class="nav-item role-only role-manager hidden" data-page="my-employees">
+        <span class="nav-icon">👥</span> My Employees
       </button>
 
       <div class="sidebar-bottom">
@@ -252,7 +279,6 @@
               <div class="card-subtitle">Your last 5 work sessions</div>
             </div>
             <button class="btn btn-ghost btn-sm" id="btn-view-all-sessions">View All →</button>
-
           </div>
           <div class="table-wrap">
             <table id="recent-sessions-table">
@@ -275,8 +301,6 @@
 
       <!-- ══════════════ MY SESSIONS PAGE ══════════════ -->
       <div class="page-view" id="page-my-sessions">
-
-        <!-- List sub-page -->
         <div class="subpage active" id="my-sessions-list">
           <div class="page-header">
             <div>
@@ -307,37 +331,23 @@
             </table>
           </div>
         </div>
-
-        <!-- Session detail sub-page -->
-        <div class="subpage" id="my-session-detail">
-          <!-- populated by JS -->
-        </div>
-
-        <!-- Keystrokes raw sub-page -->
-        <div class="subpage" id="my-session-keystrokes">
-          <!-- populated by JS -->
-        </div>
-
-        <!-- Network speed sub-page -->
-        <div class="subpage" id="my-session-netspeed">
-          <!-- populated by JS -->
-        </div>
-        <div class="subpage" id="my-session-activity"><!-- populated by JS --></div>
-
+        <div class="subpage" id="my-session-detail"></div>
+        <div class="subpage" id="my-session-keystrokes"></div>
+        <div class="subpage" id="my-session-netspeed"></div>
+        <div class="subpage" id="my-session-activity"></div>
       </div><!-- /my-sessions -->
 
 
-      <!-- ══════════════ ADMIN: ADMINS PAGE ══════════════ -->
-      <div class="page-view" id="page-admins">
-
-        <div class="subpage active" id="admins-list">
+      <!-- ══════════════ SUPER ADMINS PAGE (super_admin only) ══════════════ -->
+      <div class="page-view" id="page-super-admins">
+        <div class="subpage active" id="super-admins-list">
           <div class="page-header">
             <div>
-              <div class="page-title">Admins</div>
-              <div class="page-subtitle">Manage administrator accounts</div>
+              <div class="page-title">Super Admins</div>
+              <div class="page-subtitle">Manage super administrator accounts</div>
             </div>
             <div class="page-actions">
-              <button class="btn btn-primary btn-sm" id="btn-add-admin">+ Add Admin</button>
+              <button class="btn btn-primary btn-sm" id="btn-add-super-admin">+ Add Super Admin</button>
             </div>
           </div>
           <div class="table-wrap">
@@ -350,29 +360,94 @@
                 <th>Status</th>
                 <th>View</th>
               </tr></thead>
-              <tbody id="admins-body">
-                <tr><td colspan="6"><div class="empty-state"><span class="empty-icon">🛡️</span><span class="empty-title">Loading admins…</span></div></td></tr>
+              <tbody id="super-admins-body">
+                <tr><td colspan="6"><div class="empty-state"><span class="empty-icon">🛡️</span><span class="empty-title">Loading super admins…</span></div></td></tr>
               </tbody>
             </table>
           </div>
         </div>
-
-        <!-- Admin sessions list -->
-        <div class="subpage" id="admin-sessions-list"><!-- populated --></div>
-        <!-- Admin session detail -->
-        <div class="subpage" id="admin-session-detail"><!-- populated --></div>
-        <!-- Admin session keystrokes -->
-        <div class="subpage" id="admin-session-keystrokes"><!-- populated --></div>
-        <!-- Admin session net speed -->
-        <div class="subpage" id="admin-session-netspeed"><!-- populated --></div>
-<div class="subpage" id="admin-session-activity"><!-- populated by JS --></div>
-
-      </div><!-- /admins -->
+        <div class="subpage" id="super-admin-sessions-list"></div>
+        <div class="subpage" id="super-admin-session-detail"></div>
+        <div class="subpage" id="super-admin-session-keystrokes"></div>
+        <div class="subpage" id="super-admin-session-netspeed"></div>
+        <div class="subpage" id="super-admin-session-activity"></div>
+      </div><!-- /super-admins -->
 
 
-      <!-- ══════════════ ADMIN: EMPLOYEES PAGE ══════════════ -->
+      <!-- ══════════════ HRs PAGE (super_admin + hr) ══════════════ -->
+      <div class="page-view" id="page-hrs">
+        <div class="subpage active" id="hrs-list">
+          <div class="page-header">
+            <div>
+              <div class="page-title">HRs</div>
+              <div class="page-subtitle">Manage HR accounts</div>
+            </div>
+            <div class="page-actions">
+              <button class="btn btn-primary btn-sm" id="btn-add-hr">+ Add HR</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Department</th>
+                <th>Joined</th>
+                <th>Status</th>
+                <th>View</th>
+              </tr></thead>
+              <tbody id="hrs-body">
+                <tr><td colspan="6"><div class="empty-state"><span class="empty-icon">👔</span><span class="empty-title">Loading HRs…</span></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="subpage" id="hr-sessions-list"></div>
+        <div class="subpage" id="hr-session-detail"></div>
+        <div class="subpage" id="hr-session-keystrokes"></div>
+        <div class="subpage" id="hr-session-netspeed"></div>
+        <div class="subpage" id="hr-session-activity"></div>
+      </div><!-- /hrs -->
+
+
+      <!-- ══════════════ MANAGERS PAGE (super_admin + hr) ══════════════ -->
+      <div class="page-view" id="page-managers">
+        <div class="subpage active" id="managers-list">
+          <div class="page-header">
+            <div>
+              <div class="page-title">Managers</div>
+              <div class="page-subtitle">Manage manager accounts</div>
+            </div>
+            <div class="page-actions">
+              <button class="btn btn-primary btn-sm" id="btn-add-manager">+ Add Manager</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Department</th>
+                <th>Joined</th>
+                <th>Status</th>
+                <th>View</th>
+              </tr></thead>
+              <tbody id="managers-body">
+                <tr><td colspan="6"><div class="empty-state"><span class="empty-icon">🏢</span><span class="empty-title">Loading managers…</span></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="subpage" id="manager-sessions-list"></div>
+        <div class="subpage" id="manager-session-detail"></div>
+        <div class="subpage" id="manager-session-keystrokes"></div>
+        <div class="subpage" id="manager-session-netspeed"></div>
+        <div class="subpage" id="manager-session-activity"></div>
+      </div><!-- /managers -->
+
+
+      <!-- ══════════════ EMPLOYEES PAGE (super_admin + hr) ══════════════ -->
       <div class="page-view" id="page-employees">
-
         <div class="subpage active" id="employees-list">
           <div class="page-header">
             <div>
@@ -389,32 +464,62 @@
                 <th>Name</th>
                 <th>Email</th>
                 <th>Department</th>
+                <th>Manager</th>
                 <th>Joined</th>
                 <th>Status</th>
                 <th>View</th>
               </tr></thead>
               <tbody id="employees-body">
-                <tr><td colspan="6"><div class="empty-state"><span class="empty-icon">👥</span><span class="empty-title">Loading employees…</span></div></td></tr>
+                <tr><td colspan="7"><div class="empty-state"><span class="empty-icon">👥</span><span class="empty-title">Loading employees…</span></div></td></tr>
               </tbody>
             </table>
           </div>
         </div>
-
-        <!-- Employee sessions list -->
-        <div class="subpage" id="emp-sessions-list"><!-- populated --></div>
-        <!-- Employee session detail -->
-        <div class="subpage" id="emp-session-detail"><!-- populated --></div>
-        <!-- Employee session keystrokes -->
-        <div class="subpage" id="emp-session-keystrokes"><!-- populated --></div>
-        <!-- Employee session net speed -->
-        <div class="subpage" id="emp-session-netspeed"><!-- populated --></div>
-        <div class="subpage" id="emp-session-activity"><!-- populated by JS --></div>
-
-
+        <div class="subpage" id="emp-sessions-list"></div>
+        <div class="subpage" id="emp-session-detail"></div>
+        <div class="subpage" id="emp-session-keystrokes"></div>
+        <div class="subpage" id="emp-session-netspeed"></div>
+        <div class="subpage" id="emp-session-activity"></div>
       </div><!-- /employees -->
 
 
-      <!-- ══════════════ ADMIN: SETTINGS PAGE ══════════════ -->
+      <!-- ══════════════ MY EMPLOYEES PAGE (manager only) ══════════════ -->
+      <div class="page-view" id="page-my-employees">
+        <div class="subpage active" id="my-employees-list">
+          <div class="page-header">
+            <div>
+              <div class="page-title">My Employees</div>
+              <div class="page-subtitle">Employees assigned to you</div>
+            </div>
+            <div class="page-actions">
+              <button class="btn btn-primary btn-sm" id="btn-add-my-employee">+ Add Employee</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Department</th>
+                <th>Joined</th>
+                <th>Status</th>
+                <th>View</th>
+              </tr></thead>
+              <tbody id="my-employees-body">
+                <tr><td colspan="6"><div class="empty-state"><span class="empty-icon">👥</span><span class="empty-title">Loading your employees…</span></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="subpage" id="my-emp-sessions-list"></div>
+        <div class="subpage" id="my-emp-session-detail"></div>
+        <div class="subpage" id="my-emp-session-keystrokes"></div>
+        <div class="subpage" id="my-emp-session-netspeed"></div>
+        <div class="subpage" id="my-emp-session-activity"></div>
+      </div><!-- /my-employees -->
+
+
+      <!-- ══════════════ SETTINGS PAGE ══════════════ -->
       <div class="page-view" id="page-settings">
         <div class="page-header">
           <div>
@@ -429,12 +534,23 @@
       </div><!-- /settings -->
 
 
+      <!-- ══════════════ LEGACY: ADMINS PAGE (kept for backward compat) ══════════════ -->
+      <div class="page-view" id="page-admins" style="display:none">
+        <div class="subpage active" id="admins-list"></div>
+        <div class="subpage" id="admin-sessions-list"></div>
+        <div class="subpage" id="admin-session-detail"></div>
+        <div class="subpage" id="admin-session-keystrokes"></div>
+        <div class="subpage" id="admin-session-netspeed"></div>
+        <div class="subpage" id="admin-session-activity"></div>
+      </div><!-- /admins (legacy) -->
+
+
     </main>
   </div>
 </div>
 
 
-<!-- ═══ MODAL: Add / Edit Employee/Admin ═══ -->
+<!-- ═══ MODAL: Add / Edit Employee / Admin ═══ -->
 <div class="modal-overlay hidden" id="modal-employee">
   <div class="modal">
     <div class="modal-header">
@@ -462,10 +578,19 @@
       <div class="form-group">
         <label class="form-label">Role</label>
         <select class="form-input" id="emp-role">
-          <option value="employee">Employee</option>
-          <option value="admin">Admin</option>
+          <option value="super_admin">Super Admin</option>
+          <option value="hr">HR</option>
+          <option value="manager">Manager</option>
+          <option value="employee" selected>Employee</option>
         </select>
       </div>
+    </div>
+    <!-- Manager assignment — shown only when role = employee -->
+    <div class="form-group" id="emp-manager-group" style="display:none">
+      <label class="form-label">Assign Manager</label>
+      <select class="form-input" id="emp-manager-id">
+        <option value="">— No Manager —</option>
+      </select>
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost">Cancel</button>

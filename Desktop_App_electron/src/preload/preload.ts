@@ -50,4 +50,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── System ───────────────────────────────────────────
   getDeviceInfo:  () => ipcRenderer.invoke('system:getDeviceInfo'),
   getNetworkInfo: () => ipcRenderer.invoke('system:getNetworkInfo'),
+
+  // ── Admin: Assign manager ─────────────────────────────────
+  assignManager: (empId: string, managerId: string) => ipcRenderer.invoke('admin:assignManager', empId, managerId),
+
+  // ── Admin: list by role (scoped) ─────────────────────────
+  listByRole: (role: string, p: Record<string,string>) => ipcRenderer.invoke('admin:listByRole', role, p),
 });

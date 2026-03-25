@@ -1,3 +1,4 @@
+# REPLACE entire file:
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -17,24 +18,36 @@ def get_current_employee(
     token = credentials.credentials
     payload = decode_token(token)
     if not payload:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
     employee_id = payload.get("sub")
     if not employee_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
-
     employee = db.query(Employee).filter(Employee.employee_id == UUID(employee_id)).first()
     if not employee or not employee.status:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Employee not found or inactive")
     return employee
 
 
+def require_super_admin(employee: Employee = Depends(get_current_employee)) -> Employee:
+    if employee.role != "super_admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Super Admin access required")
+    return employee
+
+
+def require_hr_or_above(employee: Employee = Depends(get_current_employee)) -> Employee:
+    if employee.role not in ("super_admin", "hr"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="HR or above access required")
+    return employee
+
+
+def require_manager_or_above(employee: Employee = Depends(get_current_employee)) -> Employee:
+    if employee.role not in ("super_admin", "hr", "manager"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Manager or above access required")
+    return employee
+
+
+# Keep old name as alias so existing imports don't break during migration
 def require_admin(employee: Employee = Depends(get_current_employee)) -> Employee:
-    if employee.role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
-        )
+    if employee.role not in ("super_admin", "hr"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return employee

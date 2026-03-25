@@ -47,6 +47,46 @@ def list_employees(
         q = q.filter(Employee.status == status)
     return q.order_by(Employee.employee_name).offset(skip).limit(limit).all()
 
+def list_employees_by_role(
+    db: Session,
+    role: Optional[str] = None,
+    department: Optional[str] = None,
+    status: Optional[bool] = None,
+    manager_id: Optional[UUID] = None,
+    skip: int = 0,
+    limit: int = 50,
+) -> List[Employee]:
+    q = db.query(Employee)
+    if role:
+        if isinstance(role, list):
+            q = q.filter(Employee.role.in_(role))
+        else:
+            q = q.filter(Employee.role == role)
+    if department:
+        q = q.filter(Employee.department == department)
+    if status is not None:
+        q = q.filter(Employee.status == status)
+    if manager_id is not None:
+        q = q.filter(Employee.manager_id == manager_id)
+    return q.order_by(Employee.employee_name).offset(skip).limit(limit).all()
+
+
+def get_manageable_employee_ids(db: Session, requester: Employee) -> Optional[List[UUID]]:
+    """
+    Returns list of employee_ids visible to the requester.
+    Returns None meaning 'all' for super_admin/hr.
+    """
+    if requester.role in ("super_admin", "hr"):
+        return None  # can see all (except super_admin for hr — filtered elsewhere)
+    if requester.role == "manager":
+        managed = db.query(Employee.employee_id).filter(
+            Employee.manager_id == requester.employee_id
+        ).all()
+        ids = [r[0] for r in managed]
+        ids.append(requester.employee_id)  # can see own sessions too
+        return ids
+    # plain employee — only themselves
+    return [requester.employee_id]
 
 def create_employee(
     db: Session,
@@ -64,6 +104,7 @@ def create_employee(
         department=payload.department,
         role=payload.role,
         created_by=created_by,
+        manager_id=payload.manager_id,
         date_of_joining=payload.date_of_joining or date.today(),
         status=True,
         created_at=utcnow(),
@@ -73,6 +114,7 @@ def create_employee(
     db.refresh(emp)
     logger.info(f"Created employee {emp.email} (role={emp.role})")
     return emp
+
 
 
 def update_employee(db: Session, employee_id: UUID, payload: EmployeeUpdate) -> Employee:

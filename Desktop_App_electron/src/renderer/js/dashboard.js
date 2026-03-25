@@ -6,6 +6,8 @@ const api = window.electronAPI;
 // ── State ─────────────────────────────────────────────────
 let currentEmployee   = null;
 let isAdmin           = false;
+let isHR              = false;
+let isManager         = false;
 let timerInterval     = null;
 let statsInterval     = null;
 let clockInTime       = null;
@@ -23,9 +25,12 @@ async function boot() {
     currentEmployee = await api.getEmployee();
     if (!currentEmployee) { await api.showLogin(); return; }
 
-    isAdmin = currentEmployee.role === 'admin';
+    const role = currentEmployee.role;
+    isAdmin   = role === 'super_admin';
+    isHR      = role === 'hr';
+    isManager = role === 'manager';
     const name = currentEmployee.employee_name || 'User';
-
+    document.querySelectorAll(`.role-only.role-${role}`).forEach(el => el.classList.remove('hidden'));
     g('sidebar-name').textContent   = name;
     g('sidebar-role').textContent   = currentEmployee.role;
     g('sidebar-avatar').textContent = name.charAt(0).toUpperCase();
@@ -97,7 +102,7 @@ if (!window._keystrokeInterval) {
     bindWindowControls();
     bindClockButtons();
     bindModalButtons();
-    if (isAdmin) bindAdminButtons();
+    if (isAdmin || isHR || isManager) bindAdminButtons();
 
   } catch (err) {
     console.error('Boot error:', err);
@@ -116,9 +121,7 @@ function bindNav() {
     await api.logout(); await api.showLogin();
   });
   const btnViewAll = g('btn-view-all-sessions');
-if (btnViewAll) {
-  btnViewAll.addEventListener('click', () => switchPage('my-sessions'));
-}
+  if (btnViewAll) btnViewAll.addEventListener('click', () => switchPage('my-sessions'));
 }
 
 function switchPage(pageId) {
@@ -129,10 +132,59 @@ function switchPage(pageId) {
   if (page)   page.classList.add('active');
   if (navBtn) navBtn.classList.add('active');
 
-  if (pageId === 'overview')    { loadOverview(); }
-  if (pageId === 'my-sessions') { showSub('my-sessions', 'my-sessions-list'); loadMySessions(); }
-  if (pageId === 'admins')      { showSub('admins', 'admins-list'); loadAdmins(); }
-  if (pageId === 'employees')   { showSub('employees', 'employees-list'); loadEmployees(); }
+  const role = currentEmployee?.role;
+  if (pageId === 'overview')        loadOverview();
+  if (pageId === 'my-sessions')     { showSub('my-sessions', 'my-sessions-list'); loadMySessions(); }
+  if (pageId === 'super-admins')    { showSub('super-admins', 'super-admins-list'); loadRolePage('super_admin', 'super-admins-body', 'super-admins'); }
+  if (pageId === 'hrs')             { showSub('hrs', 'hrs-list'); loadRolePage('hr', 'hrs-body', 'hrs'); }
+  if (pageId === 'managers')        { showSub('managers', 'managers-list'); loadRolePage('manager', 'managers-body', 'managers'); }
+  if (pageId === 'employees')       { showSub('employees', 'employees-list'); loadRolePage('employee', 'employees-body', 'employees'); }
+  if (pageId === 'my-employees')    { showSub('my-employees', 'my-employees-list'); loadRolePage('employee', 'my-employees-body', 'my-employees'); }
+  // legacy
+  if (pageId === 'admins')          { showSub('admins', 'admins-list'); loadAdmins(); }
+}
+
+async function loadRolePage(role, tbodyId, pageKey) {
+  const tbody = g(tbodyId);
+  if (!tbody) return;
+  tbody.innerHTML = loadingRow(6);
+  try {
+    const params = { role, active_only: 'false' };
+    const r = await api.listEmployees(params);
+    const list = (r && r.ok && Array.isArray(r.data)) ? r.data : [];
+    if (!list.length) { tbody.innerHTML = emptyRow(6, 'No records found'); return; }
+
+    // Map pageKey → subpage prefix for drill-down
+    const pageMap = {
+      'super-admins': 'super-admins',
+      'hrs':          'hrs',
+      'managers':     'managers',
+      'employees':    'employees',
+      'my-employees': 'my-employees',
+    };
+    const pfx = pageMap[pageKey] || pageKey;
+
+    tbody.innerHTML = list.map(e => `
+      <tr>
+        <td><div style="display:flex;align-items:center;gap:8px;">
+          <div class="avatar" style="width:28px;height:28px;font-size:11px;">${e.employee_name.charAt(0).toUpperCase()}</div>
+          <strong>${esc(e.employee_name)}</strong>
+        </div></td>
+        <td class="td-muted">${esc(e.email)}</td>
+        <td>${esc(e.department||'—')}</td>
+        <td class="td-muted">${e.date_of_joining ? fmtDate(e.date_of_joining) : '—'}</td>
+        <td>${e.status ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-danger">Inactive</span>'}</td>
+        <td>
+          <button class="btn btn-ghost btn-sm"
+                  data-action="view-user"
+                  data-emp-id="${esc(String(e.employee_id))}"
+                  data-emp-name="${esc(e.employee_name)}"
+                  data-page="${pfx}">
+            View
+          </button>
+        </td>
+      </tr>`).join('');
+  } catch (e) { tbody.innerHTML = emptyRow(6, 'Error: ' + e.message); }
 }
 
 function showSub(pageId, subId) {
@@ -428,9 +480,13 @@ document.addEventListener('click', function(e) {
 }
 });
 async function openActivityPage(sessionId, pageId, backDetailSubId) {
-  const actSubId  = pageId === 'my-sessions' ? 'my-session-activity'
-                  : pageId === 'admins'       ? 'admin-session-activity'
-                  :                             'emp-session-activity';
+const actSubId =
+  pageId === 'my-sessions'   ? 'my-session-activity'
+: pageId === 'super-admins'  ? 'super-admin-session-activity'
+: pageId === 'hrs'           ? 'hr-session-activity'
+: pageId === 'managers'      ? 'manager-session-activity'
+: pageId === 'my-employees'  ? 'my-emp-session-activity'
+:                              'emp-session-activity';
   const container = g(actSubId);
   if (!container) return;
   container.innerHTML = spinHtml();
@@ -691,9 +747,13 @@ async function openActivityPage(sessionId, pageId, backDetailSubId) {
 // SESSION DETAIL
 // ══════════════════════════════════════════════════════════
 async function openSessionDetail(sessionId, pageId, backSubId) {
-  const detailSubId = pageId === 'my-sessions' ? 'my-session-detail'
-                    : pageId === 'admins'       ? 'admin-session-detail'
-                    :                             'emp-session-detail';
+const detailSubId =
+  pageId === 'my-sessions'   ? 'my-session-detail'
+: pageId === 'super-admins'  ? 'super-admin-session-detail'
+: pageId === 'hrs'           ? 'hr-session-detail'
+: pageId === 'managers'      ? 'manager-session-detail'
+: pageId === 'my-employees'  ? 'my-emp-session-detail'
+:                              'emp-session-detail';
 
   const container = g(detailSubId);
   if (!container) {
@@ -718,7 +778,7 @@ async function openSessionDetail(sessionId, pageId, backSubId) {
     } catch (err) { console.warn('getMySessions err:', err); }
 
     // Admin fallback
-    if (!session && isAdmin) {
+    if (!session && (isAdmin || isHR || isManager)) {
       try {
         const r = await api.getAdminSessions({ limit: '200' });
         if (r && r.ok && Array.isArray(r.data)) {
@@ -1000,9 +1060,13 @@ async function loadNetworkSec(sessionId) {
 // KEYSTROKES PAGE
 // ══════════════════════════════════════════════════════════
 async function openKeystrokesPage(sessionId, pageId, backDetailSubId) {
-  const ksSubId   = pageId === 'my-sessions' ? 'my-session-keystrokes'
-                  : pageId === 'admins'       ? 'admin-session-keystrokes'
-                  :                             'emp-session-keystrokes';
+const ksSubId =
+  pageId === 'my-sessions'   ? 'my-session-keystrokes'
+: pageId === 'super-admins'  ? 'super-admin-session-keystrokes'
+: pageId === 'hrs'           ? 'hr-session-keystrokes'
+: pageId === 'managers'      ? 'manager-session-keystrokes'
+: pageId === 'my-employees'  ? 'my-emp-session-keystrokes'
+:                              'emp-session-keystrokes';
   const container = g(ksSubId);
   if (!container) return;
   container.innerHTML = spinHtml();
@@ -1154,9 +1218,13 @@ async function openKeystrokesPage(sessionId, pageId, backDetailSubId) {
 // NETWORK SPEED PAGE
 // ══════════════════════════════════════════════════════════
 async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
-  const nsSubId   = pageId === 'my-sessions' ? 'my-session-netspeed'
-                  : pageId === 'admins'       ? 'admin-session-netspeed'
-                  :                             'emp-session-netspeed';
+const nsSubId =
+  pageId === 'my-sessions'   ? 'my-session-netspeed'
+: pageId === 'super-admins'  ? 'super-admin-session-netspeed'
+: pageId === 'hrs'           ? 'hr-session-netspeed'
+: pageId === 'managers'      ? 'manager-session-netspeed'
+: pageId === 'my-employees'  ? 'my-emp-session-netspeed'
+:                              'emp-session-netspeed';
   const container = g(nsSubId);
   if (!container) return;
   container.innerHTML = spinHtml();
@@ -1392,8 +1460,20 @@ async function loadEmployees() {
 // USER SESSIONS LIST
 // ══════════════════════════════════════════════════════════
 async function openUserSessions(empId, empName, pageId) {
-  const sessSubId = pageId === 'admins' ? 'admin-sessions-list' : 'emp-sessions-list';
-  const listSubId = pageId === 'admins' ? 'admins-list'         : 'employees-list';
+  const sessSubId =
+  pageId === 'super-admins'  ? 'super-admin-sessions-list'
+: pageId === 'hrs'           ? 'hr-sessions-list'
+: pageId === 'managers'      ? 'manager-sessions-list'
+: pageId === 'my-employees'  ? 'my-emp-sessions-list'
+: pageId === 'admins'        ? 'admin-sessions-list'
+:                              'emp-sessions-list';
+  const listSubId =
+  pageId === 'super-admins'  ? 'super-admins-list'
+: pageId === 'hrs'           ? 'hrs-list'
+: pageId === 'managers'      ? 'managers-list'
+: pageId === 'my-employees'  ? 'my-employees-list'
+: pageId === 'admins'        ? 'admins-list'
+:                              'employees-list';
   const container = g(sessSubId);
   if (!container) return;
   container.innerHTML = spinHtml();
@@ -1547,8 +1627,27 @@ async function openUserSessions(empId, empName, pageId) {
 // ADMIN MODAL CONTROLS
 // ══════════════════════════════════════════════════════════
 function bindAdminButtons() {
-  g('btn-add-admin').addEventListener('click',    () => openEmpModal('admin'));
-  g('btn-add-employee').addEventListener('click', () => openEmpModal('employee'));
+  const role = currentEmployee?.role;
+
+  const addSuperAdmin = g('btn-add-super-admin');
+  if (addSuperAdmin) addSuperAdmin.addEventListener('click', () => openEmpModal('super_admin'));
+
+  const addHR = g('btn-add-hr');
+  if (addHR) addHR.addEventListener('click', () => openEmpModal('hr'));
+
+  const addManager = g('btn-add-manager');
+  if (addManager) addManager.addEventListener('click', () => openEmpModal('manager'));
+
+  const addEmployee = g('btn-add-employee');
+  if (addEmployee) addEmployee.addEventListener('click', () => openEmpModal('employee'));
+
+  const addMyEmployee = g('btn-add-my-employee');
+  if (addMyEmployee) addMyEmployee.addEventListener('click', () => openEmpModal('employee'));
+
+  // Legacy buttons
+  const addAdmin = g('btn-add-admin');
+  if (addAdmin) addAdmin.addEventListener('click', () => openEmpModal('super_admin'));
+
   g('btn-save-employee').addEventListener('click', saveEmployee);
   g('btn-confirm-reset').addEventListener('click', confirmReset);
 }
@@ -1594,9 +1693,9 @@ function bindModalButtons() {
   });
 }
 
-function openEmpModal(defaultRole) {
+async function openEmpModal(defaultRole) {
   editingEmployeeId = null;
-  g('modal-emp-title').textContent      = defaultRole === 'admin' ? 'Add Admin' : 'Add Employee';
+  g('modal-emp-title').textContent      = `Add ${roleName(defaultRole)}`;
   g('emp-name').value                   = '';
   g('emp-email').value                  = '';
   g('emp-email').disabled               = false;
@@ -1605,9 +1704,59 @@ function openEmpModal(defaultRole) {
   g('emp-role').value                   = defaultRole;
   g('emp-password-group').style.display = 'block';
   g('modal-emp-alert').classList.add('hidden');
+
+  // Populate manager dropdown for employee role
+  const managerGroup = g('emp-manager-group');
+  if (managerGroup) {
+    if (defaultRole === 'employee') {
+      managerGroup.style.display = 'block';
+      await populateManagerDropdown();
+    } else {
+      managerGroup.style.display = 'none';
+    }
+  }
+
+  // Restrict role dropdown based on current user role
+  const roleEl = g('emp-role');
+  if (roleEl) {
+    const allowed = {
+      super_admin: ['super_admin','hr','manager','employee'],
+      hr:          ['hr','manager','employee'],
+      manager:     ['employee'],
+    }[currentEmployee?.role] || [];
+    Array.from(roleEl.options).forEach(opt => {
+      opt.disabled = !allowed.includes(opt.value);
+    });
+    roleEl.value = defaultRole;
+  }
+
   g('modal-employee').classList.remove('hidden');
 }
 
+async function populateManagerDropdown() {
+  const sel = g('emp-manager-id');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">— No Manager —</option>';
+  try {
+    const r = await api.listEmployees({ role: 'manager', active_only: 'true' });
+    const list = (r && r.ok && Array.isArray(r.data)) ? r.data : [];
+    list.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m.employee_id;
+      opt.textContent = `${esc(m.employee_name)} (${esc(m.department || '—')})`;
+      sel.appendChild(opt);
+    });
+    // If current user is manager, pre-select and lock
+    if (currentEmployee?.role === 'manager') {
+      sel.value    = currentEmployee.employee_id;
+      sel.disabled = true;
+    }
+  } catch { /* ignore */ }
+}
+
+function roleName(r) {
+  return { super_admin:'Super Admin', hr:'HR', manager:'Manager', employee:'Employee' }[r] || r;
+}
 function openEditEmployeeModal(id, name, email, dept, role) {
   editingEmployeeId = id;
   g('modal-emp-title').textContent      = 'Edit ' + (role === 'admin' ? 'Admin' : 'Employee');
@@ -1628,23 +1777,41 @@ async function saveEmployee() {
   const password = g('emp-password').value;
   const dept     = g('emp-department').value.trim();
   const role     = g('emp-role').value;
+  const managerId = g('emp-manager-id') ? g('emp-manager-id').value : '';
   g('modal-emp-alert').classList.add('hidden');
+
   if (!name)                           { showModalAlert('modal-emp-alert', 'Name is required'); return; }
   if (!editingEmployeeId && !email)    { showModalAlert('modal-emp-alert', 'Email is required'); return; }
   if (!editingEmployeeId && !password) { showModalAlert('modal-emp-alert', 'Password is required'); return; }
+
   btn.disabled = true; btn.textContent = 'Saving…';
   try {
+    const payload = { employee_name: name, department: dept, role };
+    if (managerId) payload.manager_id = managerId;
+
     const r = editingEmployeeId
-      ? await api.updateEmployee(editingEmployeeId, { employee_name: name, department: dept, role })
-      : await api.createEmployee({ employee_name: name, email, password, department: dept, role });
+      ? await api.updateEmployee(editingEmployeeId, payload)
+      : await api.createEmployee({ ...payload, email, password });
+
     if (r && r.ok) {
       closeModal('modal-employee');
-      role === 'admin' ? loadAdmins() : loadEmployees();
+      const pageMap = {
+        super_admin: { key: 'super-admins', bodyId: 'super-admins-body' },
+        hr:          { key: 'hrs',          bodyId: 'hrs-body' },
+        manager:     { key: 'managers',     bodyId: 'managers-body' },
+        employee:    { key: 'employees',    bodyId: 'employees-body' },
+      };
+      // If manager is adding, refresh their own "my-employees" page instead
+      const target = (isManager && role === 'employee')
+        ? { key: 'my-employees', bodyId: 'my-employees-body' }
+        : (pageMap[role] || { key: 'employees', bodyId: 'employees-body' });
+      loadRolePage(role, target.bodyId, target.key);
     } else {
       showModalAlert('modal-emp-alert', (r && r.data && r.data.detail) ? r.data.detail : 'Save failed');
     }
   } finally { btn.disabled = false; btn.textContent = 'Save'; }
 }
+
 
 function openResetPasswordModal(id) {
   resetPwEmployeeId = id;

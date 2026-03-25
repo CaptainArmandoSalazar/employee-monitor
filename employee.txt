@@ -257,19 +257,12 @@ else:
 ====================================
 FILE: ./Desktop_App_Tracking/alembic/versions/add_manager_id_and_roles.py
 ====================================
-"""add manager_id and update roles
-
-Revision ID: a1b2c3d4e5f6
-Revises: 
-Create Date: 2026-03-24
-
-"""
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID
 
 revision = 'a1b2c3d4e5f6'
-down_revision = None  # set to your last revision id
+down_revision = None
 branch_labels = None
 depends_on = None
 
@@ -279,7 +272,6 @@ def upgrade():
         sa.Column('manager_id', UUID(as_uuid=True),
                   sa.ForeignKey('employees.employee_id'), nullable=True)
     )
-    # Rename existing 'admin' role to 'super_admin'
     op.execute("UPDATE employees SET role = 'super_admin' WHERE role = 'admin'")
 
 
@@ -445,7 +437,7 @@ class WebsiteLog(Base):
 FILE: ./Desktop_App_Tracking/app/models/employee.py
 ====================================
 import uuid
-from sqlalchemy import Column, String, Boolean, Date, TIMESTAMP, Text
+from sqlalchemy import Column, String, Boolean, Date, TIMESTAMP, Text , ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -462,11 +454,20 @@ class Employee(Base):
     department = Column(String)
     role = Column(String, default="employee")  # admin / employee
     created_by = Column(UUID(as_uuid=True), nullable=True)
+    manager_id = Column(UUID(as_uuid=True), ForeignKey("employees.employee_id"), nullable=True)
+    created_by = Column(UUID(as_uuid=True), nullable=True)
     date_of_joining = Column(Date, nullable=True)
     status = Column(Boolean, default=True)
     created_at = Column(TIMESTAMP, default=utcnow)
 
     # Relationships
+    managed_employees = relationship(
+    "Employee",
+    foreign_keys=[manager_id],
+    primaryjoin="Employee.manager_id == Employee.employee_id",
+    lazy="dynamic",
+    viewonly=True,
+)
     sessions = relationship("Session", back_populates="employee", lazy="dynamic")
     activity_logs = relationship("ActivityLog", back_populates="employee", lazy="dynamic")
     website_logs = relationship("WebsiteLog", back_populates="employee", lazy="dynamic")
@@ -755,10 +756,13 @@ class DeviceMasterOut(BaseModel):
 ====================================
 FILE: ./Desktop_App_Tracking/app/schemas/employee.py
 ====================================
+# REPLACE entire file:
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from uuid import UUID
 from datetime import date, datetime
+
+VALID_ROLES = {"super_admin", "hr", "manager", "employee"}
 
 
 class EmployeeCreate(BaseModel):
@@ -768,6 +772,7 @@ class EmployeeCreate(BaseModel):
     department: Optional[str] = None
     role: str = "employee"
     date_of_joining: Optional[date] = None
+    manager_id: Optional[UUID] = None
 
 
 class EmployeeUpdate(BaseModel):
@@ -776,6 +781,7 @@ class EmployeeUpdate(BaseModel):
     role: Optional[str] = None
     status: Optional[bool] = None
     date_of_joining: Optional[date] = None
+    manager_id: Optional[UUID] = None
 
 
 class EmployeeOut(BaseModel):
@@ -787,6 +793,7 @@ class EmployeeOut(BaseModel):
     status: bool
     date_of_joining: Optional[date]
     created_at: Optional[datetime]
+    manager_id: Optional[UUID]
 
     class Config:
         from_attributes = True
@@ -801,7 +808,6 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     employee: EmployeeOut
-
 
 
 ====================================
@@ -1062,6 +1068,7 @@ async def run_background_tasks():
 ====================================
 FILE: ./Desktop_App_Tracking/app/api/deps.py
 ====================================
+# REPLACE entire file:
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -1081,28 +1088,39 @@ def get_current_employee(
     token = credentials.credentials
     payload = decode_token(token)
     if not payload:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
     employee_id = payload.get("sub")
     if not employee_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
-
     employee = db.query(Employee).filter(Employee.employee_id == UUID(employee_id)).first()
     if not employee or not employee.status:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Employee not found or inactive")
     return employee
 
 
-def require_admin(employee: Employee = Depends(get_current_employee)) -> Employee:
-    if employee.role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
-        )
+def require_super_admin(employee: Employee = Depends(get_current_employee)) -> Employee:
+    if employee.role != "super_admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Super Admin access required")
     return employee
 
+
+def require_hr_or_above(employee: Employee = Depends(get_current_employee)) -> Employee:
+    if employee.role not in ("super_admin", "hr"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="HR or above access required")
+    return employee
+
+
+def require_manager_or_above(employee: Employee = Depends(get_current_employee)) -> Employee:
+    if employee.role not in ("super_admin", "hr", "manager"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Manager or above access required")
+    return employee
+
+
+# Keep old name as alias so existing imports don't break during migration
+def require_admin(employee: Employee = Depends(get_current_employee)) -> Employee:
+    if employee.role not in ("super_admin", "hr"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    return employee
 
 
 ====================================
@@ -1327,7 +1345,7 @@ FILE: ./Desktop_App_Tracking/app/api/routes/__init__.py
 ====================================
 FILE: ./Desktop_App_Tracking/app/api/routes/admin.py
 ====================================
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from uuid import UUID
@@ -1345,6 +1363,8 @@ from app.schemas.device import DeviceInfoOut, NetworkInfoOut, DeviceMasterOut
 from app.schemas.session import SessionOut
 from app.services import tracking_service, session_service, analytics_service
 from app.api.deps import require_admin
+from app.api.deps import require_super_admin, require_hr_or_above, require_manager_or_above
+from app.services import employee_service as emp_svc
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -1354,9 +1374,24 @@ router = APIRouter(prefix="/admin", tags=["Admin"])
 def team_summary(
     target_date: Optional[date] = Query(None),
     db: Session = Depends(get_db),
-    _: Employee = Depends(require_admin),
+    current: Employee = Depends(require_manager_or_above),
 ):
-    return analytics_service.get_all_employees_summary(db, target_date)
+    if current.role == "manager":
+        # Only their employees + themselves
+        ids = emp_svc.get_manageable_employee_ids(db, current)
+        employees = [db.query(Employee).filter(Employee.employee_id == eid).first() for eid in ids]
+        employees = [e for e in employees if e]
+        return [analytics_service.get_employee_summary(db, e.employee_id, target_date) for e in employees]
+    elif current.role == "hr":
+        # All except super_admin
+        all_emps = db.query(Employee).filter(
+            Employee.status == True,
+            Employee.role != "super_admin"
+        ).all()
+        return [analytics_service.get_employee_summary(db, e.employee_id, target_date) for e in all_emps]
+    else:
+        # super_admin: all
+        return analytics_service.get_all_employees_summary(db, target_date)
 
 
 @router.get("/summary/{employee_id}")
@@ -1364,9 +1399,22 @@ def employee_summary(
     employee_id: UUID,
     target_date: Optional[date] = Query(None),
     db: Session = Depends(get_db),
-    _: Employee = Depends(require_admin),
+    current: Employee = Depends(require_manager_or_above),
 ):
+    target = db.query(Employee).filter(Employee.employee_id == employee_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    # Access checks
+    if current.role == "hr" and target.role == "super_admin":
+        raise HTTPException(status_code=403, detail="HR cannot view super admin activity")
+    if current.role == "manager":
+        ids = emp_svc.get_manageable_employee_ids(db, current)
+        if employee_id not in ids:
+            raise HTTPException(status_code=403, detail="Access denied")
+
     return analytics_service.get_employee_summary(db, employee_id, target_date)
+
 
 
 @router.get("/session-metrics/{session_id}")
@@ -1387,12 +1435,38 @@ def admin_sessions(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-    _: Employee = Depends(require_admin),
+    current: Employee = Depends(require_manager_or_above),
 ):
-    sessions = session_service.get_sessions(
-        db, employee_id=employee_id, session_date=session_date,
-        status=status, skip=skip, limit=limit,
-    )
+    # Determine visible employee ids
+    if current.role in ("super_admin", "hr"):
+        if current.role == "hr" and employee_id:
+            # HR cannot see super_admin sessions
+            target = db.query(Employee).filter(Employee.employee_id == employee_id).first()
+            if target and target.role == "super_admin":
+                raise HTTPException(status_code=403, detail="Access denied")
+        sessions = session_service.get_sessions(
+            db, employee_id=employee_id, session_date=session_date,
+            status=status, skip=skip, limit=limit,
+        )
+        if current.role == "hr":
+            # Filter out super_admin sessions
+            super_admin_ids = {
+                e.employee_id for e in
+                db.query(Employee).filter(Employee.role == "super_admin").all()
+            }
+            sessions = [s for s in sessions if s.employee_id not in super_admin_ids]
+    else:
+        # Manager: only their employees
+        visible_ids = emp_svc.get_manageable_employee_ids(db, current)
+        if employee_id and employee_id not in visible_ids:
+            raise HTTPException(status_code=403, detail="Access denied")
+        filter_id = employee_id if employee_id else None
+        sessions = session_service.get_sessions(
+            db, employee_id=filter_id, session_date=session_date,
+            status=status, skip=skip, limit=limit,
+        )
+        sessions = [s for s in sessions if s.employee_id in visible_ids]
+
     return [SessionOut.model_validate(s) for s in sessions]
 
 
@@ -1521,6 +1595,7 @@ def admin_devices(
 ====================================
 FILE: ./Desktop_App_Tracking/app/api/routes/employee.py
 ====================================
+# REPLACE entire file:
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -1533,54 +1608,90 @@ from app.models.employee import Employee
 from app.schemas.employee import EmployeeCreate, EmployeeUpdate, EmployeeOut
 from app.schemas.password import PasswordChangeRequest, AdminPasswordResetRequest
 from app.services import employee_service
-from app.api.deps import get_current_employee, require_admin
+from app.api.deps import (
+    get_current_employee, require_super_admin,
+    require_hr_or_above, require_manager_or_above
+)
 
 router = APIRouter(prefix="/employees", tags=["Employees"])
 
+# Role creation rules
+CREATION_RULES = {
+    "super_admin": ["super_admin", "hr", "manager", "employee"],
+    "hr":          ["hr", "manager", "employee"],
+    "manager":     ["employee"],
+    "employee":    [],
+}
 
-# ── Create (admin only) ───────────────────────────────────
+
 @router.post("", response_model=EmployeeOut, status_code=status.HTTP_201_CREATED)
 def create_employee(
     payload: EmployeeCreate,
     db: Session = Depends(get_db),
-    admin: Employee = Depends(require_admin),
+    current: Employee = Depends(require_manager_or_above),
 ):
+    allowed = CREATION_RULES.get(current.role, [])
+    if payload.role not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Your role '{current.role}' cannot create role '{payload.role}'"
+        )
+    # Manager can only create employees assigned to themselves
+    if current.role == "manager":
+        payload.manager_id = current.employee_id
+
     try:
-        emp = employee_service.create_employee(db, payload, created_by=admin.employee_id)
+        emp = employee_service.create_employee(db, payload, created_by=current.employee_id)
     except ConflictException as e:
         raise e
     return EmployeeOut.model_validate(emp)
 
 
-# ── List all (admin only) ─────────────────────────────────
 @router.get("", response_model=List[EmployeeOut])
 def list_employees(
     role: Optional[str] = Query(None),
     department: Optional[str] = Query(None),
     active_only: bool = Query(True),
+    manager_id: Optional[UUID] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-    _: Employee = Depends(require_admin),
+    current: Employee = Depends(require_manager_or_above),
 ):
-    emps = employee_service.list_employees(
-        db,
-        role=role,
-        department=department,
-        status=True if active_only else None,
-        skip=skip,
-        limit=limit,
-    )
+    status_filter = True if active_only else None
+
+    if current.role == "manager":
+        # Managers only see their own employees
+        emps = employee_service.list_employees_by_role(
+            db, role=role, department=department,
+            status=status_filter, manager_id=current.employee_id,
+            skip=skip, limit=limit
+        )
+    elif current.role == "hr":
+        # HR sees everyone except super_admin
+        if role == "super_admin":
+            raise HTTPException(status_code=403, detail="HR cannot view super admins")
+        emps = employee_service.list_employees_by_role(
+            db, role=role, department=department,
+            status=status_filter, manager_id=manager_id,
+            skip=skip, limit=limit
+        )
+        emps = [e for e in emps if e.role != "super_admin"]
+    else:
+        # super_admin sees all
+        emps = employee_service.list_employees_by_role(
+            db, role=role, department=department,
+            status=status_filter, manager_id=manager_id,
+            skip=skip, limit=limit
+        )
     return [EmployeeOut.model_validate(e) for e in emps]
 
 
-# ── Own profile ───────────────────────────────────────────
 @router.get("/me", response_model=EmployeeOut)
 def get_my_profile(current_employee: Employee = Depends(get_current_employee)):
     return EmployeeOut.model_validate(current_employee)
 
 
-# ── Self password change ──────────────────────────────────
 @router.post("/me/change-password", status_code=status.HTTP_204_NO_CONTENT)
 def change_my_password(
     payload: PasswordChangeRequest,
@@ -1592,30 +1703,54 @@ def change_my_password(
     employee_service.change_password(db, current_employee.employee_id, payload.new_password)
 
 
-# ── Get by ID ─────────────────────────────────────────────
 @router.get("/{employee_id}", response_model=EmployeeOut)
 def get_employee(
     employee_id: UUID,
     db: Session = Depends(get_db),
     current_employee: Employee = Depends(get_current_employee),
 ):
-    if current_employee.role != "admin" and current_employee.employee_id != employee_id:
-        raise ForbiddenException()
+    # super_admin: see all
+    # hr: see all except super_admin
+    # manager: see only their employees + themselves
+    # employee: only themselves
     try:
         emp = employee_service.get_by_id(db, employee_id)
     except NotFoundException as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+    if current_employee.role == "super_admin":
+        pass
+    elif current_employee.role == "hr":
+        if emp.role == "super_admin":
+            raise HTTPException(status_code=403, detail="Access denied")
+    elif current_employee.role == "manager":
+        if emp.employee_id != current_employee.employee_id and emp.manager_id != current_employee.employee_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+    else:
+        if emp.employee_id != current_employee.employee_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
     return EmployeeOut.model_validate(emp)
 
 
-# ── Update (admin only) ───────────────────────────────────
 @router.patch("/{employee_id}", response_model=EmployeeOut)
 def update_employee(
     employee_id: UUID,
     payload: EmployeeUpdate,
     db: Session = Depends(get_db),
-    _: Employee = Depends(require_admin),
+    current: Employee = Depends(require_manager_or_above),
 ):
+    try:
+        target = employee_service.get_by_id(db, employee_id)
+    except NotFoundException as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    # Permission check
+    if current.role == "manager" and target.manager_id != current.employee_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if current.role == "hr" and target.role == "super_admin":
+        raise HTTPException(status_code=403, detail="HR cannot modify super admins")
+
     try:
         emp = employee_service.update_employee(db, employee_id, payload)
     except NotFoundException as e:
@@ -1623,25 +1758,33 @@ def update_employee(
     return EmployeeOut.model_validate(emp)
 
 
-# ── Deactivate (admin only) ───────────────────────────────
 @router.delete("/{employee_id}", status_code=status.HTTP_204_NO_CONTENT)
 def deactivate_employee(
     employee_id: UUID,
     db: Session = Depends(get_db),
-    _: Employee = Depends(require_admin),
+    current: Employee = Depends(require_manager_or_above),
 ):
+    try:
+        target = employee_service.get_by_id(db, employee_id)
+    except NotFoundException as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    if current.role == "manager" and target.manager_id != current.employee_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if current.role == "hr" and target.role == "super_admin":
+        raise HTTPException(status_code=403, detail="HR cannot deactivate super admins")
+
     try:
         employee_service.deactivate(db, employee_id)
     except NotFoundException as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 
-# ── Reactivate (admin only) ───────────────────────────────
 @router.patch("/{employee_id}/reactivate", response_model=EmployeeOut)
 def reactivate_employee(
     employee_id: UUID,
     db: Session = Depends(get_db),
-    _: Employee = Depends(require_admin),
+    current: Employee = Depends(require_hr_or_above),
 ):
     try:
         employee_service.reactivate(db, employee_id)
@@ -1651,19 +1794,27 @@ def reactivate_employee(
     return EmployeeOut.model_validate(emp)
 
 
-# ── Admin resets any employee's password ─────────────────
 @router.post("/{employee_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT)
 def admin_reset_password(
     employee_id: UUID,
     payload: AdminPasswordResetRequest,
     db: Session = Depends(get_db),
-    _: Employee = Depends(require_admin),
+    current: Employee = Depends(require_manager_or_above),
 ):
+    try:
+        target = employee_service.get_by_id(db, employee_id)
+    except NotFoundException as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    if current.role == "manager" and target.manager_id != current.employee_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if current.role == "hr" and target.role == "super_admin":
+        raise HTTPException(status_code=403, detail="HR cannot reset super admin password")
+
     try:
         employee_service.change_password(db, employee_id, payload.new_password)
     except NotFoundException as e:
         raise HTTPException(status_code=404, detail=str(e))
-
 
 
 ====================================
@@ -2178,6 +2329,46 @@ def list_employees(
         q = q.filter(Employee.status == status)
     return q.order_by(Employee.employee_name).offset(skip).limit(limit).all()
 
+def list_employees_by_role(
+    db: Session,
+    role: Optional[str] = None,
+    department: Optional[str] = None,
+    status: Optional[bool] = None,
+    manager_id: Optional[UUID] = None,
+    skip: int = 0,
+    limit: int = 50,
+) -> List[Employee]:
+    q = db.query(Employee)
+    if role:
+        if isinstance(role, list):
+            q = q.filter(Employee.role.in_(role))
+        else:
+            q = q.filter(Employee.role == role)
+    if department:
+        q = q.filter(Employee.department == department)
+    if status is not None:
+        q = q.filter(Employee.status == status)
+    if manager_id is not None:
+        q = q.filter(Employee.manager_id == manager_id)
+    return q.order_by(Employee.employee_name).offset(skip).limit(limit).all()
+
+
+def get_manageable_employee_ids(db: Session, requester: Employee) -> Optional[List[UUID]]:
+    """
+    Returns list of employee_ids visible to the requester.
+    Returns None meaning 'all' for super_admin/hr.
+    """
+    if requester.role in ("super_admin", "hr"):
+        return None  # can see all (except super_admin for hr — filtered elsewhere)
+    if requester.role == "manager":
+        managed = db.query(Employee.employee_id).filter(
+            Employee.manager_id == requester.employee_id
+        ).all()
+        ids = [r[0] for r in managed]
+        ids.append(requester.employee_id)  # can see own sessions too
+        return ids
+    # plain employee — only themselves
+    return [requester.employee_id]
 
 def create_employee(
     db: Session,
@@ -2195,6 +2386,7 @@ def create_employee(
         department=payload.department,
         role=payload.role,
         created_by=created_by,
+        manager_id=payload.manager_id,
         date_of_joining=payload.date_of_joining or date.today(),
         status=True,
         created_at=utcnow(),
@@ -2204,6 +2396,7 @@ def create_employee(
     db.refresh(emp)
     logger.info(f"Created employee {emp.email} (role={emp.role})")
     return emp
+
 
 
 def update_employee(db: Session, employee_id: UUID, payload: EmployeeUpdate) -> Employee:
@@ -2437,10 +2630,16 @@ def create_token_for_employee(employee: Employee) -> str:
     )
 
 
+# REPLACE seed_default_admin function:
 def seed_default_admin(db: Session, cfg) -> None:
-    """Create default admin if not present — called once at startup."""
+    """Create default super_admin if not present — called once at startup."""
     existing = db.query(Employee).filter(Employee.email == cfg.DEFAULT_ADMIN_EMAIL).first()
     if existing:
+        # Migrate old 'admin' role to 'super_admin'
+        if existing.role == "admin":
+            existing.role = "super_admin"
+            db.commit()
+            logger.info(f"✅ Migrated admin role to super_admin: {cfg.DEFAULT_ADMIN_EMAIL}")
         return
     import uuid
     from datetime import date
@@ -2450,13 +2649,13 @@ def seed_default_admin(db: Session, cfg) -> None:
         email=cfg.DEFAULT_ADMIN_EMAIL,
         password_hash=hash_password(cfg.DEFAULT_ADMIN_PASSWORD),
         department=cfg.DEFAULT_ADMIN_DEPARTMENT,
-        role="admin",
+        role="super_admin",          # ← changed from "admin"
         status=True,
         date_of_joining=date.today(),
     )
     db.add(admin)
     db.commit()
-    logger.info(f"✅ Default admin seeded: {cfg.DEFAULT_ADMIN_EMAIL}")
+    logger.info(f"✅ Default super_admin seeded: {cfg.DEFAULT_ADMIN_EMAIL}")
 
 
 
@@ -3631,46 +3830,103 @@ if __name__ == "__main__":
 FILE: ./.github/workflows/mac-build.yml
 ====================================
 name: Build macOS
-
 on:
   push:
     branches: [ add/pipeline ]
   workflow_dispatch:
 
 jobs:
-  build-mac:
+  build-mac-intel:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: '22'
 
       - name: Install dependencies
         working-directory: Desktop_App_electron
         run: npm install
 
-      - name: Build
+      - name: Build TypeScript
         working-directory: Desktop_App_electron
-        run: |
-          npm run build
-          cp src/main/services/inputWorker.js dist/main/services/inputWorker.js
+        run: npm run build
 
-      - name: Package macOS
+      - name: Copy inputWorker
         working-directory: Desktop_App_electron
-        run: npx electron-builder --mac dmg
+        run: cp src/main/services/inputWorker.js dist/main/services/inputWorker.js
+
+      - name: Package macOS Intel
+        working-directory: Desktop_App_electron
+        run: npx electron-builder --mac dmg --x64 --publish never
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
-      - name: Upload macOS dmg
+      - name: Remove quarantine from DMG
+        run: |
+          cd Desktop_App_electron/release
+          for dmg in *.dmg; do
+            xattr -rc "$dmg"
+          done
+
+      - name: Upload Intel artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mac-build
+          name: mac-intel-dmg
           path: Desktop_App_electron/release/*.dmg
 
+  build-mac-arm:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        working-directory: Desktop_App_electron
+        run: npm install
+
+      - name: Build TypeScript
+        working-directory: Desktop_App_electron
+        run: npm run build
+
+      - name: Copy inputWorker
+        working-directory: Desktop_App_electron
+        run: cp src/main/services/inputWorker.js dist/main/services/inputWorker.js
+
+      - name: Package macOS ARM
+        working-directory: Desktop_App_electron
+        run: npx electron-builder --mac dmg --arm64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Remove quarantine from DMG
+        run: |
+          cd Desktop_App_electron/release
+          for dmg in *.dmg; do
+            xattr -rc "$dmg"
+          done
+
+      - name: Upload ARM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-arm-dmg
+          path: Desktop_App_electron/release/*.dmg
 
 
 ====================================
@@ -3889,7 +4145,6 @@ jobs:
           path: Desktop_App_electron/release/*.dmg
 
 
-
 ====================================
 FILE: ./Desktop_App_electron/tsconfig.json
 ====================================
@@ -4090,6 +4345,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── System ───────────────────────────────────────────
   getDeviceInfo:  () => ipcRenderer.invoke('system:getDeviceInfo'),
   getNetworkInfo: () => ipcRenderer.invoke('system:getNetworkInfo'),
+
+  // ── Admin: Assign manager ─────────────────────────────────
+  assignManager: (empId: string, managerId: string) => ipcRenderer.invoke('admin:assignManager', empId, managerId),
+
+  // ── Admin: list by role (scoped) ─────────────────────────
+  listByRole: (role: string, p: Record<string,string>) => ipcRenderer.invoke('admin:listByRole', role, p),
 });
 
 
@@ -5110,7 +5371,7 @@ FILE: ./Desktop_App_electron/src/renderer/dashboard.html
         </div>
       </div>
 
-      <!-- Common nav -->
+      <!-- Common nav (all roles) -->
       <div class="nav-section-label">Workspace</div>
       <button class="nav-item active" data-page="overview">
         <span class="nav-icon">🏠</span> Overview
@@ -5119,16 +5380,43 @@ FILE: ./Desktop_App_electron/src/renderer/dashboard.html
         <span class="nav-icon">📅</span> My Sessions
       </button>
 
-      <!-- Admin nav -->
-      <div class="nav-section-label admin-only hidden">Admin</div>
-      <button class="nav-item admin-only hidden" data-page="admins">
-        <span class="nav-icon">🛡️</span> Admins
+      <!-- ── Super Admin only ── -->
+      <div class="nav-section-label role-only role-super_admin hidden">Admin</div>
+      <button class="nav-item role-only role-super_admin hidden" data-page="super-admins">
+        <span class="nav-icon">🛡️</span> Super Admins
       </button>
-      <button class="nav-item admin-only hidden" data-page="employees">
+      <button class="nav-item role-only role-super_admin hidden" data-page="hrs">
+        <span class="nav-icon">👔</span> HRs
+      </button>
+      <button class="nav-item role-only role-super_admin hidden" data-page="managers">
+        <span class="nav-icon">🏢</span> Managers
+      </button>
+      <button class="nav-item role-only role-super_admin hidden" data-page="employees">
         <span class="nav-icon">👥</span> Employees
       </button>
-      <button class="nav-item admin-only hidden" data-page="settings">
+      <button class="nav-item role-only role-super_admin hidden" data-page="settings">
         <span class="nav-icon">⚙️</span> Settings
+      </button>
+
+      <!-- ── HR only ── -->
+      <div class="nav-section-label role-only role-hr hidden">HR Panel</div>
+      <button class="nav-item role-only role-hr hidden" data-page="hrs">
+        <span class="nav-icon">👔</span> HRs
+      </button>
+      <button class="nav-item role-only role-hr hidden" data-page="managers">
+        <span class="nav-icon">🏢</span> Managers
+      </button>
+      <button class="nav-item role-only role-hr hidden" data-page="employees">
+        <span class="nav-icon">👥</span> Employees
+      </button>
+      <button class="nav-item role-only role-hr hidden" data-page="settings">
+        <span class="nav-icon">⚙️</span> Settings
+      </button>
+
+      <!-- ── Manager only ── -->
+      <div class="nav-section-label role-only role-manager hidden">My Team</div>
+      <button class="nav-item role-only role-manager hidden" data-page="my-employees">
+        <span class="nav-icon">👥</span> My Employees
       </button>
 
       <div class="sidebar-bottom">
@@ -5241,7 +5529,6 @@ FILE: ./Desktop_App_electron/src/renderer/dashboard.html
               <div class="card-subtitle">Your last 5 work sessions</div>
             </div>
             <button class="btn btn-ghost btn-sm" id="btn-view-all-sessions">View All →</button>
-
           </div>
           <div class="table-wrap">
             <table id="recent-sessions-table">
@@ -5264,8 +5551,6 @@ FILE: ./Desktop_App_electron/src/renderer/dashboard.html
 
       <!-- ══════════════ MY SESSIONS PAGE ══════════════ -->
       <div class="page-view" id="page-my-sessions">
-
-        <!-- List sub-page -->
         <div class="subpage active" id="my-sessions-list">
           <div class="page-header">
             <div>
@@ -5296,37 +5581,23 @@ FILE: ./Desktop_App_electron/src/renderer/dashboard.html
             </table>
           </div>
         </div>
-
-        <!-- Session detail sub-page -->
-        <div class="subpage" id="my-session-detail">
-          <!-- populated by JS -->
-        </div>
-
-        <!-- Keystrokes raw sub-page -->
-        <div class="subpage" id="my-session-keystrokes">
-          <!-- populated by JS -->
-        </div>
-
-        <!-- Network speed sub-page -->
-        <div class="subpage" id="my-session-netspeed">
-          <!-- populated by JS -->
-        </div>
-        <div class="subpage" id="my-session-activity"><!-- populated by JS --></div>
-
+        <div class="subpage" id="my-session-detail"></div>
+        <div class="subpage" id="my-session-keystrokes"></div>
+        <div class="subpage" id="my-session-netspeed"></div>
+        <div class="subpage" id="my-session-activity"></div>
       </div><!-- /my-sessions -->
 
 
-      <!-- ══════════════ ADMIN: ADMINS PAGE ══════════════ -->
-      <div class="page-view" id="page-admins">
-
-        <div class="subpage active" id="admins-list">
+      <!-- ══════════════ SUPER ADMINS PAGE (super_admin only) ══════════════ -->
+      <div class="page-view" id="page-super-admins">
+        <div class="subpage active" id="super-admins-list">
           <div class="page-header">
             <div>
-              <div class="page-title">Admins</div>
-              <div class="page-subtitle">Manage administrator accounts</div>
+              <div class="page-title">Super Admins</div>
+              <div class="page-subtitle">Manage super administrator accounts</div>
             </div>
             <div class="page-actions">
-              <button class="btn btn-primary btn-sm" id="btn-add-admin">+ Add Admin</button>
+              <button class="btn btn-primary btn-sm" id="btn-add-super-admin">+ Add Super Admin</button>
             </div>
           </div>
           <div class="table-wrap">
@@ -5339,29 +5610,94 @@ FILE: ./Desktop_App_electron/src/renderer/dashboard.html
                 <th>Status</th>
                 <th>View</th>
               </tr></thead>
-              <tbody id="admins-body">
-                <tr><td colspan="6"><div class="empty-state"><span class="empty-icon">🛡️</span><span class="empty-title">Loading admins…</span></div></td></tr>
+              <tbody id="super-admins-body">
+                <tr><td colspan="6"><div class="empty-state"><span class="empty-icon">🛡️</span><span class="empty-title">Loading super admins…</span></div></td></tr>
               </tbody>
             </table>
           </div>
         </div>
-
-        <!-- Admin sessions list -->
-        <div class="subpage" id="admin-sessions-list"><!-- populated --></div>
-        <!-- Admin session detail -->
-        <div class="subpage" id="admin-session-detail"><!-- populated --></div>
-        <!-- Admin session keystrokes -->
-        <div class="subpage" id="admin-session-keystrokes"><!-- populated --></div>
-        <!-- Admin session net speed -->
-        <div class="subpage" id="admin-session-netspeed"><!-- populated --></div>
-<div class="subpage" id="admin-session-activity"><!-- populated by JS --></div>
-
-      </div><!-- /admins -->
+        <div class="subpage" id="super-admin-sessions-list"></div>
+        <div class="subpage" id="super-admin-session-detail"></div>
+        <div class="subpage" id="super-admin-session-keystrokes"></div>
+        <div class="subpage" id="super-admin-session-netspeed"></div>
+        <div class="subpage" id="super-admin-session-activity"></div>
+      </div><!-- /super-admins -->
 
 
-      <!-- ══════════════ ADMIN: EMPLOYEES PAGE ══════════════ -->
+      <!-- ══════════════ HRs PAGE (super_admin + hr) ══════════════ -->
+      <div class="page-view" id="page-hrs">
+        <div class="subpage active" id="hrs-list">
+          <div class="page-header">
+            <div>
+              <div class="page-title">HRs</div>
+              <div class="page-subtitle">Manage HR accounts</div>
+            </div>
+            <div class="page-actions">
+              <button class="btn btn-primary btn-sm" id="btn-add-hr">+ Add HR</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Department</th>
+                <th>Joined</th>
+                <th>Status</th>
+                <th>View</th>
+              </tr></thead>
+              <tbody id="hrs-body">
+                <tr><td colspan="6"><div class="empty-state"><span class="empty-icon">👔</span><span class="empty-title">Loading HRs…</span></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="subpage" id="hr-sessions-list"></div>
+        <div class="subpage" id="hr-session-detail"></div>
+        <div class="subpage" id="hr-session-keystrokes"></div>
+        <div class="subpage" id="hr-session-netspeed"></div>
+        <div class="subpage" id="hr-session-activity"></div>
+      </div><!-- /hrs -->
+
+
+      <!-- ══════════════ MANAGERS PAGE (super_admin + hr) ══════════════ -->
+      <div class="page-view" id="page-managers">
+        <div class="subpage active" id="managers-list">
+          <div class="page-header">
+            <div>
+              <div class="page-title">Managers</div>
+              <div class="page-subtitle">Manage manager accounts</div>
+            </div>
+            <div class="page-actions">
+              <button class="btn btn-primary btn-sm" id="btn-add-manager">+ Add Manager</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Department</th>
+                <th>Joined</th>
+                <th>Status</th>
+                <th>View</th>
+              </tr></thead>
+              <tbody id="managers-body">
+                <tr><td colspan="6"><div class="empty-state"><span class="empty-icon">🏢</span><span class="empty-title">Loading managers…</span></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="subpage" id="manager-sessions-list"></div>
+        <div class="subpage" id="manager-session-detail"></div>
+        <div class="subpage" id="manager-session-keystrokes"></div>
+        <div class="subpage" id="manager-session-netspeed"></div>
+        <div class="subpage" id="manager-session-activity"></div>
+      </div><!-- /managers -->
+
+
+      <!-- ══════════════ EMPLOYEES PAGE (super_admin + hr) ══════════════ -->
       <div class="page-view" id="page-employees">
-
         <div class="subpage active" id="employees-list">
           <div class="page-header">
             <div>
@@ -5378,32 +5714,62 @@ FILE: ./Desktop_App_electron/src/renderer/dashboard.html
                 <th>Name</th>
                 <th>Email</th>
                 <th>Department</th>
+                <th>Manager</th>
                 <th>Joined</th>
                 <th>Status</th>
                 <th>View</th>
               </tr></thead>
               <tbody id="employees-body">
-                <tr><td colspan="6"><div class="empty-state"><span class="empty-icon">👥</span><span class="empty-title">Loading employees…</span></div></td></tr>
+                <tr><td colspan="7"><div class="empty-state"><span class="empty-icon">👥</span><span class="empty-title">Loading employees…</span></div></td></tr>
               </tbody>
             </table>
           </div>
         </div>
-
-        <!-- Employee sessions list -->
-        <div class="subpage" id="emp-sessions-list"><!-- populated --></div>
-        <!-- Employee session detail -->
-        <div class="subpage" id="emp-session-detail"><!-- populated --></div>
-        <!-- Employee session keystrokes -->
-        <div class="subpage" id="emp-session-keystrokes"><!-- populated --></div>
-        <!-- Employee session net speed -->
-        <div class="subpage" id="emp-session-netspeed"><!-- populated --></div>
-        <div class="subpage" id="emp-session-activity"><!-- populated by JS --></div>
-
-
+        <div class="subpage" id="emp-sessions-list"></div>
+        <div class="subpage" id="emp-session-detail"></div>
+        <div class="subpage" id="emp-session-keystrokes"></div>
+        <div class="subpage" id="emp-session-netspeed"></div>
+        <div class="subpage" id="emp-session-activity"></div>
       </div><!-- /employees -->
 
 
-      <!-- ══════════════ ADMIN: SETTINGS PAGE ══════════════ -->
+      <!-- ══════════════ MY EMPLOYEES PAGE (manager only) ══════════════ -->
+      <div class="page-view" id="page-my-employees">
+        <div class="subpage active" id="my-employees-list">
+          <div class="page-header">
+            <div>
+              <div class="page-title">My Employees</div>
+              <div class="page-subtitle">Employees assigned to you</div>
+            </div>
+            <div class="page-actions">
+              <button class="btn btn-primary btn-sm" id="btn-add-my-employee">+ Add Employee</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Department</th>
+                <th>Joined</th>
+                <th>Status</th>
+                <th>View</th>
+              </tr></thead>
+              <tbody id="my-employees-body">
+                <tr><td colspan="6"><div class="empty-state"><span class="empty-icon">👥</span><span class="empty-title">Loading your employees…</span></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="subpage" id="my-emp-sessions-list"></div>
+        <div class="subpage" id="my-emp-session-detail"></div>
+        <div class="subpage" id="my-emp-session-keystrokes"></div>
+        <div class="subpage" id="my-emp-session-netspeed"></div>
+        <div class="subpage" id="my-emp-session-activity"></div>
+      </div><!-- /my-employees -->
+
+
+      <!-- ══════════════ SETTINGS PAGE ══════════════ -->
       <div class="page-view" id="page-settings">
         <div class="page-header">
           <div>
@@ -5418,12 +5784,23 @@ FILE: ./Desktop_App_electron/src/renderer/dashboard.html
       </div><!-- /settings -->
 
 
+      <!-- ══════════════ LEGACY: ADMINS PAGE (kept for backward compat) ══════════════ -->
+      <div class="page-view" id="page-admins" style="display:none">
+        <div class="subpage active" id="admins-list"></div>
+        <div class="subpage" id="admin-sessions-list"></div>
+        <div class="subpage" id="admin-session-detail"></div>
+        <div class="subpage" id="admin-session-keystrokes"></div>
+        <div class="subpage" id="admin-session-netspeed"></div>
+        <div class="subpage" id="admin-session-activity"></div>
+      </div><!-- /admins (legacy) -->
+
+
     </main>
   </div>
 </div>
 
 
-<!-- ═══ MODAL: Add / Edit Employee/Admin ═══ -->
+<!-- ═══ MODAL: Add / Edit Employee / Admin ═══ -->
 <div class="modal-overlay hidden" id="modal-employee">
   <div class="modal">
     <div class="modal-header">
@@ -5451,10 +5828,19 @@ FILE: ./Desktop_App_electron/src/renderer/dashboard.html
       <div class="form-group">
         <label class="form-label">Role</label>
         <select class="form-input" id="emp-role">
-          <option value="employee">Employee</option>
-          <option value="admin">Admin</option>
+          <option value="super_admin">Super Admin</option>
+          <option value="hr">HR</option>
+          <option value="manager">Manager</option>
+          <option value="employee" selected>Employee</option>
         </select>
       </div>
+    </div>
+    <!-- Manager assignment — shown only when role = employee -->
+    <div class="form-group" id="emp-manager-group" style="display:none">
+      <label class="form-label">Assign Manager</label>
+      <select class="form-input" id="emp-manager-id">
+        <option value="">— No Manager —</option>
+      </select>
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost">Cancel</button>
@@ -5498,6 +5884,8 @@ const api = window.electronAPI;
 // ── State ─────────────────────────────────────────────────
 let currentEmployee   = null;
 let isAdmin           = false;
+let isHR              = false;
+let isManager         = false;
 let timerInterval     = null;
 let statsInterval     = null;
 let clockInTime       = null;
@@ -5515,9 +5903,12 @@ async function boot() {
     currentEmployee = await api.getEmployee();
     if (!currentEmployee) { await api.showLogin(); return; }
 
-    isAdmin = currentEmployee.role === 'admin';
+    const role = currentEmployee.role;
+    isAdmin   = role === 'super_admin';
+    isHR      = role === 'hr';
+    isManager = role === 'manager';
     const name = currentEmployee.employee_name || 'User';
-
+    document.querySelectorAll(`.role-only.role-${role}`).forEach(el => el.classList.remove('hidden'));
     g('sidebar-name').textContent   = name;
     g('sidebar-role').textContent   = currentEmployee.role;
     g('sidebar-avatar').textContent = name.charAt(0).toUpperCase();
@@ -5589,7 +5980,7 @@ if (!window._keystrokeInterval) {
     bindWindowControls();
     bindClockButtons();
     bindModalButtons();
-    if (isAdmin) bindAdminButtons();
+    if (isAdmin || isHR || isManager) bindAdminButtons();
 
   } catch (err) {
     console.error('Boot error:', err);
@@ -5608,9 +5999,7 @@ function bindNav() {
     await api.logout(); await api.showLogin();
   });
   const btnViewAll = g('btn-view-all-sessions');
-if (btnViewAll) {
-  btnViewAll.addEventListener('click', () => switchPage('my-sessions'));
-}
+  if (btnViewAll) btnViewAll.addEventListener('click', () => switchPage('my-sessions'));
 }
 
 function switchPage(pageId) {
@@ -5621,10 +6010,59 @@ function switchPage(pageId) {
   if (page)   page.classList.add('active');
   if (navBtn) navBtn.classList.add('active');
 
-  if (pageId === 'overview')    { loadOverview(); }
-  if (pageId === 'my-sessions') { showSub('my-sessions', 'my-sessions-list'); loadMySessions(); }
-  if (pageId === 'admins')      { showSub('admins', 'admins-list'); loadAdmins(); }
-  if (pageId === 'employees')   { showSub('employees', 'employees-list'); loadEmployees(); }
+  const role = currentEmployee?.role;
+  if (pageId === 'overview')        loadOverview();
+  if (pageId === 'my-sessions')     { showSub('my-sessions', 'my-sessions-list'); loadMySessions(); }
+  if (pageId === 'super-admins')    { showSub('super-admins', 'super-admins-list'); loadRolePage('super_admin', 'super-admins-body', 'super-admins'); }
+  if (pageId === 'hrs')             { showSub('hrs', 'hrs-list'); loadRolePage('hr', 'hrs-body', 'hrs'); }
+  if (pageId === 'managers')        { showSub('managers', 'managers-list'); loadRolePage('manager', 'managers-body', 'managers'); }
+  if (pageId === 'employees')       { showSub('employees', 'employees-list'); loadRolePage('employee', 'employees-body', 'employees'); }
+  if (pageId === 'my-employees')    { showSub('my-employees', 'my-employees-list'); loadRolePage('employee', 'my-employees-body', 'my-employees'); }
+  // legacy
+  if (pageId === 'admins')          { showSub('admins', 'admins-list'); loadAdmins(); }
+}
+
+async function loadRolePage(role, tbodyId, pageKey) {
+  const tbody = g(tbodyId);
+  if (!tbody) return;
+  tbody.innerHTML = loadingRow(6);
+  try {
+    const params = { role, active_only: 'false' };
+    const r = await api.listEmployees(params);
+    const list = (r && r.ok && Array.isArray(r.data)) ? r.data : [];
+    if (!list.length) { tbody.innerHTML = emptyRow(6, 'No records found'); return; }
+
+    // Map pageKey → subpage prefix for drill-down
+    const pageMap = {
+      'super-admins': 'super-admins',
+      'hrs':          'hrs',
+      'managers':     'managers',
+      'employees':    'employees',
+      'my-employees': 'my-employees',
+    };
+    const pfx = pageMap[pageKey] || pageKey;
+
+    tbody.innerHTML = list.map(e => `
+      <tr>
+        <td><div style="display:flex;align-items:center;gap:8px;">
+          <div class="avatar" style="width:28px;height:28px;font-size:11px;">${e.employee_name.charAt(0).toUpperCase()}</div>
+          <strong>${esc(e.employee_name)}</strong>
+        </div></td>
+        <td class="td-muted">${esc(e.email)}</td>
+        <td>${esc(e.department||'—')}</td>
+        <td class="td-muted">${e.date_of_joining ? fmtDate(e.date_of_joining) : '—'}</td>
+        <td>${e.status ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-danger">Inactive</span>'}</td>
+        <td>
+          <button class="btn btn-ghost btn-sm"
+                  data-action="view-user"
+                  data-emp-id="${esc(String(e.employee_id))}"
+                  data-emp-name="${esc(e.employee_name)}"
+                  data-page="${pfx}">
+            View
+          </button>
+        </td>
+      </tr>`).join('');
+  } catch (e) { tbody.innerHTML = emptyRow(6, 'Error: ' + e.message); }
 }
 
 function showSub(pageId, subId) {
@@ -5920,9 +6358,13 @@ document.addEventListener('click', function(e) {
 }
 });
 async function openActivityPage(sessionId, pageId, backDetailSubId) {
-  const actSubId  = pageId === 'my-sessions' ? 'my-session-activity'
-                  : pageId === 'admins'       ? 'admin-session-activity'
-                  :                             'emp-session-activity';
+const actSubId =
+  pageId === 'my-sessions'   ? 'my-session-activity'
+: pageId === 'super-admins'  ? 'super-admin-session-activity'
+: pageId === 'hrs'           ? 'hr-session-activity'
+: pageId === 'managers'      ? 'manager-session-activity'
+: pageId === 'my-employees'  ? 'my-emp-session-activity'
+:                              'emp-session-activity';
   const container = g(actSubId);
   if (!container) return;
   container.innerHTML = spinHtml();
@@ -6183,9 +6625,13 @@ async function openActivityPage(sessionId, pageId, backDetailSubId) {
 // SESSION DETAIL
 // ══════════════════════════════════════════════════════════
 async function openSessionDetail(sessionId, pageId, backSubId) {
-  const detailSubId = pageId === 'my-sessions' ? 'my-session-detail'
-                    : pageId === 'admins'       ? 'admin-session-detail'
-                    :                             'emp-session-detail';
+const detailSubId =
+  pageId === 'my-sessions'   ? 'my-session-detail'
+: pageId === 'super-admins'  ? 'super-admin-session-detail'
+: pageId === 'hrs'           ? 'hr-session-detail'
+: pageId === 'managers'      ? 'manager-session-detail'
+: pageId === 'my-employees'  ? 'my-emp-session-detail'
+:                              'emp-session-detail';
 
   const container = g(detailSubId);
   if (!container) {
@@ -6210,7 +6656,7 @@ async function openSessionDetail(sessionId, pageId, backSubId) {
     } catch (err) { console.warn('getMySessions err:', err); }
 
     // Admin fallback
-    if (!session && isAdmin) {
+    if (!session && (isAdmin || isHR || isManager)) {
       try {
         const r = await api.getAdminSessions({ limit: '200' });
         if (r && r.ok && Array.isArray(r.data)) {
@@ -6492,9 +6938,13 @@ async function loadNetworkSec(sessionId) {
 // KEYSTROKES PAGE
 // ══════════════════════════════════════════════════════════
 async function openKeystrokesPage(sessionId, pageId, backDetailSubId) {
-  const ksSubId   = pageId === 'my-sessions' ? 'my-session-keystrokes'
-                  : pageId === 'admins'       ? 'admin-session-keystrokes'
-                  :                             'emp-session-keystrokes';
+const ksSubId =
+  pageId === 'my-sessions'   ? 'my-session-keystrokes'
+: pageId === 'super-admins'  ? 'super-admin-session-keystrokes'
+: pageId === 'hrs'           ? 'hr-session-keystrokes'
+: pageId === 'managers'      ? 'manager-session-keystrokes'
+: pageId === 'my-employees'  ? 'my-emp-session-keystrokes'
+:                              'emp-session-keystrokes';
   const container = g(ksSubId);
   if (!container) return;
   container.innerHTML = spinHtml();
@@ -6646,9 +7096,13 @@ async function openKeystrokesPage(sessionId, pageId, backDetailSubId) {
 // NETWORK SPEED PAGE
 // ══════════════════════════════════════════════════════════
 async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
-  const nsSubId   = pageId === 'my-sessions' ? 'my-session-netspeed'
-                  : pageId === 'admins'       ? 'admin-session-netspeed'
-                  :                             'emp-session-netspeed';
+const nsSubId =
+  pageId === 'my-sessions'   ? 'my-session-netspeed'
+: pageId === 'super-admins'  ? 'super-admin-session-netspeed'
+: pageId === 'hrs'           ? 'hr-session-netspeed'
+: pageId === 'managers'      ? 'manager-session-netspeed'
+: pageId === 'my-employees'  ? 'my-emp-session-netspeed'
+:                              'emp-session-netspeed';
   const container = g(nsSubId);
   if (!container) return;
   container.innerHTML = spinHtml();
@@ -6884,8 +7338,20 @@ async function loadEmployees() {
 // USER SESSIONS LIST
 // ══════════════════════════════════════════════════════════
 async function openUserSessions(empId, empName, pageId) {
-  const sessSubId = pageId === 'admins' ? 'admin-sessions-list' : 'emp-sessions-list';
-  const listSubId = pageId === 'admins' ? 'admins-list'         : 'employees-list';
+  const sessSubId =
+  pageId === 'super-admins'  ? 'super-admin-sessions-list'
+: pageId === 'hrs'           ? 'hr-sessions-list'
+: pageId === 'managers'      ? 'manager-sessions-list'
+: pageId === 'my-employees'  ? 'my-emp-sessions-list'
+: pageId === 'admins'        ? 'admin-sessions-list'
+:                              'emp-sessions-list';
+  const listSubId =
+  pageId === 'super-admins'  ? 'super-admins-list'
+: pageId === 'hrs'           ? 'hrs-list'
+: pageId === 'managers'      ? 'managers-list'
+: pageId === 'my-employees'  ? 'my-employees-list'
+: pageId === 'admins'        ? 'admins-list'
+:                              'employees-list';
   const container = g(sessSubId);
   if (!container) return;
   container.innerHTML = spinHtml();
@@ -7039,8 +7505,27 @@ async function openUserSessions(empId, empName, pageId) {
 // ADMIN MODAL CONTROLS
 // ══════════════════════════════════════════════════════════
 function bindAdminButtons() {
-  g('btn-add-admin').addEventListener('click',    () => openEmpModal('admin'));
-  g('btn-add-employee').addEventListener('click', () => openEmpModal('employee'));
+  const role = currentEmployee?.role;
+
+  const addSuperAdmin = g('btn-add-super-admin');
+  if (addSuperAdmin) addSuperAdmin.addEventListener('click', () => openEmpModal('super_admin'));
+
+  const addHR = g('btn-add-hr');
+  if (addHR) addHR.addEventListener('click', () => openEmpModal('hr'));
+
+  const addManager = g('btn-add-manager');
+  if (addManager) addManager.addEventListener('click', () => openEmpModal('manager'));
+
+  const addEmployee = g('btn-add-employee');
+  if (addEmployee) addEmployee.addEventListener('click', () => openEmpModal('employee'));
+
+  const addMyEmployee = g('btn-add-my-employee');
+  if (addMyEmployee) addMyEmployee.addEventListener('click', () => openEmpModal('employee'));
+
+  // Legacy buttons
+  const addAdmin = g('btn-add-admin');
+  if (addAdmin) addAdmin.addEventListener('click', () => openEmpModal('super_admin'));
+
   g('btn-save-employee').addEventListener('click', saveEmployee);
   g('btn-confirm-reset').addEventListener('click', confirmReset);
 }
@@ -7086,9 +7571,9 @@ function bindModalButtons() {
   });
 }
 
-function openEmpModal(defaultRole) {
+async function openEmpModal(defaultRole) {
   editingEmployeeId = null;
-  g('modal-emp-title').textContent      = defaultRole === 'admin' ? 'Add Admin' : 'Add Employee';
+  g('modal-emp-title').textContent      = `Add ${roleName(defaultRole)}`;
   g('emp-name').value                   = '';
   g('emp-email').value                  = '';
   g('emp-email').disabled               = false;
@@ -7097,9 +7582,59 @@ function openEmpModal(defaultRole) {
   g('emp-role').value                   = defaultRole;
   g('emp-password-group').style.display = 'block';
   g('modal-emp-alert').classList.add('hidden');
+
+  // Populate manager dropdown for employee role
+  const managerGroup = g('emp-manager-group');
+  if (managerGroup) {
+    if (defaultRole === 'employee') {
+      managerGroup.style.display = 'block';
+      await populateManagerDropdown();
+    } else {
+      managerGroup.style.display = 'none';
+    }
+  }
+
+  // Restrict role dropdown based on current user role
+  const roleEl = g('emp-role');
+  if (roleEl) {
+    const allowed = {
+      super_admin: ['super_admin','hr','manager','employee'],
+      hr:          ['hr','manager','employee'],
+      manager:     ['employee'],
+    }[currentEmployee?.role] || [];
+    Array.from(roleEl.options).forEach(opt => {
+      opt.disabled = !allowed.includes(opt.value);
+    });
+    roleEl.value = defaultRole;
+  }
+
   g('modal-employee').classList.remove('hidden');
 }
 
+async function populateManagerDropdown() {
+  const sel = g('emp-manager-id');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">— No Manager —</option>';
+  try {
+    const r = await api.listEmployees({ role: 'manager', active_only: 'true' });
+    const list = (r && r.ok && Array.isArray(r.data)) ? r.data : [];
+    list.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m.employee_id;
+      opt.textContent = `${esc(m.employee_name)} (${esc(m.department || '—')})`;
+      sel.appendChild(opt);
+    });
+    // If current user is manager, pre-select and lock
+    if (currentEmployee?.role === 'manager') {
+      sel.value    = currentEmployee.employee_id;
+      sel.disabled = true;
+    }
+  } catch { /* ignore */ }
+}
+
+function roleName(r) {
+  return { super_admin:'Super Admin', hr:'HR', manager:'Manager', employee:'Employee' }[r] || r;
+}
 function openEditEmployeeModal(id, name, email, dept, role) {
   editingEmployeeId = id;
   g('modal-emp-title').textContent      = 'Edit ' + (role === 'admin' ? 'Admin' : 'Employee');
@@ -7120,23 +7655,41 @@ async function saveEmployee() {
   const password = g('emp-password').value;
   const dept     = g('emp-department').value.trim();
   const role     = g('emp-role').value;
+  const managerId = g('emp-manager-id') ? g('emp-manager-id').value : '';
   g('modal-emp-alert').classList.add('hidden');
+
   if (!name)                           { showModalAlert('modal-emp-alert', 'Name is required'); return; }
   if (!editingEmployeeId && !email)    { showModalAlert('modal-emp-alert', 'Email is required'); return; }
   if (!editingEmployeeId && !password) { showModalAlert('modal-emp-alert', 'Password is required'); return; }
+
   btn.disabled = true; btn.textContent = 'Saving…';
   try {
+    const payload = { employee_name: name, department: dept, role };
+    if (managerId) payload.manager_id = managerId;
+
     const r = editingEmployeeId
-      ? await api.updateEmployee(editingEmployeeId, { employee_name: name, department: dept, role })
-      : await api.createEmployee({ employee_name: name, email, password, department: dept, role });
+      ? await api.updateEmployee(editingEmployeeId, payload)
+      : await api.createEmployee({ ...payload, email, password });
+
     if (r && r.ok) {
       closeModal('modal-employee');
-      role === 'admin' ? loadAdmins() : loadEmployees();
+      const pageMap = {
+        super_admin: { key: 'super-admins', bodyId: 'super-admins-body' },
+        hr:          { key: 'hrs',          bodyId: 'hrs-body' },
+        manager:     { key: 'managers',     bodyId: 'managers-body' },
+        employee:    { key: 'employees',    bodyId: 'employees-body' },
+      };
+      // If manager is adding, refresh their own "my-employees" page instead
+      const target = (isManager && role === 'employee')
+        ? { key: 'my-employees', bodyId: 'my-employees-body' }
+        : (pageMap[role] || { key: 'employees', bodyId: 'employees-body' });
+      loadRolePage(role, target.bodyId, target.key);
     } else {
       showModalAlert('modal-emp-alert', (r && r.data && r.data.detail) ? r.data.detail : 'Save failed');
     }
   } finally { btn.disabled = false; btn.textContent = 'Save'; }
 }
+
 
 function openResetPasswordModal(id) {
   resetPwEmployeeId = id;
@@ -8572,6 +9125,24 @@ export function registerIpcHandlers(): void {
     return { success: true };
   });
 
+  ipcMain.handle('admin:assignManager', async (_event, empId: string, managerId: string) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false };
+    return safeApi(
+      () => apiService.patch(`/employees/${empId}`, { manager_id: managerId }, token),
+      { ok: false, status: 0, data: {} }
+    );
+  });
+
+  ipcMain.handle('admin:listByRole', async (_event, role: string, params: Record<string,string> = {}) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false, data: [] };
+    return safeApi(
+      () => apiService.get('/employees', token, { ...params, role }),
+      { ok: false, status: 0, data: [] }
+    );
+  });
+
   ipcMain.handle('nav:minimize', (event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize();
   });
@@ -8778,15 +9349,15 @@ ipcMain.handle('session:heartbeat', async () => {
   // FIX: Always use /admin/sessions for admin users.
   // The old logic checked authService.getEmployee()?.role which could be null
   // after a session restore, causing it to fall back to /sessions/my incorrectly.
-  ipcMain.handle('admin:getSessions', async (_event, params: Record<string, string> = {}) => {
+ipcMain.handle('admin:getSessions', async (_event, params: Record<string, string> = {}) => {
     const token    = authService.getToken();
     const employee = authService.getEmployee();
     if (!token) return { ok: false, data: [] };
 
-    // ALWAYS use admin endpoint if role is admin (or if we have a token but employee
-    // isn't loaded yet — try admin endpoint first, fall back to /sessions/my)
-    if (employee?.role === 'admin') {
-      // Admin: use /admin/sessions which supports employee_id filtering
+    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
+
+    if (employee?.role && ADMIN_ROLES.includes(employee.role)) {
+      // Use /admin/sessions which supports employee_id filtering
       const result = await safeApi(
         () => apiService.get('/admin/sessions', token, params),
         { ok: false, status: 0, data: [] }
@@ -8797,7 +9368,7 @@ ipcMain.handle('session:heartbeat', async () => {
       }
       return result;
     } else {
-      // Non-admin: can only see own sessions, ignore employee_id filter
+      // Plain employee: can only see own sessions
       const p: Record<string, string> = {};
       if (params.limit) p.limit = params.limit;
       return safeApi(() => apiService.get('/sessions/my', token, p), { ok: false, status: 0, data: [] });
@@ -8809,7 +9380,7 @@ ipcMain.handle('session:heartbeat', async () => {
     const token    = authService.getToken();
     const employee = authService.getEmployee();
     if (!token) return { ok: false, data: [] };
-    if (employee?.role === 'admin') {
+    if (employee?.role && ['super_admin', 'hr', 'manager', 'admin'].includes(employee.role)) {
       return safeApi(() => apiService.get('/admin/device-info', token, params), { ok: false, status: 0, data: [] });
     } else {
       const sessionId = params.session_id;
@@ -8823,7 +9394,7 @@ ipcMain.handle('session:heartbeat', async () => {
     const token    = authService.getToken();
     const employee = authService.getEmployee();
     if (!token) return { ok: false, data: [] };
-    if (employee?.role === 'admin') {
+    if (employee?.role && ['super_admin', 'hr', 'manager', 'admin'].includes(employee.role)) {
       return safeApi(() => apiService.get('/admin/network-info', token, params), { ok: false, status: 0, data: [] });
     } else {
       const sessionId = params.session_id;
@@ -8835,31 +9406,36 @@ ipcMain.handle('session:heartbeat', async () => {
   // ── Admin: Activity reports ───────────────────────────
   ipcMain.handle('admin:getActivity', async (_event, params: Record<string, string> = {}) => {
     const token = authService.getToken(); if (!token) return { ok: false, data: [] };
-    const ep = authService.getEmployee()?.role === 'admin' ? '/admin/activity' : '/tracking/activity';
+    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
+    const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) ? '/admin/activity' : '/tracking/activity';
     return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
   });
 
   ipcMain.handle('admin:getWebsite', async (_event, params: Record<string, string> = {}) => {
     const token = authService.getToken(); if (!token) return { ok: false, data: [] };
-    const ep = authService.getEmployee()?.role === 'admin' ? '/admin/website' : '/tracking/website';
+    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
+    const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) ? '/admin/website' : '/tracking/website';
     return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
   });
 
   ipcMain.handle('admin:getKeystrokes', async (_event, params: Record<string, string> = {}) => {
     const token = authService.getToken(); if (!token) return { ok: false, data: [] };
-    const ep = authService.getEmployee()?.role === 'admin' ? '/admin/keystrokes' : '/tracking/keystrokes';
+    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
+    const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) ? '/admin/keystrokes' : '/tracking/keystrokes';
     return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
   });
 
   ipcMain.handle('admin:getSystemMetrics', async (_event, params: Record<string, string> = {}) => {
     const token = authService.getToken(); if (!token) return { ok: false, data: [] };
-    const ep = authService.getEmployee()?.role === 'admin' ? '/admin/system-metrics' : '/tracking/system-metrics';
+    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
+    const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) ? '/admin/system-matrics' : '/tracking/system-matrics';
     return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
   });
 
   ipcMain.handle('admin:getNetworkSpeed', async (_event, params: Record<string, string> = {}) => {
     const token = authService.getToken(); if (!token) return { ok: false, data: [] };
-    const ep = authService.getEmployee()?.role === 'admin' ? '/admin/network-speed' : '/tracking/network-speed';
+    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
+    const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) ? '/admin/network-speed' : '/tracking/network-speed';
     return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
   });
 
@@ -8911,7 +9487,7 @@ export interface Employee {
   employee_name: string;
   email: string;
   department: string | null;
-  role: 'admin' | 'employee';
+  role: 'super_admin' | 'hr' | 'manager' | 'employee' | 'admin';
   status: boolean;
   date_of_joining: string | null;
   created_at: string | null;

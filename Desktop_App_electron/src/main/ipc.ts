@@ -59,6 +59,24 @@ export function registerIpcHandlers(): void {
     return { success: true };
   });
 
+  ipcMain.handle('admin:assignManager', async (_event, empId: string, managerId: string) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false };
+    return safeApi(
+      () => apiService.patch(`/employees/${empId}`, { manager_id: managerId }, token),
+      { ok: false, status: 0, data: {} }
+    );
+  });
+
+  ipcMain.handle('admin:listByRole', async (_event, role: string, params: Record<string,string> = {}) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false, data: [] };
+    return safeApi(
+      () => apiService.get('/employees', token, { ...params, role }),
+      { ok: false, status: 0, data: [] }
+    );
+  });
+
   ipcMain.handle('nav:minimize', (event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize();
   });
@@ -265,15 +283,15 @@ ipcMain.handle('session:heartbeat', async () => {
   // FIX: Always use /admin/sessions for admin users.
   // The old logic checked authService.getEmployee()?.role which could be null
   // after a session restore, causing it to fall back to /sessions/my incorrectly.
-  ipcMain.handle('admin:getSessions', async (_event, params: Record<string, string> = {}) => {
+ipcMain.handle('admin:getSessions', async (_event, params: Record<string, string> = {}) => {
     const token    = authService.getToken();
     const employee = authService.getEmployee();
     if (!token) return { ok: false, data: [] };
 
-    // ALWAYS use admin endpoint if role is admin (or if we have a token but employee
-    // isn't loaded yet — try admin endpoint first, fall back to /sessions/my)
-    if (employee?.role === 'admin') {
-      // Admin: use /admin/sessions which supports employee_id filtering
+    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
+
+    if (employee?.role && ADMIN_ROLES.includes(employee.role)) {
+      // Use /admin/sessions which supports employee_id filtering
       const result = await safeApi(
         () => apiService.get('/admin/sessions', token, params),
         { ok: false, status: 0, data: [] }
@@ -284,7 +302,7 @@ ipcMain.handle('session:heartbeat', async () => {
       }
       return result;
     } else {
-      // Non-admin: can only see own sessions, ignore employee_id filter
+      // Plain employee: can only see own sessions
       const p: Record<string, string> = {};
       if (params.limit) p.limit = params.limit;
       return safeApi(() => apiService.get('/sessions/my', token, p), { ok: false, status: 0, data: [] });
@@ -296,7 +314,7 @@ ipcMain.handle('session:heartbeat', async () => {
     const token    = authService.getToken();
     const employee = authService.getEmployee();
     if (!token) return { ok: false, data: [] };
-    if (employee?.role === 'admin') {
+    if (employee?.role && ['super_admin', 'hr', 'manager', 'admin'].includes(employee.role)) {
       return safeApi(() => apiService.get('/admin/device-info', token, params), { ok: false, status: 0, data: [] });
     } else {
       const sessionId = params.session_id;
@@ -310,7 +328,7 @@ ipcMain.handle('session:heartbeat', async () => {
     const token    = authService.getToken();
     const employee = authService.getEmployee();
     if (!token) return { ok: false, data: [] };
-    if (employee?.role === 'admin') {
+    if (employee?.role && ['super_admin', 'hr', 'manager', 'admin'].includes(employee.role)) {
       return safeApi(() => apiService.get('/admin/network-info', token, params), { ok: false, status: 0, data: [] });
     } else {
       const sessionId = params.session_id;
@@ -322,31 +340,36 @@ ipcMain.handle('session:heartbeat', async () => {
   // ── Admin: Activity reports ───────────────────────────
   ipcMain.handle('admin:getActivity', async (_event, params: Record<string, string> = {}) => {
     const token = authService.getToken(); if (!token) return { ok: false, data: [] };
-    const ep = authService.getEmployee()?.role === 'admin' ? '/admin/activity' : '/tracking/activity';
+    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
+    const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) ? '/admin/activity' : '/tracking/activity';
     return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
   });
 
   ipcMain.handle('admin:getWebsite', async (_event, params: Record<string, string> = {}) => {
     const token = authService.getToken(); if (!token) return { ok: false, data: [] };
-    const ep = authService.getEmployee()?.role === 'admin' ? '/admin/website' : '/tracking/website';
+    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
+    const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) ? '/admin/website' : '/tracking/website';
     return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
   });
 
   ipcMain.handle('admin:getKeystrokes', async (_event, params: Record<string, string> = {}) => {
     const token = authService.getToken(); if (!token) return { ok: false, data: [] };
-    const ep = authService.getEmployee()?.role === 'admin' ? '/admin/keystrokes' : '/tracking/keystrokes';
+    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
+    const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) ? '/admin/keystrokes' : '/tracking/keystrokes';
     return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
   });
 
   ipcMain.handle('admin:getSystemMetrics', async (_event, params: Record<string, string> = {}) => {
     const token = authService.getToken(); if (!token) return { ok: false, data: [] };
-    const ep = authService.getEmployee()?.role === 'admin' ? '/admin/system-metrics' : '/tracking/system-metrics';
+    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
+    const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) ? '/admin/system-matrics' : '/tracking/system-matrics';
     return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
   });
 
   ipcMain.handle('admin:getNetworkSpeed', async (_event, params: Record<string, string> = {}) => {
     const token = authService.getToken(); if (!token) return { ok: false, data: [] };
-    const ep = authService.getEmployee()?.role === 'admin' ? '/admin/network-speed' : '/tracking/network-speed';
+    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
+    const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) ? '/admin/network-speed' : '/tracking/network-speed';
     return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
   });
 
