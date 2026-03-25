@@ -149,12 +149,12 @@ function switchPage(pageId) {
 async function loadRolePage(role, tbodyId, pageKey) {
   const tbody = g(tbodyId);
   if (!tbody) return;
-  tbody.innerHTML = loadingRow(6);
+  tbody.innerHTML = loadingRow(tbodyId === 'employees-body' ? 7 : 6);
   try {
     const params = { role, active_only: 'false' };
     const r = await api.listEmployees(params);
     const list = (r && r.ok && Array.isArray(r.data)) ? r.data : [];
-    if (!list.length) { tbody.innerHTML = emptyRow(6, 'No records found'); return; }
+    if (!list.length) { tbody.innerHTML = emptyRow(tbodyId === 'employees-body' ? 7 : 6, 'No records found'); return; }
 
     // Map pageKey → subpage prefix for drill-down
     const pageMap = {
@@ -165,27 +165,48 @@ async function loadRolePage(role, tbodyId, pageKey) {
       'my-employees': 'my-employees',
     };
     const pfx = pageMap[pageKey] || pageKey;
-
-    tbody.innerHTML = list.map(e => `
-      <tr>
-        <td><div style="display:flex;align-items:center;gap:8px;">
-          <div class="avatar" style="width:28px;height:28px;font-size:11px;">${e.employee_name.charAt(0).toUpperCase()}</div>
-          <strong>${esc(e.employee_name)}</strong>
-        </div></td>
-        <td class="td-muted">${esc(e.email)}</td>
-        <td>${esc(e.department||'—')}</td>
-        <td class="td-muted">${e.date_of_joining ? fmtDate(e.date_of_joining) : '—'}</td>
-        <td>${e.status ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-danger">Inactive</span>'}</td>
-        <td>
-          <button class="btn btn-ghost btn-sm"
-                  data-action="view-user"
-                  data-emp-id="${esc(String(e.employee_id))}"
-                  data-emp-name="${esc(e.employee_name)}"
-                  data-page="${pfx}">
-            View
-          </button>
-        </td>
-      </tr>`).join('');
+let managerMap = {};
+if (tbodyId === 'employees-body') {
+  try {
+    const mr = await api.listEmployees({ role: 'manager', active_only: 'false' });
+    const managers = (mr && mr.ok && Array.isArray(mr.data)) ? mr.data : [];
+    managers.forEach(m => { managerMap[m.employee_id] = m.employee_name; });
+  } catch { /* ignore, show — as fallback */ }
+}
+tbody.innerHTML = list.map(e => `
+  <tr>
+    <td><div style="display:flex;align-items:center;gap:8px;">
+      <div class="avatar" style="width:28px;height:28px;font-size:11px;">${e.employee_name.charAt(0).toUpperCase()}</div>
+      <strong>${esc(e.employee_name)}</strong>
+    </div></td>
+    <td class="td-muted">${esc(e.email)}</td>
+    <td>${esc(e.department||'—')}</td>
+    ${tbodyId === 'employees-body' ? `<td class="td-muted">${esc(managerMap[e.manager_id] || '—')}</td>` : ''}
+    <td class="td-muted">${e.date_of_joining ? fmtDate(e.date_of_joining) : '—'}</td>
+    <td>${e.status ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-danger">Inactive</span>'}</td>
+<td>
+  <div style="display:flex;gap:6px;">
+    ${(isAdmin || isHR) && tbodyId === 'employees-body' ? `
+    <button class="btn btn-ghost btn-sm"
+            data-action="edit-user"
+            data-emp-id="${esc(String(e.employee_id))}"
+            data-emp-name="${esc(e.employee_name)}"
+            data-emp-email="${esc(e.email)}"
+            data-emp-dept="${esc(e.department||'')}"
+            data-emp-role="${esc(e.role)}"
+            data-emp-manager="${esc(e.manager_id||'')}">
+      Edit
+    </button>` : ''}
+    <button class="btn btn-ghost btn-sm"
+            data-action="view-user"
+            data-emp-id="${esc(String(e.employee_id))}"
+            data-emp-name="${esc(e.employee_name)}"
+            data-page="${pfx}">
+      View
+    </button>
+  </div>
+</td>
+  </tr>`).join('');
   } catch (e) { tbody.innerHTML = emptyRow(6, 'Error: ' + e.message); }
 }
 
@@ -460,6 +481,9 @@ document.addEventListener('click', function(e) {
   if (action === 'view-session' && sid && pageId && backSub) {
     openSessionDetail(sid, pageId, backSub);
   }
+  if (action === 'edit-user' && empId) {
+  openEditUserModal(empId, btn.dataset.empName, btn.dataset.empEmail, btn.dataset.empDept, btn.dataset.empRole, btn.dataset.empManager);
+}
   if (action === 'view-user' && empId && empName && pageId) {
     openUserSessions(empId, empName, pageId);
   }
@@ -481,6 +505,43 @@ document.addEventListener('click', function(e) {
   openActivityPage(sid, pageId, backSub);
 }
 });
+
+async function openEditUserModal(id, name, email, dept, role, currentManagerId) {
+  editingEmployeeId = id;
+  g('modal-emp-title').textContent      = 'Edit Employee';
+  g('emp-name').value                   = name;
+  g('emp-email').value                  = email;
+  g('emp-email').disabled               = true;
+  g('emp-department').value             = dept || '';
+  g('emp-role').value                   = role;
+  g('emp-password-group').style.display = 'none';
+  g('modal-emp-alert').classList.add('hidden');
+
+  // Always show manager group when editing an employee
+  const managerGroup = g('emp-manager-group');
+  if (managerGroup) {
+    managerGroup.style.display = 'block';
+    await populateManagerDropdown();
+    // Pre-select current manager
+    const sel = g('emp-manager-id');
+    if (sel && currentManagerId) sel.value = currentManagerId;
+  }
+
+  // Restrict role options based on current user
+  const roleEl = g('emp-role');
+  if (roleEl) {
+    const allowed = {
+      super_admin: ['super_admin', 'hr', 'manager', 'employee'],
+      hr:          ['hr', 'manager', 'employee'],
+      manager:     ['employee'],
+    }[currentEmployee?.role] || [];
+    Array.from(roleEl.options).forEach(opt => {
+      opt.disabled = !allowed.includes(opt.value);
+    });
+  }
+
+  g('modal-employee').classList.remove('hidden');
+}
 async function openActivityPage(sessionId, pageId, backDetailSubId) {
 const actSubId =
   pageId === 'my-sessions'   ? 'my-session-activity'
@@ -1422,7 +1483,7 @@ async function loadAdmins() {
 // ══════════════════════════════════════════════════════════
 async function loadEmployees() {
   const tbody = g('employees-body');
-  tbody.innerHTML = loadingRow(6);
+  tbody.innerHTML = loadingRow(tbodyId === 'employees-body' ? 7 : 6);
   try {
     const r    = await api.listEmployees({ role: 'employee', active_only: 'false' });
     const list = (r && r.ok && Array.isArray(r.data)) ? r.data : [];
@@ -1803,8 +1864,13 @@ async function saveEmployee() {
 
   btn.disabled = true; btn.textContent = 'Saving…';
   try {
-    const payload = { employee_name: name, department: dept, role };
-    if (managerId) payload.manager_id = managerId;
+   const payload = { employee_name: name, department: dept, role };
+// Always include manager_id on edit (even if empty, to allow removing a manager)
+if (editingEmployeeId) {
+  payload.manager_id = managerId || null;
+} else {
+  if (managerId) payload.manager_id = managerId;
+}
 
     const r = editingEmployeeId
       ? await api.updateEmployee(editingEmployeeId, payload)
@@ -1819,10 +1885,14 @@ async function saveEmployee() {
         employee:    { key: 'employees',    bodyId: 'employees-body' },
       };
       // If manager is adding, refresh their own "my-employees" page instead
-      const target = (isManager && role === 'employee')
-        ? { key: 'my-employees', bodyId: 'my-employees-body' }
-        : (pageMap[role] || { key: 'employees', bodyId: 'employees-body' });
-      loadRolePage(role, target.bodyId, target.key);
+if (editingEmployeeId) {
+  loadRolePage('employee', 'employees-body', 'employees');
+} else {
+  const target = (isManager && role === 'employee')
+    ? { key: 'my-employees', bodyId: 'my-employees-body' }
+    : (pageMap[role] || { key: 'employees', bodyId: 'employees-body' });
+  loadRolePage(role, target.bodyId, target.key);
+}
     } else {
       showModalAlert('modal-emp-alert', (r && r.data && r.data.detail) ? r.data.detail : 'Save failed');
     }
