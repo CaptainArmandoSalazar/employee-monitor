@@ -1530,6 +1530,7 @@ async function openUserSessions(empId, empName, pageId) {
 : pageId === 'my-employees'  ? 'my-emp-sessions-list'
 : pageId === 'admins'        ? 'admin-sessions-list'
 :                              'emp-sessions-list';
+
   const listSubId =
   pageId === 'super-admins'  ? 'super-admins-list'
 : pageId === 'hrs'           ? 'hrs-list'
@@ -1537,6 +1538,7 @@ async function openUserSessions(empId, empName, pageId) {
 : pageId === 'my-employees'  ? 'my-employees-list'
 : pageId === 'admins'        ? 'admins-list'
 :                              'employees-list';
+
   const container = g(sessSubId);
   if (!container) return;
   container.innerHTML = spinHtml();
@@ -1545,7 +1547,6 @@ async function openUserSessions(empId, empName, pageId) {
   try {
     const empIdStr = String(empId).trim();
 
-    // Strategy 1: fetch with employee_id filter
     let sessions = [];
     const r = await api.getAdminSessions({ employee_id: empIdStr, limit: '200' });
     console.log(`[openUserSessions] employee_id=${empIdStr}`, 'response:', r);
@@ -1553,8 +1554,6 @@ async function openUserSessions(empId, empName, pageId) {
     if (r && r.ok && Array.isArray(r.data) && r.data.length > 0) {
       sessions = r.data;
     } else {
-      // Strategy 2: fetch all sessions and filter client-side
-      // (fallback in case employee_id query param isn't working)
       console.log('[openUserSessions] Trying fallback: fetch all + filter client-side');
       const r2 = await api.getAdminSessions({ limit: '200' });
       console.log('[openUserSessions] fallback response:', r2);
@@ -1566,24 +1565,34 @@ async function openUserSessions(empId, empName, pageId) {
       }
     }
 
-    // Keystroke totals
+    // Build keystroke map
     const ksMap = {};
     try {
-      const kr = await api.getAdminKeystrokes({ employee_id: String(empId), limit: '500' });
+      const kr = await api.getAdminKeystrokes({ employee_id: empIdStr, limit: '500' });
       if (kr && kr.ok && Array.isArray(kr.data)) {
         kr.data.forEach(k => {
-          ksMap[k.session_id] = (ksMap[k.session_id]||0) + (k.keys_pressed_count||0);
+          ksMap[k.session_id] = (ksMap[k.session_id] || 0) + (k.keys_pressed_count || 0);
         });
       }
     } catch { /* optional */ }
 
-    // Calculate totals for header stats
-    const totalActive = sessions.reduce((a, s) => a + (s.total_active_time||0), 0);
-    const totalIdle   = sessions.reduce((a, s) => a + (s.total_idle_time||0), 0);
-    const totalKeys   = Object.values(ksMap).reduce((a, v) => a + v, 0);
+    // ── Get unique years from sessions for year dropdown ──
+    const uniqueYears = [...new Set(
+      sessions
+        .map(s => {
+          const raw = s.date || (s.clock_in || '').slice(0, 10);
+          if (!raw) return null;
+          const y = parseInt(raw.slice(0, 4));
+          return isNaN(y) ? null : y;
+        })
+        .filter(Boolean)
+    )].sort((a, b) => b - a);
 
+    // ── Render ─────────────────────────────────────────────
     container.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:20px;">
+
+        <!-- Header -->
         <div style="display:flex;align-items:center;gap:12px;">
           <button class="back-btn"
                   data-action="back-to-sub"
@@ -1593,30 +1602,29 @@ async function openUserSessions(empId, empName, pageId) {
           </button>
           <div>
             <div class="page-title">${esc(empName)}</div>
-            <div class="page-subtitle">All Sessions (${sessions.length})</div>
+            <div class="page-subtitle" id="usr-subtitle">All Sessions</div>
           </div>
         </div>
 
-        ${sessions.length > 0 ? `
-        <div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));">
-          <div class="stat-card accent">
-            <div class="stat-label">Total Sessions</div>
-            <div class="stat-value">${sessions.length}</div>
-          </div>
-          <div class="stat-card success">
-            <div class="stat-label">Total Active</div>
-            <div class="stat-value" style="font-size:20px;">${sToHm(totalActive)}</div>
-          </div>
-          <div class="stat-card warning">
-            <div class="stat-label">Total Idle</div>
-            <div class="stat-value" style="font-size:20px;">${sToHm(totalIdle)}</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Total Keystrokes</div>
-            <div class="stat-value" style="font-size:20px;">${totalKeys.toLocaleString()}</div>
-          </div>
-        </div>` : ''}
+        <!-- Filters -->
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+          <select id="usr-filter-period" class="filter-select">
+            <option value="all">All Time</option>
+            <option value="year">By Year</option>
+            <option value="month">By Month</option>
+            <option value="day">By Day</option>
+          </select>
+          <select id="usr-filter-year" class="filter-select" style="display:none;">
+            ${uniqueYears.map(y => `<option value="${y}">${y}</option>`).join('')}
+          </select>
+          <input type="month" id="usr-filter-month" class="filter-input" style="display:none;" />
+          <input type="date"  id="usr-filter-day"   class="filter-input" style="display:none;" />
+        </div>
 
+        <!-- Stats -->
+        <div id="usr-stats-grid" class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));"></div>
+
+        <!-- Table -->
         <div class="table-wrap">
           <table>
             <thead>
@@ -1632,45 +1640,138 @@ async function openUserSessions(empId, empName, pageId) {
                 <th>View</th>
               </tr>
             </thead>
-            <tbody>
-              ${sessions.length
-                ? sessions.map(s => `
-                    <tr>
-                      <td>${fmtDate(s.date||s.clock_in)}</td>
-                      <td class="td-mono">${fmtTime(s.clock_in)}</td>
-                      <td class="td-mono">
-                        ${s.clock_out
-                          ? fmtTime(s.clock_out)
-                          : '<span class="text-success">Active</span>'}
-                      </td>
-                      <td class="text-success">${sToHm(s.total_active_time)}</td>
-                      <td class="text-warning">${sToHm(s.total_idle_time)}</td>
-                      <td class="td-muted">${esc(locStr(s))}</td>
-                      <td>${(ksMap[s.session_id]||0).toLocaleString()}</td>
-                      <td>${statusBadge(s.session_status)}</td>
-                      <td>
-                        <button class="btn btn-ghost btn-sm"
-                                data-action="view-user-session"
-                                data-sid="${esc(s.session_id)}"
-                                data-page="${pageId}"
-                                data-back="${sessSubId}">
-                          View
-                        </button>
-                      </td>
-                    </tr>`).join('')
-                : `<tr><td colspan="9">
-                    <div class="empty-state">
-                      <span class="empty-icon">📭</span>
-                      <span class="empty-title">No sessions found for this user</span>
-                      <span class="empty-sub" style="font-size:11px;color:var(--text-muted);margin-top:4px;">
-                        This user has not clocked in yet, or sessions may not have synced.
-                      </span>
-                    </div>
-                  </td></tr>`}
+            <tbody id="usr-sessions-tbody">
+              <tr><td colspan="9"><div class="empty-state">
+                <span class="spinner"></span>
+              </div></td></tr>
             </tbody>
           </table>
         </div>
+
       </div>`;
+
+    // ── Filter + render logic ──────────────────────────────
+    function applyFilter() {
+      const period  = document.getElementById('usr-filter-period')?.value || 'all';
+      const monthEl = document.getElementById('usr-filter-month');
+      const dayEl   = document.getElementById('usr-filter-day');
+      const yearEl  = document.getElementById('usr-filter-year');
+
+      // Show/hide sub-filters
+      yearEl.style.display  = period === 'year'  ? '' : 'none';
+      monthEl.style.display = period === 'month' ? '' : 'none';
+      dayEl.style.display   = period === 'day'   ? '' : 'none';
+
+      const now      = new Date();
+      const todayStr = now.toISOString().slice(0, 10);
+      const thisMonth = now.toISOString().slice(0, 7);
+      const thisYear  = String(now.getFullYear());
+
+      // Set defaults when inputs are empty
+      if (period === 'month' && !monthEl.value) monthEl.value = thisMonth;
+      if (period === 'day'   && !dayEl.value)   dayEl.value   = todayStr;
+
+      const filtered = sessions.filter(s => {
+        const raw = s.date || (s.clock_in || '').slice(0, 10);
+        if (!raw) return false;
+        const dateStr = raw.slice(0, 10);
+        if (period === 'day')   return dateStr === (dayEl.value || todayStr);
+        if (period === 'month') return dateStr.slice(0, 7) === (monthEl.value || thisMonth);
+        if (period === 'year')  return dateStr.slice(0, 4) === (yearEl.value || thisYear);
+        return true;
+      });
+
+      // Update subtitle
+      const subtitleMap = {
+        all:   'All Sessions',
+        year:  `Year ${yearEl.value || thisYear}`,
+        month: `Month: ${monthEl.value || thisMonth}`,
+        day:   `Date: ${dayEl.value || todayStr}`,
+      };
+      const subtitleEl = document.getElementById('usr-subtitle');
+      if (subtitleEl) subtitleEl.textContent = `${subtitleMap[period] || 'All Sessions'} (${filtered.length})`;
+
+      // Compute stats
+      const totalActive = filtered.reduce((a, s) => a + (s.total_active_time || 0), 0);
+      const totalIdle   = filtered.reduce((a, s) => a + (s.total_idle_time   || 0), 0);
+      const totalKeys   = filtered.reduce((a, s) => a + (ksMap[s.session_id] || 0), 0);
+
+      // Render stats
+      const statsGrid = document.getElementById('usr-stats-grid');
+      if (statsGrid) {
+        statsGrid.innerHTML = `
+          <div class="stat-card accent">
+            <div class="stat-label">Total Sessions</div>
+            <div class="stat-value">${filtered.length}</div>
+            <div class="stat-sub">${subtitleMap[period] || 'All time'}</div>
+          </div>
+          <div class="stat-card success">
+            <div class="stat-label">Total Active Time</div>
+            <div class="stat-value" style="font-size:20px;">${sToHm(totalActive)}</div>
+            <div class="stat-sub">${filtered.length} session${filtered.length !== 1 ? 's' : ''}</div>
+          </div>
+          <div class="stat-card warning">
+            <div class="stat-label">Total Idle Time</div>
+            <div class="stat-value" style="font-size:20px;">${sToHm(totalIdle)}</div>
+            <div class="stat-sub">${filtered.length} session${filtered.length !== 1 ? 's' : ''}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Total Keystrokes</div>
+            <div class="stat-value" style="font-size:20px;">${totalKeys.toLocaleString()}</div>
+            <div class="stat-sub">${filtered.length} session${filtered.length !== 1 ? 's' : ''}</div>
+          </div>`;
+      }
+
+      // Render table rows
+      const tbody = document.getElementById('usr-sessions-tbody');
+      if (!tbody) return;
+
+      if (!filtered.length) {
+        tbody.innerHTML = `<tr><td colspan="9">
+          <div class="empty-state">
+            <span class="empty-icon">📭</span>
+            <span class="empty-title">No sessions found for this period</span>
+            <span class="empty-sub">Try selecting a different filter</span>
+          </div>
+        </td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(s => `
+        <tr>
+          <td>${fmtDate(s.date || s.clock_in)}</td>
+          <td class="td-mono">${fmtTime(s.clock_in)}</td>
+          <td class="td-mono">
+            ${s.clock_out
+              ? fmtTime(s.clock_out)
+              : '<span class="text-success">Active</span>'}
+          </td>
+          <td class="text-success">${sToHm(s.total_active_time)}</td>
+          <td class="text-warning">${sToHm(s.total_idle_time)}</td>
+          <td class="td-muted">${esc(locStr(s))}</td>
+          <td>${(ksMap[s.session_id] || 0).toLocaleString()}</td>
+          <td>${statusBadge(s.session_status)}</td>
+          <td>
+            <button class="btn btn-ghost btn-sm"
+                    data-action="view-user-session"
+                    data-sid="${esc(s.session_id)}"
+                    data-page="${pageId}"
+                    data-back="${sessSubId}">
+              View
+            </button>
+          </td>
+        </tr>`).join('');
+    }
+
+    // Wire up filter events after DOM is ready
+    setTimeout(() => {
+      document.getElementById('usr-filter-period')?.addEventListener('change', applyFilter);
+      document.getElementById('usr-filter-month')?.addEventListener('change', applyFilter);
+      document.getElementById('usr-filter-day')?.addEventListener('change', applyFilter);
+      document.getElementById('usr-filter-year')?.addEventListener('change', applyFilter);
+      applyFilter(); // initial render with "All Time"
+    }, 0);
+
   } catch (e) {
     console.error('openUserSessions error:', e);
     container.innerHTML = `

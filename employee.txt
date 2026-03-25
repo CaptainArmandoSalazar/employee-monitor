@@ -1,5 +1,6 @@
 ===== PROJECT STRUCTURE =====
 .
+├── bitbucket-pipelines.yml
 ├── Desktop_App_electron
 │   ├── bitbucket-pipelines.yml
 │   ├── deb-package
@@ -130,7 +131,7 @@
         ├── test_sessions.py
         └── test_tracking.py
 
-36 directories, 93 files
+36 directories, 94 files
 
 
 ===== FILE CONTENTS =====
@@ -3827,6 +3828,165 @@ if __name__ == "__main__":
 
 
 ====================================
+FILE: ./bitbucket-pipelines.yml
+====================================
+image: node:20
+
+definitions:
+  caches:
+    node: Desktop_App_electron/node_modules
+
+pipelines:
+  tags:
+    'v*':
+      - parallel:
+
+          # ── Windows Build & Release ──────────────────────
+          - step:
+              name: Build & Release Windows
+              image: electronuserland/builder:wine
+              caches:
+                - node
+              script:
+                - cd Desktop_App_electron
+                - npm install
+                - npm run build
+                - cp src/main/services/inputWorker.js dist/main/services/inputWorker.js
+                - npx electron-builder --windows nsis --publish never
+                - export $(grep -v '^#' .env | xargs)
+                # ── Upload to GitHub Releases ──────────────
+                - apt-get install -y curl jq
+                - VERSION=$(node -p "require('./package.json').version")
+                - GITHUB_OWNER="CaptainArmandoSalazar"
+                - GITHUB_REPO="employee-monitor-releases"
+                - GITHUB_TOKEN=$GH_TOKEN
+                - echo "Creating GitHub release v$VERSION..."
+                - |
+                  EXISTING=$(curl -s \
+                    -H "Authorization: token $GITHUB_TOKEN" \
+                    https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/releases/tags/v$VERSION)
+                  RELEASE_ID=$(echo $EXISTING | jq -r '.id // empty')
+
+                  if [ -z "$RELEASE_ID" ]; then
+                    RESPONSE=$(curl -s -X POST \
+                      -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Content-Type: application/json" \
+                      https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/releases \
+                      -d "{\"tag_name\":\"v$VERSION\",\"name\":\"v$VERSION\",\"draft\":false,\"prerelease\":false,\"body\":\"Release v$VERSION\"}")
+                    RELEASE_ID=$(echo $RESPONSE | jq -r '.id')
+                    UPLOAD_URL=$(echo $RESPONSE | jq -r '.upload_url' | sed 's/{?name,label}//')
+                  else
+                    UPLOAD_URL=$(echo $EXISTING | jq -r '.upload_url' | sed 's/{?name,label}//')
+                  fi
+
+                  echo "Release ID: $RELEASE_ID"
+                  echo "Upload URL: $UPLOAD_URL"
+
+                  for FILE in release/*.exe release/*.yml; do
+                    [ -f "$FILE" ] || continue
+                    FILENAME=$(basename "$FILE")
+                    echo "Uploading $FILENAME..."
+                    curl -s -X POST \
+                      -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Content-Type: application/octet-stream" \
+                      "$UPLOAD_URL?name=$FILENAME" \
+                      --data-binary @"$FILE"
+                    echo "Uploaded $FILENAME"
+                  done
+
+                  echo "Windows release done!"
+
+          # ── Linux Build & Release ────────────────────────
+          - step:
+              name: Build & Release Linux
+              image: node:20
+              caches:
+                - node
+              script:
+                - apt-get update -qq
+                - apt-get install -y -qq rpm libarchive-tools fakeroot dpkg curl jq
+                - cd Desktop_App_electron
+                - npm install
+                - npm run build
+                - cp src/main/services/inputWorker.js dist/main/services/inputWorker.js
+                - npx electron-builder --linux AppImage deb --publish never
+                - export $(grep -v '^#' .env | xargs)
+                # ── Upload to GitHub Releases ──────────────
+                - VERSION=$(node -p "require('./package.json').version")
+                - GITHUB_OWNER="CaptainArmandoSalazar"
+                - GITHUB_REPO="employee-monitor-releases"
+                - GITHUB_TOKEN=$GH_TOKEN
+                - echo "Creating/finding GitHub release v$VERSION..."
+                - |
+                  EXISTING=$(curl -s \
+                    -H "Authorization: token $GITHUB_TOKEN" \
+                    https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/releases/tags/v$VERSION)
+                  RELEASE_ID=$(echo $EXISTING | jq -r '.id // empty')
+
+                  if [ -z "$RELEASE_ID" ]; then
+                    RESPONSE=$(curl -s -X POST \
+                      -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Content-Type: application/json" \
+                      https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/releases \
+                      -d "{\"tag_name\":\"v$VERSION\",\"name\":\"v$VERSION\",\"draft\":false,\"prerelease\":false,\"body\":\"Release v$VERSION\"}")
+                    RELEASE_ID=$(echo $RESPONSE | jq -r '.id')
+                    UPLOAD_URL=$(echo $RESPONSE | jq -r '.upload_url' | sed 's/{?name,label}//')
+                  else
+                    UPLOAD_URL=$(echo $EXISTING | jq -r '.upload_url' | sed 's/{?name,label}//')
+                  fi
+
+                  echo "Release ID: $RELEASE_ID"
+
+                  for FILE in release/*.AppImage release/*.deb release/*.yml; do
+                    [ -f "$FILE" ] || continue
+                    FILENAME=$(basename "$FILE")
+                    echo "Uploading $FILENAME..."
+                    curl -s -X POST \
+                      -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Content-Type: application/octet-stream" \
+                      "$UPLOAD_URL?name=$FILENAME" \
+                      --data-binary @"$FILE"
+                    echo "Uploaded $FILENAME"
+                  done
+
+                  echo "Linux release done!"
+
+  # ── Default: test builds only, no release ───────────────
+  default:
+    - parallel:
+        - step:
+            name: Build Linux (test only)
+            image: node:20
+            caches:
+              - node
+            script:
+              - apt-get update -qq
+              - apt-get install -y -qq rpm libarchive-tools fakeroot dpkg
+              - cd Desktop_App_electron
+              - npm install
+              - npm run build
+              - cp src/main/services/inputWorker.js dist/main/services/inputWorker.js
+              - npx electron-builder --linux AppImage deb --publish never
+            artifacts:
+              - Desktop_App_electron/release/*.AppImage
+              - Desktop_App_electron/release/*.deb
+
+        - step:
+            name: Build Windows (test only)
+            image: electronuserland/builder:wine
+            caches:
+              - node
+            script:
+              - cd Desktop_App_electron
+              - npm install
+              - npm run build
+              - cp src/main/services/inputWorker.js dist/main/services/inputWorker.js
+              - npx electron-builder --windows nsis --publish never
+            artifacts:
+              - Desktop_App_electron/release/*.exe
+
+
+====================================
 FILE: ./.github/workflows/mac-build.yml
 ====================================
 name: Build macOS
@@ -4296,6 +4456,7 @@ FILE: ./Desktop_App_electron/src/preload/preload.ts
 import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  changeMyPassword: (current: string, newPw: string) => ipcRenderer.invoke('auth:changeMyPassword', current, newPw),
   // ── Auth ────────────────────────────────────────────
   login:        (email: string, pw: string) => ipcRenderer.invoke('auth:login', email, pw),
   logout:       ()                          => ipcRenderer.invoke('auth:logout'),
@@ -5419,11 +5580,15 @@ FILE: ./Desktop_App_electron/src/renderer/dashboard.html
         <span class="nav-icon">👥</span> My Employees
       </button>
 
-      <div class="sidebar-bottom">
-        <button class="nav-item" id="btn-logout">
-          <span class="nav-icon">🚪</span> Sign Out
-        </button>
-      </div>
+<div class="sidebar-bottom">
+  <button class="nav-item" id="btn-change-password">
+    <span class="nav-icon">🔑</span> Change Password
+  </button>
+  <div class="divider"></div>
+  <button class="nav-item" id="btn-logout">
+    <span class="nav-icon">🚪</span> Sign Out
+  </button>
+</div>
     </nav>
 
     <!-- ── Main content area ────────────────────────────── -->
@@ -5711,13 +5876,13 @@ FILE: ./Desktop_App_electron/src/renderer/dashboard.html
           <div class="table-wrap">
             <table>
               <thead><tr>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Department</th>
-                <th>Manager</th>
-                <th>Joined</th>
-                <th>Status</th>
-                <th>View</th>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Department</th>
+              <th>Manager</th>
+              <th>Joined</th>
+              <th>Status</th>
+              <th>Actions</th>
               </tr></thead>
               <tbody id="employees-body">
                 <tr><td colspan="7"><div class="empty-state"><span class="empty-icon">👥</span><span class="empty-title">Loading employees…</span></div></td></tr>
@@ -5867,6 +6032,32 @@ FILE: ./Desktop_App_electron/src/renderer/dashboard.html
     </div>
   </div>
 </div>
+<!-- ═══ MODAL: Change My Password ═══ -->
+<div class="modal-overlay hidden" id="modal-change-pw">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Change My Password</span>
+      <button class="modal-close">&#x2715;</button>
+    </div>
+    <div id="modal-change-pw-alert" class="alert alert-error hidden"></div>
+    <div class="form-group">
+      <label class="form-label">Current Password *</label>
+      <input class="form-input" type="password" id="change-pw-current" placeholder="Enter current password" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">New Password *</label>
+      <input class="form-input" type="password" id="change-pw-new" placeholder="Min 6 characters" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Confirm New Password *</label>
+      <input class="form-input" type="password" id="change-pw-confirm" placeholder="Repeat new password" />
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost">Cancel</button>
+      <button class="btn btn-primary" id="btn-confirm-change-pw">Update Password</button>
+    </div>
+  </div>
+</div>
 
 <script src="js/dashboard.js"></script>
 </body>
@@ -6000,6 +6191,8 @@ function bindNav() {
   });
   const btnViewAll = g('btn-view-all-sessions');
   if (btnViewAll) btnViewAll.addEventListener('click', () => switchPage('my-sessions'));
+  const btnChangePw = g('btn-change-password');
+if (btnChangePw) btnChangePw.addEventListener('click', openChangePasswordModal);
 }
 
 function switchPage(pageId) {
@@ -6025,12 +6218,12 @@ function switchPage(pageId) {
 async function loadRolePage(role, tbodyId, pageKey) {
   const tbody = g(tbodyId);
   if (!tbody) return;
-  tbody.innerHTML = loadingRow(6);
+  tbody.innerHTML = loadingRow(tbodyId === 'employees-body' ? 7 : 6);
   try {
     const params = { role, active_only: 'false' };
     const r = await api.listEmployees(params);
     const list = (r && r.ok && Array.isArray(r.data)) ? r.data : [];
-    if (!list.length) { tbody.innerHTML = emptyRow(6, 'No records found'); return; }
+    if (!list.length) { tbody.innerHTML = emptyRow(tbodyId === 'employees-body' ? 7 : 6, 'No records found'); return; }
 
     // Map pageKey → subpage prefix for drill-down
     const pageMap = {
@@ -6041,27 +6234,48 @@ async function loadRolePage(role, tbodyId, pageKey) {
       'my-employees': 'my-employees',
     };
     const pfx = pageMap[pageKey] || pageKey;
-
-    tbody.innerHTML = list.map(e => `
-      <tr>
-        <td><div style="display:flex;align-items:center;gap:8px;">
-          <div class="avatar" style="width:28px;height:28px;font-size:11px;">${e.employee_name.charAt(0).toUpperCase()}</div>
-          <strong>${esc(e.employee_name)}</strong>
-        </div></td>
-        <td class="td-muted">${esc(e.email)}</td>
-        <td>${esc(e.department||'—')}</td>
-        <td class="td-muted">${e.date_of_joining ? fmtDate(e.date_of_joining) : '—'}</td>
-        <td>${e.status ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-danger">Inactive</span>'}</td>
-        <td>
-          <button class="btn btn-ghost btn-sm"
-                  data-action="view-user"
-                  data-emp-id="${esc(String(e.employee_id))}"
-                  data-emp-name="${esc(e.employee_name)}"
-                  data-page="${pfx}">
-            View
-          </button>
-        </td>
-      </tr>`).join('');
+let managerMap = {};
+if (tbodyId === 'employees-body') {
+  try {
+    const mr = await api.listEmployees({ role: 'manager', active_only: 'false' });
+    const managers = (mr && mr.ok && Array.isArray(mr.data)) ? mr.data : [];
+    managers.forEach(m => { managerMap[m.employee_id] = m.employee_name; });
+  } catch { /* ignore, show — as fallback */ }
+}
+tbody.innerHTML = list.map(e => `
+  <tr>
+    <td><div style="display:flex;align-items:center;gap:8px;">
+      <div class="avatar" style="width:28px;height:28px;font-size:11px;">${e.employee_name.charAt(0).toUpperCase()}</div>
+      <strong>${esc(e.employee_name)}</strong>
+    </div></td>
+    <td class="td-muted">${esc(e.email)}</td>
+    <td>${esc(e.department||'—')}</td>
+    ${tbodyId === 'employees-body' ? `<td class="td-muted">${esc(managerMap[e.manager_id] || '—')}</td>` : ''}
+    <td class="td-muted">${e.date_of_joining ? fmtDate(e.date_of_joining) : '—'}</td>
+    <td>${e.status ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-danger">Inactive</span>'}</td>
+<td>
+  <div style="display:flex;gap:6px;">
+    ${(isAdmin || isHR) && tbodyId === 'employees-body' ? `
+    <button class="btn btn-ghost btn-sm"
+            data-action="edit-user"
+            data-emp-id="${esc(String(e.employee_id))}"
+            data-emp-name="${esc(e.employee_name)}"
+            data-emp-email="${esc(e.email)}"
+            data-emp-dept="${esc(e.department||'')}"
+            data-emp-role="${esc(e.role)}"
+            data-emp-manager="${esc(e.manager_id||'')}">
+      Edit
+    </button>` : ''}
+    <button class="btn btn-ghost btn-sm"
+            data-action="view-user"
+            data-emp-id="${esc(String(e.employee_id))}"
+            data-emp-name="${esc(e.employee_name)}"
+            data-page="${pfx}">
+      View
+    </button>
+  </div>
+</td>
+  </tr>`).join('');
   } catch (e) { tbody.innerHTML = emptyRow(6, 'Error: ' + e.message); }
 }
 
@@ -6336,6 +6550,9 @@ document.addEventListener('click', function(e) {
   if (action === 'view-session' && sid && pageId && backSub) {
     openSessionDetail(sid, pageId, backSub);
   }
+  if (action === 'edit-user' && empId) {
+  openEditUserModal(empId, btn.dataset.empName, btn.dataset.empEmail, btn.dataset.empDept, btn.dataset.empRole, btn.dataset.empManager);
+}
   if (action === 'view-user' && empId && empName && pageId) {
     openUserSessions(empId, empName, pageId);
   }
@@ -6357,6 +6574,43 @@ document.addEventListener('click', function(e) {
   openActivityPage(sid, pageId, backSub);
 }
 });
+
+async function openEditUserModal(id, name, email, dept, role, currentManagerId) {
+  editingEmployeeId = id;
+  g('modal-emp-title').textContent      = 'Edit Employee';
+  g('emp-name').value                   = name;
+  g('emp-email').value                  = email;
+  g('emp-email').disabled               = true;
+  g('emp-department').value             = dept || '';
+  g('emp-role').value                   = role;
+  g('emp-password-group').style.display = 'none';
+  g('modal-emp-alert').classList.add('hidden');
+
+  // Always show manager group when editing an employee
+  const managerGroup = g('emp-manager-group');
+  if (managerGroup) {
+    managerGroup.style.display = 'block';
+    await populateManagerDropdown();
+    // Pre-select current manager
+    const sel = g('emp-manager-id');
+    if (sel && currentManagerId) sel.value = currentManagerId;
+  }
+
+  // Restrict role options based on current user
+  const roleEl = g('emp-role');
+  if (roleEl) {
+    const allowed = {
+      super_admin: ['super_admin', 'hr', 'manager', 'employee'],
+      hr:          ['hr', 'manager', 'employee'],
+      manager:     ['employee'],
+    }[currentEmployee?.role] || [];
+    Array.from(roleEl.options).forEach(opt => {
+      opt.disabled = !allowed.includes(opt.value);
+    });
+  }
+
+  g('modal-employee').classList.remove('hidden');
+}
 async function openActivityPage(sessionId, pageId, backDetailSubId) {
 const actSubId =
   pageId === 'my-sessions'   ? 'my-session-activity'
@@ -7298,7 +7552,7 @@ async function loadAdmins() {
 // ══════════════════════════════════════════════════════════
 async function loadEmployees() {
   const tbody = g('employees-body');
-  tbody.innerHTML = loadingRow(6);
+  tbody.innerHTML = loadingRow(tbodyId === 'employees-body' ? 7 : 6);
   try {
     const r    = await api.listEmployees({ role: 'employee', active_only: 'false' });
     const list = (r && r.ok && Array.isArray(r.data)) ? r.data : [];
@@ -7560,11 +7814,26 @@ function bindModalButtons() {
       if (e.target === pwOverlay) closeModal('modal-reset-pw');
     });
   }
+  // ── Change My Password modal ────────────────────────────
+const changePwOverlay = g('modal-change-pw');
+if (changePwOverlay) {
+  const cpClose  = changePwOverlay.querySelector('.modal-close');
+  if (cpClose)  cpClose.addEventListener('click',  () => closeModal('modal-change-pw'));
+  const cpCancel = changePwOverlay.querySelector('.btn-ghost');
+  if (cpCancel) cpCancel.addEventListener('click', () => closeModal('modal-change-pw'));
+  changePwOverlay.addEventListener('click', e => {
+    if (e.target === changePwOverlay) closeModal('modal-change-pw');
+  });
+  // add to ESC handler array too — handled already since we loop ['modal-employee','modal-reset-pw']
+}
+const btnConfirmChangePw = g('btn-confirm-change-pw');
+if (btnConfirmChangePw) btnConfirmChangePw.addEventListener('click', confirmChangePassword);
 
   // ── ESC key closes any open modal ──────────────────
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
-    ['modal-employee', 'modal-reset-pw'].forEach(id => {
+    ['modal-employee', 'modal-reset-pw', 'modal-change-pw'].forEach(id => {
+
       const el = g(id);
       if (el && !el.classList.contains('hidden')) closeModal(id);
     });
@@ -7664,8 +7933,13 @@ async function saveEmployee() {
 
   btn.disabled = true; btn.textContent = 'Saving…';
   try {
-    const payload = { employee_name: name, department: dept, role };
-    if (managerId) payload.manager_id = managerId;
+   const payload = { employee_name: name, department: dept, role };
+// Always include manager_id on edit (even if empty, to allow removing a manager)
+if (editingEmployeeId) {
+  payload.manager_id = managerId || null;
+} else {
+  if (managerId) payload.manager_id = managerId;
+}
 
     const r = editingEmployeeId
       ? await api.updateEmployee(editingEmployeeId, payload)
@@ -7680,10 +7954,14 @@ async function saveEmployee() {
         employee:    { key: 'employees',    bodyId: 'employees-body' },
       };
       // If manager is adding, refresh their own "my-employees" page instead
-      const target = (isManager && role === 'employee')
-        ? { key: 'my-employees', bodyId: 'my-employees-body' }
-        : (pageMap[role] || { key: 'employees', bodyId: 'employees-body' });
-      loadRolePage(role, target.bodyId, target.key);
+if (editingEmployeeId) {
+  loadRolePage('employee', 'employees-body', 'employees');
+} else {
+  const target = (isManager && role === 'employee')
+    ? { key: 'my-employees', bodyId: 'my-employees-body' }
+    : (pageMap[role] || { key: 'employees', bodyId: 'employees-body' });
+  loadRolePage(role, target.bodyId, target.key);
+}
     } else {
       showModalAlert('modal-emp-alert', (r && r.data && r.data.detail) ? r.data.detail : 'Save failed');
     }
@@ -7712,7 +7990,44 @@ async function confirmReset() {
     else showModalAlert('modal-pw-alert', 'Reset failed');
   } finally { btn.disabled = false; btn.textContent = 'Reset Password'; }
 }
+function openChangePasswordModal() {
+  g('change-pw-current').value = '';
+  g('change-pw-new').value     = '';
+  g('change-pw-confirm').value = '';
+  g('modal-change-pw-alert').classList.add('hidden');
+  g('modal-change-pw').classList.remove('hidden');
+}
 
+async function confirmChangePassword() {
+  const btn     = g('btn-confirm-change-pw');
+  const current = g('change-pw-current').value;
+  const newPw   = g('change-pw-new').value;
+  const confirm = g('change-pw-confirm').value;
+
+  g('modal-change-pw-alert').classList.add('hidden');
+
+  if (!current) { showModalAlert('modal-change-pw-alert', 'Current password is required'); return; }
+  if (!newPw || newPw.length < 6) { showModalAlert('modal-change-pw-alert', 'New password must be at least 6 characters'); return; }
+  if (newPw !== confirm) { showModalAlert('modal-change-pw-alert', 'Passwords do not match'); return; }
+
+  btn.disabled = true; btn.textContent = 'Updating…';
+  try {
+    const token = await api.getEmployee(); // just to confirm logged in
+    const r = await api.changeMyPassword(current, newPw);
+    if (r && (r.ok || r.status === 204)) {
+      closeModal('modal-change-pw');
+      // Brief success flash — reuse alert styling inline
+      alert('Password updated successfully!');
+    } else {
+      const detail = r?.data?.detail || 'Failed to update password';
+      showModalAlert('modal-change-pw-alert', detail);
+    }
+  } catch(e) {
+    showModalAlert('modal-change-pw-alert', 'Error: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Update Password';
+  }
+}
 async function refreshKeystrokesFromDB() {
   try {
     const session = await api.getActiveSession();
@@ -8024,6 +8339,8 @@ window.API = {
   getAdminSystemMetrics:(p) => electronAPI.getAdminSystemMetrics(p),
   getAdminSummary:     (p)  => electronAPI.getAdminSummary(p),
   getEmployeeSummary:  (id, p) => electronAPI.getEmployeeSummary(id, p),
+  changeMyPassword: (current, newPw) => electronAPI.changeMyPassword(current, newPw),
+
 
   // ── Navigation ───────────────────────────────────────
   showDashboard: ()         => electronAPI.showDashboard(),
@@ -9100,7 +9417,17 @@ export function registerIpcHandlers(): void {
     sessionService.clearState();
     return { success: true };
   });
-
+ipcMain.handle('auth:changeMyPassword', async (_event, currentPassword: string, newPassword: string) => {
+  const token = authService.getToken();
+  if (!token) return { ok: false, status: 401, data: { detail: 'Not authenticated' } };
+  return safeApi(
+    () => apiService.post('/employees/me/change-password', {
+      current_password: currentPassword,
+      new_password: newPassword,
+    }, token),
+    { ok: false, status: 0, data: { detail: 'Request failed' } }
+  );
+});
   ipcMain.handle('auth:getEmployee', () => {
     return authService.getEmployee();
   });

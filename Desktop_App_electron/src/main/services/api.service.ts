@@ -67,7 +67,11 @@ export const apiService = {
     request<T>('POST', endpoint, body, token),
 
   get: <T>(endpoint: string, token?: string, params?: Record<string, string>) => {
-    const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    const query = params
+      ? '?' + new URLSearchParams(
+          Object.fromEntries(Object.entries(params).filter(([_, v]) => v != null && v !== ''))
+        ).toString()
+      : '';
     return request<T>('GET', endpoint + query, undefined, token);
   },
 
