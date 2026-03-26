@@ -1,0 +1,3108 @@
+====================================
+FILE: app/models/session.py
+====================================
+import uuid
+from sqlalchemy import Column, String, Integer, Float, Date, TIMESTAMP, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+
+
+class Session(Base):
+    __tablename__ = "sessions"
+
+    session_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.employee_id"), nullable=False)
+    date = Column(Date)
+    clock_in = Column(TIMESTAMP)
+    clock_out = Column(TIMESTAMP, nullable=True)
+    total_active_time = Column(Integer, default=0)   # seconds
+    total_idle_time = Column(Integer, default=0)     # seconds
+    session_status = Column(String, default="active")  # active / completed
+
+    # Captured at clock-in
+    ip_address = Column(String, nullable=True)
+    location = Column(String, nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    city = Column(String, nullable=True)
+    country = Column(String, nullable=True)
+    network_speed_start = Column(Float, nullable=True)
+    last_heartbeat = Column(TIMESTAMP, nullable=True)
+    device_id = Column(String, nullable=True)
+
+    # Relationships
+    employee = relationship("Employee", back_populates="sessions")
+    activity_logs = relationship("ActivityLog", back_populates="session", lazy="dynamic")
+    website_logs = relationship("WebsiteLog", back_populates="session", lazy="dynamic")
+    keystrokes = relationship("Keystroke", back_populates="session", lazy="dynamic")
+    system_metrics = relationship("SystemMetric", back_populates="session", lazy="dynamic")
+    network_speed_logs = relationship("NetworkSpeedLog", back_populates="session", lazy="dynamic")
+    device_info = relationship("DeviceInfo", back_populates="session", lazy="dynamic")
+    network_info = relationship("NetworkInfo", back_populates="session", lazy="dynamic")
+
+
+
+====================================
+FILE: app/models/__init__.py
+====================================
+
+
+
+====================================
+FILE: app/models/device.py
+====================================
+import uuid
+from sqlalchemy import Column, String, Integer, TIMESTAMP, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+from app.utils.helpers import utcnow
+
+
+class DeviceInfo(Base):
+    __tablename__ = "device_info"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.session_id"), nullable=False)
+    employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.employee_id"), nullable=False)
+    device_id = Column(String, nullable=True)
+    device_name = Column(String, nullable=True)
+    os = Column(String, nullable=True)
+    cpu = Column(String, nullable=True)
+    ram = Column(String, nullable=True)
+    storage_total = Column(Integer, nullable=True)
+    storage_free = Column(Integer, nullable=True)
+    captured_at = Column(TIMESTAMP, default=utcnow)
+
+    session = relationship("Session", back_populates="device_info")
+    employee = relationship("Employee", back_populates="device_info")
+
+
+class Device(Base):
+    __tablename__ = "devices"
+
+    device_id = Column(String, primary_key=True)
+    employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.employee_id"), nullable=False)
+    device_name = Column(String, nullable=True)
+    os = Column(String, nullable=True)
+    first_seen = Column(TIMESTAMP, default=utcnow)
+    last_seen = Column(TIMESTAMP, default=utcnow, onupdate=utcnow)
+    status = Column(String, default="active")
+
+    employee = relationship("Employee", back_populates="devices")
+
+
+
+====================================
+FILE: app/models/activity.py
+====================================
+import uuid
+from sqlalchemy import Column, String, Integer, Boolean, Text, TIMESTAMP, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+from app.utils.helpers import utcnow
+
+
+class ActivityLog(Base):
+    __tablename__ = "activity_logs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.session_id"), nullable=False)
+    employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.employee_id"), nullable=False)
+    app_name = Column(String, nullable=True)
+    window_title = Column(Text, nullable=True)
+    start_time = Column(TIMESTAMP, nullable=True)
+    end_time = Column(TIMESTAMP, nullable=True)
+    duration = Column(Integer, default=0)   # seconds
+    is_idle = Column(Boolean, default=False)
+
+    session = relationship("Session", back_populates="activity_logs")
+    employee = relationship("Employee", back_populates="activity_logs")
+
+
+
+====================================
+FILE: app/models/website.py
+====================================
+import uuid
+from sqlalchemy import Column, String, Integer, Text, TIMESTAMP, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+from app.utils.helpers import utcnow
+
+
+class WebsiteLog(Base):
+    __tablename__ = "website_logs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.session_id"), nullable=False)
+    employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.employee_id"), nullable=False)
+    url = Column(Text, nullable=True)
+    domain = Column(String, nullable=True)
+    title = Column(Text, nullable=True)
+    duration = Column(Integer, default=0)   # seconds
+    timestamp = Column(TIMESTAMP, default=utcnow)
+
+    session = relationship("Session", back_populates="website_logs")
+    employee = relationship("Employee", back_populates="website_logs")
+
+
+
+====================================
+FILE: app/models/employee.py
+====================================
+import uuid
+from sqlalchemy import Column, String, Boolean, Date, TIMESTAMP, Text
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+from app.utils.helpers import utcnow
+
+
+class Employee(Base):
+    __tablename__ = "employees"
+
+    employee_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    employee_name = Column(String, nullable=False)
+    email = Column(String, unique=True, nullable=False)
+    password_hash = Column(Text, nullable=False)
+    department = Column(String)
+    role = Column(String, default="employee")  # admin / employee
+    created_by = Column(UUID(as_uuid=True), nullable=True)
+    date_of_joining = Column(Date, nullable=True)
+    status = Column(Boolean, default=True)
+    created_at = Column(TIMESTAMP, default=utcnow)
+
+    # Relationships
+    sessions = relationship("Session", back_populates="employee", lazy="dynamic")
+    activity_logs = relationship("ActivityLog", back_populates="employee", lazy="dynamic")
+    website_logs = relationship("WebsiteLog", back_populates="employee", lazy="dynamic")
+    keystrokes = relationship("Keystroke", back_populates="employee", lazy="dynamic")
+    system_metrics = relationship("SystemMetric", back_populates="employee", lazy="dynamic")
+    network_speed_logs = relationship("NetworkSpeedLog", back_populates="employee", lazy="dynamic")
+    device_info = relationship("DeviceInfo", back_populates="employee", lazy="dynamic")
+    network_info = relationship("NetworkInfo", back_populates="employee", lazy="dynamic")
+    devices = relationship("Device", back_populates="employee", lazy="dynamic")
+
+
+
+====================================
+FILE: app/models/system_metrics.py
+====================================
+import uuid
+from sqlalchemy import Column, Float, TIMESTAMP, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+from app.utils.helpers import utcnow
+
+
+class SystemMetric(Base):
+    __tablename__ = "system_metrics"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.session_id"), nullable=False)
+    employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.employee_id"), nullable=False)
+    cpu_usage = Column(Float, nullable=True)
+    memory_usage = Column(Float, nullable=True)
+    timestamp = Column(TIMESTAMP, default=utcnow)
+
+    session = relationship("Session", back_populates="system_metrics")
+    employee = relationship("Employee", back_populates="system_metrics")
+
+
+
+====================================
+FILE: app/models/keystroke.py
+====================================
+import uuid
+from sqlalchemy import Column, Integer, Text, TIMESTAMP, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+from app.utils.helpers import utcnow
+
+
+class Keystroke(Base):
+    __tablename__ = "keystrokes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.session_id"), nullable=False)
+    employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.employee_id"), nullable=False)
+    keys_pressed_count = Column(Integer, default=0)
+    raw_keystrokes = Column(Text, nullable=True)
+    timestamp = Column(TIMESTAMP, default=utcnow)
+
+    session = relationship("Session", back_populates="keystrokes")
+    employee = relationship("Employee", back_populates="keystrokes")
+
+
+
+====================================
+FILE: app/models/network.py
+====================================
+import uuid
+from sqlalchemy import Column, String, Float, TIMESTAMP, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+from app.utils.helpers import utcnow
+
+
+class NetworkInfo(Base):
+    __tablename__ = "network_info"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.session_id"), nullable=False)
+    employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.employee_id"), nullable=False)
+    ip_address = Column(String, nullable=True)
+    connection_type = Column(String, nullable=True)
+    ssid = Column(String, nullable=True)
+    mac_address = Column(String, nullable=True)
+    captured_at = Column(TIMESTAMP, default=utcnow)
+
+    session = relationship("Session", back_populates="network_info")
+    employee = relationship("Employee", back_populates="network_info")
+
+
+class NetworkSpeedLog(Base):
+    __tablename__ = "network_speed_logs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.session_id"), nullable=False)
+    employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.employee_id"), nullable=False)
+    download_speed = Column(Float, nullable=True)
+    upload_speed = Column(Float, nullable=True)
+    ping = Column(Float, nullable=True)
+    timestamp = Column(TIMESTAMP, default=utcnow)
+
+    session = relationship("Session", back_populates="network_speed_logs")
+    employee = relationship("Employee", back_populates="network_speed_logs")
+
+
+
+====================================
+FILE: app/schemas/session.py
+====================================
+from pydantic import BaseModel
+from typing import Optional
+from uuid import UUID
+from datetime import date, datetime
+
+
+class ClockInRequest(BaseModel):
+    ip_address: Optional[str] = None
+    location: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    city: Optional[str] = None
+    country: Optional[str] = None
+    network_speed_start: Optional[float] = None
+    device_id: Optional[str] = None
+
+
+class ClockOutRequest(BaseModel):
+    session_id: UUID
+    total_active_time: Optional[int] = 0   # seconds
+    total_idle_time: Optional[int] = 0     # seconds
+
+
+class SessionOut(BaseModel):
+    session_id: UUID
+    employee_id: UUID
+    date: Optional[date]
+    clock_in: Optional[datetime]
+    clock_out: Optional[datetime]
+    total_active_time: Optional[int]
+    total_idle_time: Optional[int]
+    session_status: Optional[str]
+    ip_address: Optional[str]
+    location: Optional[str]
+    latitude: Optional[float]
+    longitude: Optional[float]
+    city: Optional[str]
+    country: Optional[str]
+    network_speed_start: Optional[float]
+    device_id: Optional[str]
+    last_heartbeat: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+
+====================================
+FILE: app/schemas/common.py
+====================================
+from pydantic import BaseModel
+from typing import Optional, Any
+
+
+class ResponseModel(BaseModel):
+    success: bool = True
+    message: str = "OK"
+    data: Optional[Any] = None
+
+
+class PaginationParams(BaseModel):
+    page: int = 1
+    page_size: int = 20
+
+
+
+====================================
+FILE: app/schemas/__init__.py
+====================================
+
+
+
+====================================
+FILE: app/schemas/password.py
+====================================
+from pydantic import BaseModel, field_validator
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if len(v) < 6:
+            raise ValueError("New password must be at least 6 characters")
+        return v
+
+
+class AdminPasswordResetRequest(BaseModel):
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if len(v) < 6:
+            raise ValueError("Password must be at least 6 characters")
+        return v
+
+
+
+====================================
+FILE: app/schemas/device.py
+====================================
+from pydantic import BaseModel
+from typing import Optional
+from uuid import UUID
+from datetime import datetime
+
+
+class DeviceInfoCreate(BaseModel):
+    session_id: UUID
+    device_id: Optional[str] = None
+    device_name: Optional[str] = None
+    os: Optional[str] = None
+    cpu: Optional[str] = None
+    ram: Optional[str] = None
+    storage_total: Optional[int] = None
+    storage_free: Optional[int] = None
+
+
+class DeviceInfoOut(BaseModel):
+    id: UUID
+    session_id: UUID
+    employee_id: UUID
+    device_id: Optional[str]
+    device_name: Optional[str]
+    os: Optional[str]
+    cpu: Optional[str]
+    ram: Optional[str]
+    storage_total: Optional[int]
+    storage_free: Optional[int]
+    captured_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+class NetworkInfoCreate(BaseModel):
+    session_id: UUID
+    ip_address: Optional[str] = None
+    connection_type: Optional[str] = None
+    ssid: Optional[str] = None
+    mac_address: Optional[str] = None
+
+
+class NetworkInfoOut(BaseModel):
+    id: UUID
+    session_id: UUID
+    employee_id: UUID
+    ip_address: Optional[str]
+    connection_type: Optional[str]
+    ssid: Optional[str]
+    mac_address: Optional[str]
+    captured_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+class DeviceMasterOut(BaseModel):
+    device_id: str
+    employee_id: UUID
+    device_name: Optional[str]
+    os: Optional[str]
+    first_seen: Optional[datetime]
+    last_seen: Optional[datetime]
+    status: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+
+
+====================================
+FILE: app/schemas/employee.py
+====================================
+from pydantic import BaseModel, EmailStr
+from typing import Optional
+from uuid import UUID
+from datetime import date, datetime
+
+
+class EmployeeCreate(BaseModel):
+    employee_name: str
+    email: EmailStr
+    password: str
+    department: Optional[str] = None
+    role: str = "employee"
+    date_of_joining: Optional[date] = None
+
+
+class EmployeeUpdate(BaseModel):
+    employee_name: Optional[str] = None
+    department: Optional[str] = None
+    role: Optional[str] = None
+    status: Optional[bool] = None
+    date_of_joining: Optional[date] = None
+
+
+class EmployeeOut(BaseModel):
+    employee_id: UUID
+    employee_name: str
+    email: str
+    department: Optional[str]
+    role: str
+    status: bool
+    date_of_joining: Optional[date]
+    created_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    employee: EmployeeOut
+
+
+
+====================================
+FILE: app/schemas/tracking.py
+====================================
+from pydantic import BaseModel
+from typing import Optional, List
+from uuid import UUID
+from datetime import datetime
+
+
+# ── Activity ──────────────────────────────────────────────
+class ActivityLogCreate(BaseModel):
+    session_id: UUID
+    app_name: Optional[str] = None
+    window_title: Optional[str] = None
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    duration: Optional[int] = 0
+    is_idle: Optional[bool] = False
+
+
+class ActivityLogOut(BaseModel):
+    id: UUID
+    session_id: UUID
+    employee_id: UUID
+    app_name: Optional[str]
+    window_title: Optional[str]
+    start_time: Optional[datetime]
+    end_time: Optional[datetime]
+    duration: Optional[int]
+    is_idle: Optional[bool]
+
+    class Config:
+        from_attributes = True
+
+
+# ── Website ───────────────────────────────────────────────
+class WebsiteLogCreate(BaseModel):
+    session_id: UUID
+    url: Optional[str] = None
+    domain: Optional[str] = None
+    title: Optional[str] = None
+    duration: Optional[int] = 0
+    timestamp: Optional[datetime] = None
+
+
+class WebsiteLogOut(BaseModel):
+    id: UUID
+    session_id: UUID
+    employee_id: UUID
+    url: Optional[str]
+    domain: Optional[str]
+    title: Optional[str]
+    duration: Optional[int]
+    timestamp: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+# ── Keystrokes ────────────────────────────────────────────
+class KeystrokeCreate(BaseModel):
+    session_id: UUID
+    keys_pressed_count: int = 0
+    raw_keystrokes: Optional[str] = None
+    timestamp: Optional[datetime] = None
+
+
+class KeystrokeOut(BaseModel):
+    id: UUID
+    session_id: UUID
+    employee_id: UUID
+    keys_pressed_count: int
+    raw_keystrokes: Optional[str]  # ← ADD THIS
+    timestamp: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+# ── System Metrics ────────────────────────────────────────
+class SystemMetricCreate(BaseModel):
+    session_id: UUID
+    cpu_usage: Optional[float] = None
+    memory_usage: Optional[float] = None
+    timestamp: Optional[datetime] = None
+
+
+class SystemMetricOut(BaseModel):
+    id: UUID
+    session_id: UUID
+    employee_id: UUID
+    cpu_usage: Optional[float]
+    memory_usage: Optional[float]
+    timestamp: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+# ── Network Speed ─────────────────────────────────────────
+class NetworkSpeedCreate(BaseModel):
+    session_id: UUID
+    download_speed: Optional[float] = None
+    upload_speed: Optional[float] = None
+    ping: Optional[float] = None
+    timestamp: Optional[datetime] = None
+
+
+class NetworkSpeedOut(BaseModel):
+    id: UUID
+    session_id: UUID
+    employee_id: UUID
+    download_speed: Optional[float]
+    upload_speed: Optional[float]
+    ping: Optional[float]
+    timestamp: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+# ── Bulk helpers (desktop app sends batches) ──────────────
+class ActivityBatch(BaseModel):
+    logs: List[ActivityLogCreate]
+
+
+class WebsiteBatch(BaseModel):
+    logs: List[WebsiteLogCreate]
+
+
+
+====================================
+FILE: app/utils/__init__.py
+====================================
+
+
+
+====================================
+FILE: app/utils/logger.py
+====================================
+import logging
+import sys
+
+LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+def get_logger(name: str) -> logging.Logger:
+    logger = logging.getLogger(name)
+    if not logger.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=DATE_FORMAT))
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+    return logger
+
+
+
+====================================
+FILE: app/utils/helpers.py
+====================================
+from datetime import datetime, timezone
+import uuid
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def new_uuid() -> uuid.UUID:
+    return uuid.uuid4()
+
+
+def seconds_to_hms(seconds: int) -> str:
+    if not seconds:
+        return "0h 0m 0s"
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    s = seconds % 60
+    return f"{h}h {m}m {s}s"
+
+
+
+====================================
+FILE: app/__init__.py
+====================================
+
+
+
+====================================
+FILE: app/workers/__init__.py
+====================================
+
+
+
+====================================
+FILE: app/workers/background_tasks.py
+====================================
+"""
+Background worker — safety net for sessions that somehow never got clocked out.
+Primary clock-out happens in the Electron app via SIGINT/before-quit handlers.
+"""
+import asyncio
+from datetime import timedelta
+from sqlalchemy.orm import Session
+
+from app.core.database import SessionLocal
+from app.models.session import Session as SessionModel
+from app.utils.helpers import utcnow
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+STALE_AFTER_MINUTES = 10
+
+
+async def close_stale_sessions():
+    db: Session = SessionLocal()
+    try:
+        cutoff = utcnow() - timedelta(minutes=STALE_AFTER_MINUTES)
+        stale = (
+            db.query(SessionModel)
+            .filter(
+                SessionModel.session_status == "active",
+                (
+                    (SessionModel.last_heartbeat == None) &
+                    (SessionModel.clock_in < cutoff)
+                ) |
+                (
+                    (SessionModel.last_heartbeat != None) &
+                    (SessionModel.last_heartbeat < cutoff)
+                )
+            )
+            .all()
+        )
+        for s in stale:
+            s.session_status = "stale"
+            s.clock_out      = utcnow()
+            logger.warning(f"Auto-closed stale session {s.session_id} for employee {s.employee_id}")
+        if stale:
+            db.commit()
+    except Exception as e:
+        logger.error(f"Stale session cleanup error: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+async def run_background_tasks():
+    logger.info("🔁 Background task worker started")
+    while True:
+        await asyncio.sleep(30)
+        await close_stale_sessions()
+
+
+====================================
+FILE: app/api/deps.py
+====================================
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy.orm import Session
+from uuid import UUID
+
+from app.core.database import get_db
+from app.core.security import decode_token
+from app.models.employee import Employee
+
+bearer_scheme = HTTPBearer()
+
+
+def get_current_employee(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> Employee:
+    token = credentials.credentials
+    payload = decode_token(token)
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+    employee_id = payload.get("sub")
+    if not employee_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
+
+    employee = db.query(Employee).filter(Employee.employee_id == UUID(employee_id)).first()
+    if not employee or not employee.status:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Employee not found or inactive")
+    return employee
+
+
+def require_admin(employee: Employee = Depends(get_current_employee)) -> Employee:
+    if employee.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    return employee
+
+
+
+====================================
+FILE: app/api/__init__.py
+====================================
+
+
+
+====================================
+FILE: app/api/routes/session.py
+====================================
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+from typing import List, Optional
+from uuid import UUID
+from datetime import date
+
+from app.core.database import get_db
+from app.models.employee import Employee
+from app.models.device import DeviceInfo
+from app.models.network import NetworkInfo
+from app.schemas.session import ClockInRequest, ClockOutRequest, SessionOut
+from app.schemas.device import DeviceInfoCreate, DeviceInfoOut, NetworkInfoCreate, NetworkInfoOut
+from app.services import session_service
+from app.api.deps import get_current_employee, require_admin
+from app.utils.helpers import utcnow
+
+router = APIRouter(prefix="/sessions", tags=["Sessions"])
+
+
+@router.post("/clock-in", response_model=SessionOut)
+def clock_in(
+    payload: ClockInRequest,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    session = session_service.clock_in(db, current_employee.employee_id, payload)
+    return SessionOut.model_validate(session)
+
+
+@router.post("/clock-out", response_model=SessionOut)
+def clock_out(
+    payload: ClockOutRequest,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    try:
+        session = session_service.clock_out(db, current_employee.employee_id, payload)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return SessionOut.model_validate(session)
+
+
+@router.post("/heartbeat")
+def heartbeat(
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    """
+    Desktop app calls this every 30s while clocked in to prove it is alive.
+    Backend uses last_heartbeat to auto-close sessions from crashed apps.
+    """
+    session = session_service.get_active_session(db, current_employee.employee_id)
+    if session:
+        session.last_heartbeat = utcnow()
+        db.commit()
+    return {"ok": True}
+
+
+@router.get("/active", response_model=Optional[SessionOut])
+def get_active_session(
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    session = session_service.get_active_session(db, current_employee.employee_id)
+    if not session:
+        return None
+    return SessionOut.model_validate(session)
+
+
+@router.get("/my", response_model=List[SessionOut])
+def get_my_sessions(
+    session_date: Optional[date] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    sessions = session_service.get_sessions(
+        db,
+        employee_id=current_employee.employee_id,
+        session_date=session_date,
+        skip=skip,
+        limit=limit,
+    )
+    return [SessionOut.model_validate(s) for s in sessions]
+
+
+@router.get("", response_model=List[SessionOut])
+def list_all_sessions(
+    employee_id: Optional[UUID] = Query(None),
+    session_date: Optional[date] = Query(None),
+    status: Optional[str] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _: Employee = Depends(require_admin),
+):
+    sessions = session_service.get_sessions(
+        db,
+        employee_id=employee_id,
+        session_date=session_date,
+        status=status,
+        skip=skip,
+        limit=limit,
+    )
+    return [SessionOut.model_validate(s) for s in sessions]
+
+
+@router.get("/{session_id}", response_model=SessionOut)
+def get_session(
+    session_id: UUID,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    from app.models.session import Session as SessionModel
+    session = db.query(SessionModel).filter(SessionModel.session_id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if current_employee.role != "admin" and session.employee_id != current_employee.employee_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return SessionOut.model_validate(session)
+
+
+@router.post("/device-info", response_model=DeviceInfoOut)
+def save_device_info(
+    payload: DeviceInfoCreate,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    record = session_service.save_device_info(db, current_employee.employee_id, payload)
+    return DeviceInfoOut.model_validate(record)
+
+
+@router.post("/network-info", response_model=NetworkInfoOut)
+def save_network_info(
+    payload: NetworkInfoCreate,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    record = session_service.save_network_info(db, current_employee.employee_id, payload)
+    return NetworkInfoOut.model_validate(record)
+
+
+@router.get("/{session_id}/device-info", response_model=List[DeviceInfoOut])
+def get_session_device_info(
+    session_id: UUID,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    from app.models.session import Session as SessionModel
+    session = db.query(SessionModel).filter(SessionModel.session_id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if current_employee.role != "admin" and session.employee_id != current_employee.employee_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    records = db.query(DeviceInfo).filter(DeviceInfo.session_id == session_id).all()
+    return [DeviceInfoOut.model_validate(r) for r in records]
+
+
+@router.get("/{session_id}/network-info", response_model=List[NetworkInfoOut])
+def get_session_network_info(
+    session_id: UUID,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    from app.models.session import Session as SessionModel
+    session = db.query(SessionModel).filter(SessionModel.session_id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if current_employee.role != "admin" and session.employee_id != current_employee.employee_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    records = db.query(NetworkInfo).filter(NetworkInfo.session_id == session_id).all()
+    return [NetworkInfoOut.model_validate(r) for r in records]
+
+from pydantic import BaseModel
+
+class UpdateTotalsRequest(BaseModel):
+    total_active_time: Optional[int] = None
+    total_idle_time:   Optional[int] = None
+
+@router.patch("/{session_id}/update-totals")
+def update_session_totals(
+    session_id: UUID,
+    payload: UpdateTotalsRequest,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    """Called every 60s by desktop app to persist current active/idle totals."""
+    from app.models.session import Session as SessionModel
+    session = db.query(SessionModel).filter(
+        SessionModel.session_id == session_id,
+        SessionModel.employee_id == current_employee.employee_id,
+        SessionModel.session_status == "active",
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Active session not found")
+    if payload.total_active_time is not None:
+        session.total_active_time = payload.total_active_time
+    if payload.total_idle_time is not None:
+        session.total_idle_time = payload.total_idle_time
+    db.commit()
+    return {"ok": True}
+
+
+====================================
+FILE: app/api/routes/__init__.py
+====================================
+
+
+
+====================================
+FILE: app/api/routes/admin.py
+====================================
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
+from typing import Optional, List
+from uuid import UUID
+from datetime import date
+
+from app.core.database import get_db
+from app.models.employee import Employee
+from app.models.device import DeviceInfo, Device
+from app.models.network import NetworkInfo
+from app.schemas.tracking import (
+    ActivityLogOut, WebsiteLogOut, KeystrokeOut,
+    SystemMetricOut, NetworkSpeedOut,
+)
+from app.schemas.device import DeviceInfoOut, NetworkInfoOut, DeviceMasterOut
+from app.schemas.session import SessionOut
+from app.services import tracking_service, session_service, analytics_service
+from app.api.deps import require_admin
+
+router = APIRouter(prefix="/admin", tags=["Admin"])
+
+
+# ── Overview ──────────────────────────────────────────────
+@router.get("/summary")
+def team_summary(
+    target_date: Optional[date] = Query(None),
+    db: Session = Depends(get_db),
+    _: Employee = Depends(require_admin),
+):
+    return analytics_service.get_all_employees_summary(db, target_date)
+
+
+@router.get("/summary/{employee_id}")
+def employee_summary(
+    employee_id: UUID,
+    target_date: Optional[date] = Query(None),
+    db: Session = Depends(get_db),
+    _: Employee = Depends(require_admin),
+):
+    return analytics_service.get_employee_summary(db, employee_id, target_date)
+
+
+@router.get("/session-metrics/{session_id}")
+def session_metrics(
+    session_id: UUID,
+    db: Session = Depends(get_db),
+    _: Employee = Depends(require_admin),
+):
+    return analytics_service.get_avg_system_metrics(db, session_id)
+
+
+# ── Sessions ──────────────────────────────────────────────
+@router.get("/sessions", response_model=List[SessionOut])
+def admin_sessions(
+    employee_id: Optional[UUID] = Query(None),
+    session_date: Optional[date] = Query(None),
+    status: Optional[str] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _: Employee = Depends(require_admin),
+):
+    sessions = session_service.get_sessions(
+        db, employee_id=employee_id, session_date=session_date,
+        status=status, skip=skip, limit=limit,
+    )
+    return [SessionOut.model_validate(s) for s in sessions]
+
+
+# ── Activity Logs ─────────────────────────────────────────
+@router.get("/activity", response_model=List[ActivityLogOut])
+def admin_activity(
+    employee_id: Optional[UUID] = Query(None),
+    session_id: Optional[UUID] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _: Employee = Depends(require_admin),
+):
+    logs = tracking_service.get_activity_logs(db, employee_id, session_id, skip, limit)
+    return [ActivityLogOut.model_validate(l) for l in logs]
+
+
+# ── Website Logs ──────────────────────────────────────────
+@router.get("/website", response_model=List[WebsiteLogOut])
+def admin_website(
+    employee_id: Optional[UUID] = Query(None),
+    session_id: Optional[UUID] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _: Employee = Depends(require_admin),
+):
+    logs = tracking_service.get_website_logs(db, employee_id, session_id, skip, limit)
+    return [WebsiteLogOut.model_validate(l) for l in logs]
+
+
+# ── Keystroke Logs ────────────────────────────────────────
+@router.get("/keystrokes", response_model=List[KeystrokeOut])
+def admin_keystrokes(
+    employee_id: Optional[UUID] = Query(None),
+    session_id: Optional[UUID] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _: Employee = Depends(require_admin),
+):
+    logs = tracking_service.get_keystroke_logs(db, employee_id, session_id, skip, limit)
+    return [KeystrokeOut.model_validate(l) for l in logs]
+
+
+# ── System Metrics ────────────────────────────────────────
+@router.get("/system-metrics", response_model=List[SystemMetricOut])
+def admin_system_metrics(
+    employee_id: Optional[UUID] = Query(None),
+    session_id: Optional[UUID] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _: Employee = Depends(require_admin),
+):
+    logs = tracking_service.get_system_metrics(db, employee_id, session_id, skip, limit)
+    return [SystemMetricOut.model_validate(l) for l in logs]
+
+
+# ── Network Speed ─────────────────────────────────────────
+@router.get("/network-speed", response_model=List[NetworkSpeedOut])
+def admin_network_speed(
+    employee_id: Optional[UUID] = Query(None),
+    session_id: Optional[UUID] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _: Employee = Depends(require_admin),
+):
+    logs = tracking_service.get_network_speed_logs(db, employee_id, session_id, skip, limit)
+    return [NetworkSpeedOut.model_validate(l) for l in logs]
+
+
+# ── Device Info ───────────────────────────────────────────
+@router.get("/device-info", response_model=List[DeviceInfoOut])
+def admin_device_info(
+    employee_id: Optional[UUID] = Query(None),
+    session_id: Optional[UUID] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _: Employee = Depends(require_admin),
+):
+    q = db.query(DeviceInfo)
+    if employee_id:
+        q = q.filter(DeviceInfo.employee_id == employee_id)
+    if session_id:
+        q = q.filter(DeviceInfo.session_id == session_id)
+    return [DeviceInfoOut.model_validate(d) for d in q.offset(skip).limit(limit).all()]
+
+
+# ── Network Info ──────────────────────────────────────────
+@router.get("/network-info", response_model=List[NetworkInfoOut])
+def admin_network_info(
+    employee_id: Optional[UUID] = Query(None),
+    session_id: Optional[UUID] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _: Employee = Depends(require_admin),
+):
+    q = db.query(NetworkInfo)
+    if employee_id:
+        q = q.filter(NetworkInfo.employee_id == employee_id)
+    if session_id:
+        q = q.filter(NetworkInfo.session_id == session_id)
+    return [NetworkInfoOut.model_validate(n) for n in q.offset(skip).limit(limit).all()]
+
+
+# ── Devices Master ────────────────────────────────────────
+@router.get("/devices", response_model=List[DeviceMasterOut])
+def admin_devices(
+    employee_id: Optional[UUID] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _: Employee = Depends(require_admin),
+):
+    q = db.query(Device)
+    if employee_id:
+        q = q.filter(Device.employee_id == employee_id)
+    return [DeviceMasterOut.model_validate(d) for d in q.offset(skip).limit(limit).all()]
+
+
+
+====================================
+FILE: app/api/routes/employee.py
+====================================
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from sqlalchemy.orm import Session
+from typing import List, Optional
+from uuid import UUID
+
+from app.core.database import get_db
+from app.core.security import verify_password
+from app.core.exceptions import NotFoundException, ConflictException, ForbiddenException
+from app.models.employee import Employee
+from app.schemas.employee import EmployeeCreate, EmployeeUpdate, EmployeeOut
+from app.schemas.password import PasswordChangeRequest, AdminPasswordResetRequest
+from app.services import employee_service
+from app.api.deps import get_current_employee, require_admin
+
+router = APIRouter(prefix="/employees", tags=["Employees"])
+
+
+# ── Create (admin only) ───────────────────────────────────
+@router.post("", response_model=EmployeeOut, status_code=status.HTTP_201_CREATED)
+def create_employee(
+    payload: EmployeeCreate,
+    db: Session = Depends(get_db),
+    admin: Employee = Depends(require_admin),
+):
+    try:
+        emp = employee_service.create_employee(db, payload, created_by=admin.employee_id)
+    except ConflictException as e:
+        raise e
+    return EmployeeOut.model_validate(emp)
+
+
+# ── List all (admin only) ─────────────────────────────────
+@router.get("", response_model=List[EmployeeOut])
+def list_employees(
+    role: Optional[str] = Query(None),
+    department: Optional[str] = Query(None),
+    active_only: bool = Query(True),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _: Employee = Depends(require_admin),
+):
+    emps = employee_service.list_employees(
+        db,
+        role=role,
+        department=department,
+        status=True if active_only else None,
+        skip=skip,
+        limit=limit,
+    )
+    return [EmployeeOut.model_validate(e) for e in emps]
+
+
+# ── Own profile ───────────────────────────────────────────
+@router.get("/me", response_model=EmployeeOut)
+def get_my_profile(current_employee: Employee = Depends(get_current_employee)):
+    return EmployeeOut.model_validate(current_employee)
+
+
+# ── Self password change ──────────────────────────────────
+@router.post("/me/change-password", status_code=status.HTTP_204_NO_CONTENT)
+def change_my_password(
+    payload: PasswordChangeRequest,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    if not verify_password(payload.current_password, current_employee.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    employee_service.change_password(db, current_employee.employee_id, payload.new_password)
+
+
+# ── Get by ID ─────────────────────────────────────────────
+@router.get("/{employee_id}", response_model=EmployeeOut)
+def get_employee(
+    employee_id: UUID,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    if current_employee.role != "admin" and current_employee.employee_id != employee_id:
+        raise ForbiddenException()
+    try:
+        emp = employee_service.get_by_id(db, employee_id)
+    except NotFoundException as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return EmployeeOut.model_validate(emp)
+
+
+# ── Update (admin only) ───────────────────────────────────
+@router.patch("/{employee_id}", response_model=EmployeeOut)
+def update_employee(
+    employee_id: UUID,
+    payload: EmployeeUpdate,
+    db: Session = Depends(get_db),
+    _: Employee = Depends(require_admin),
+):
+    try:
+        emp = employee_service.update_employee(db, employee_id, payload)
+    except NotFoundException as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return EmployeeOut.model_validate(emp)
+
+
+# ── Deactivate (admin only) ───────────────────────────────
+@router.delete("/{employee_id}", status_code=status.HTTP_204_NO_CONTENT)
+def deactivate_employee(
+    employee_id: UUID,
+    db: Session = Depends(get_db),
+    _: Employee = Depends(require_admin),
+):
+    try:
+        employee_service.deactivate(db, employee_id)
+    except NotFoundException as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+# ── Reactivate (admin only) ───────────────────────────────
+@router.patch("/{employee_id}/reactivate", response_model=EmployeeOut)
+def reactivate_employee(
+    employee_id: UUID,
+    db: Session = Depends(get_db),
+    _: Employee = Depends(require_admin),
+):
+    try:
+        employee_service.reactivate(db, employee_id)
+        emp = employee_service.get_by_id(db, employee_id)
+    except NotFoundException as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return EmployeeOut.model_validate(emp)
+
+
+# ── Admin resets any employee's password ─────────────────
+@router.post("/{employee_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+def admin_reset_password(
+    employee_id: UUID,
+    payload: AdminPasswordResetRequest,
+    db: Session = Depends(get_db),
+    _: Employee = Depends(require_admin),
+):
+    try:
+        employee_service.change_password(db, employee_id, payload.new_password)
+    except NotFoundException as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+
+====================================
+FILE: app/api/routes/auth.py
+====================================
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+
+from app.core.database import get_db
+from app.schemas.employee import LoginRequest, TokenResponse, EmployeeOut
+from app.services.auth_service import authenticate_employee, create_token_for_employee
+from app.api.deps import get_current_employee
+from app.models.employee import Employee
+
+router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+@router.post("/login", response_model=TokenResponse)
+def login(payload: LoginRequest, db: Session = Depends(get_db)):
+    employee = authenticate_employee(db, payload.email, payload.password)
+    if not employee:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+        )
+    token = create_token_for_employee(employee)
+    return TokenResponse(
+        access_token=token,
+        employee=EmployeeOut.model_validate(employee),
+    )
+
+
+@router.get("/me", response_model=EmployeeOut)
+def get_me(current_employee: Employee = Depends(get_current_employee)):
+    return EmployeeOut.model_validate(current_employee)
+
+
+
+====================================
+FILE: app/api/routes/tracking.py
+====================================
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
+from typing import List, Optional
+from uuid import UUID
+
+from app.core.database import get_db
+from app.models.employee import Employee
+from app.schemas.tracking import (
+    ActivityLogCreate, ActivityLogOut, ActivityBatch,
+    WebsiteLogCreate, WebsiteLogOut, WebsiteBatch,
+    KeystrokeCreate, KeystrokeOut,
+    SystemMetricCreate, SystemMetricOut,
+    NetworkSpeedCreate, NetworkSpeedOut,
+)
+from app.services import tracking_service
+from app.api.deps import get_current_employee
+
+router = APIRouter(prefix="/tracking", tags=["Tracking"])
+
+
+# ── Activity ──────────────────────────────────────────────
+@router.post("/activity", response_model=ActivityLogOut)
+def log_activity(
+    payload: ActivityLogCreate,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    record = tracking_service.save_activity(db, current_employee.employee_id, payload)
+    return ActivityLogOut.model_validate(record)
+
+
+@router.post("/activity/batch")
+def log_activity_batch(
+    payload: ActivityBatch,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    count = tracking_service.save_activity_batch(db, current_employee.employee_id, payload.logs)
+    return {"saved": count}
+
+
+@router.get("/activity", response_model=List[ActivityLogOut])
+def get_activity(
+    session_id: Optional[UUID] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    logs = tracking_service.get_activity_logs(
+        db,
+        employee_id=current_employee.employee_id,
+        session_id=session_id,
+        skip=skip,
+        limit=limit,
+    )
+    return [ActivityLogOut.model_validate(l) for l in logs]
+
+
+# ── Website ───────────────────────────────────────────────
+@router.post("/website", response_model=WebsiteLogOut)
+def log_website(
+    payload: WebsiteLogCreate,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    record = tracking_service.save_website(db, current_employee.employee_id, payload)
+    return WebsiteLogOut.model_validate(record)
+
+
+@router.post("/website/batch")
+def log_website_batch(
+    payload: WebsiteBatch,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    count = tracking_service.save_website_batch(db, current_employee.employee_id, payload.logs)
+    return {"saved": count}
+
+
+@router.get("/website", response_model=List[WebsiteLogOut])
+def get_website(
+    session_id: Optional[UUID] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    logs = tracking_service.get_website_logs(
+        db,
+        employee_id=current_employee.employee_id,
+        session_id=session_id,
+        skip=skip,
+        limit=limit,
+    )
+    return [WebsiteLogOut.model_validate(l) for l in logs]
+
+
+# ── Keystrokes ────────────────────────────────────────────
+@router.post("/keystrokes", response_model=KeystrokeOut)
+def log_keystrokes(
+    payload: KeystrokeCreate,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    record = tracking_service.save_keystroke(db, current_employee.employee_id, payload)
+    return KeystrokeOut.model_validate(record)
+
+
+@router.get("/keystrokes", response_model=List[KeystrokeOut])
+def get_keystrokes(
+    session_id: Optional[UUID] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    logs = tracking_service.get_keystroke_logs(
+        db,
+        employee_id=current_employee.employee_id,
+        session_id=session_id,
+        skip=skip,
+        limit=limit,
+    )
+    return [KeystrokeOut.model_validate(l) for l in logs]
+
+
+# ── System Metrics ────────────────────────────────────────
+@router.post("/system-metrics", response_model=SystemMetricOut)
+def log_system_metrics(
+    payload: SystemMetricCreate,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    record = tracking_service.save_system_metric(db, current_employee.employee_id, payload)
+    return SystemMetricOut.model_validate(record)
+
+
+@router.get("/system-metrics", response_model=List[SystemMetricOut])
+def get_system_metrics(
+    session_id: Optional[UUID] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    logs = tracking_service.get_system_metrics(
+        db,
+        employee_id=current_employee.employee_id,
+        session_id=session_id,
+        skip=skip,
+        limit=limit,
+    )
+    return [SystemMetricOut.model_validate(l) for l in logs]
+
+
+# ── Network Speed ─────────────────────────────────────────
+@router.post("/network-speed", response_model=NetworkSpeedOut)
+def log_network_speed(
+    payload: NetworkSpeedCreate,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    record = tracking_service.save_network_speed(db, current_employee.employee_id, payload)
+    return NetworkSpeedOut.model_validate(record)
+
+
+@router.get("/network-speed", response_model=List[NetworkSpeedOut])
+def get_network_speed(
+    session_id: Optional[UUID] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    logs = tracking_service.get_network_speed_logs(
+        db,
+        employee_id=current_employee.employee_id,
+        session_id=session_id,
+        skip=skip,
+        limit=limit,
+    )
+    return [NetworkSpeedOut.model_validate(l) for l in logs]
+
+
+
+====================================
+FILE: app/services/__init__.py
+====================================
+
+
+
+====================================
+FILE: app/services/tracking_service.py
+====================================
+import uuid
+from sqlalchemy.orm import Session
+from sqlalchemy import desc
+from typing import List, Optional
+from uuid import UUID
+from datetime import date
+
+from app.models.activity import ActivityLog
+from app.models.website import WebsiteLog
+from app.models.keystroke import Keystroke
+from app.models.system_metrics import SystemMetric
+from app.models.network import NetworkSpeedLog
+from app.schemas.tracking import (
+    ActivityLogCreate,
+    WebsiteLogCreate,
+    KeystrokeCreate,
+    SystemMetricCreate,
+    NetworkSpeedCreate,
+)
+from app.utils.helpers import utcnow
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+# ── Activity ──────────────────────────────────────────────
+def save_activity(db: Session, employee_id: UUID, payload: ActivityLogCreate) -> ActivityLog:
+    record = ActivityLog(
+        id=uuid.uuid4(),
+        session_id=payload.session_id,
+        employee_id=employee_id,
+        app_name=payload.app_name,
+        window_title=payload.window_title,
+        start_time=payload.start_time,
+        end_time=payload.end_time,
+        duration=payload.duration or 0,
+        is_idle=payload.is_idle or False,
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+def save_activity_batch(db: Session, employee_id: UUID, logs: List[ActivityLogCreate]) -> int:
+    records = [
+        ActivityLog(
+            id=uuid.uuid4(),
+            session_id=log.session_id,
+            employee_id=employee_id,
+            app_name=log.app_name,
+            window_title=log.window_title,
+            start_time=log.start_time,
+            end_time=log.end_time,
+            duration=log.duration or 0,
+            is_idle=log.is_idle or False,
+        )
+        for log in logs
+    ]
+    db.add_all(records)
+    db.commit()
+    return len(records)
+
+
+def get_activity_logs(
+    db: Session,
+    employee_id: Optional[UUID] = None,
+    session_id: Optional[UUID] = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> List[ActivityLog]:
+    q = db.query(ActivityLog)
+    if employee_id:
+        q = q.filter(ActivityLog.employee_id == employee_id)
+    if session_id:
+        q = q.filter(ActivityLog.session_id == session_id)
+    return q.order_by(desc(ActivityLog.start_time)).offset(skip).limit(limit).all()
+
+
+# ── Website ───────────────────────────────────────────────
+def save_website(db: Session, employee_id: UUID, payload: WebsiteLogCreate) -> WebsiteLog:
+    record = WebsiteLog(
+        id=uuid.uuid4(),
+        session_id=payload.session_id,
+        employee_id=employee_id,
+        url=payload.url,
+        domain=payload.domain,
+        title=payload.title,
+        duration=payload.duration or 0,
+        timestamp=payload.timestamp or utcnow(),
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+def save_website_batch(db: Session, employee_id: UUID, logs: List[WebsiteLogCreate]) -> int:
+    records = [
+        WebsiteLog(
+            id=uuid.uuid4(),
+            session_id=log.session_id,
+            employee_id=employee_id,
+            url=log.url,
+            domain=log.domain,
+            title=log.title,
+            duration=log.duration or 0,
+            timestamp=log.timestamp or utcnow(),
+        )
+        for log in logs
+    ]
+    db.add_all(records)
+    db.commit()
+    return len(records)
+
+
+def get_website_logs(
+    db: Session,
+    employee_id: Optional[UUID] = None,
+    session_id: Optional[UUID] = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> List[WebsiteLog]:
+    q = db.query(WebsiteLog)
+    if employee_id:
+        q = q.filter(WebsiteLog.employee_id == employee_id)
+    if session_id:
+        q = q.filter(WebsiteLog.session_id == session_id)
+    return q.order_by(desc(WebsiteLog.timestamp)).offset(skip).limit(limit).all()
+
+
+# ── Keystrokes ────────────────────────────────────────────
+def save_keystroke(db: Session, employee_id: UUID, payload: KeystrokeCreate) -> Keystroke:
+    record = Keystroke(
+        id=uuid.uuid4(),
+        session_id=payload.session_id,
+        employee_id=employee_id,
+        keys_pressed_count=payload.keys_pressed_count,
+        raw_keystrokes=payload.raw_keystrokes,
+        timestamp=payload.timestamp or utcnow(),
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+def get_keystroke_logs(
+    db: Session,
+    employee_id: Optional[UUID] = None,
+    session_id: Optional[UUID] = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> List[Keystroke]:
+    q = db.query(Keystroke)
+    if employee_id:
+        q = q.filter(Keystroke.employee_id == employee_id)
+    if session_id:
+        q = q.filter(Keystroke.session_id == session_id)
+    return q.order_by(desc(Keystroke.timestamp)).offset(skip).limit(limit).all()
+
+
+# ── System Metrics ────────────────────────────────────────
+def save_system_metric(db: Session, employee_id: UUID, payload: SystemMetricCreate) -> SystemMetric:
+    record = SystemMetric(
+        id=uuid.uuid4(),
+        session_id=payload.session_id,
+        employee_id=employee_id,
+        cpu_usage=payload.cpu_usage,
+        memory_usage=payload.memory_usage,
+        timestamp=payload.timestamp or utcnow(),
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+def get_system_metrics(
+    db: Session,
+    employee_id: Optional[UUID] = None,
+    session_id: Optional[UUID] = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> List[SystemMetric]:
+    q = db.query(SystemMetric)
+    if employee_id:
+        q = q.filter(SystemMetric.employee_id == employee_id)
+    if session_id:
+        q = q.filter(SystemMetric.session_id == session_id)
+    return q.order_by(desc(SystemMetric.timestamp)).offset(skip).limit(limit).all()
+
+
+# ── Network Speed ─────────────────────────────────────────
+def save_network_speed(db: Session, employee_id: UUID, payload: NetworkSpeedCreate) -> NetworkSpeedLog:
+    record = NetworkSpeedLog(
+        id=uuid.uuid4(),
+        session_id=payload.session_id,
+        employee_id=employee_id,
+        download_speed=payload.download_speed,
+        upload_speed=payload.upload_speed,
+        ping=payload.ping,
+        timestamp=payload.timestamp or utcnow(),
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+def get_network_speed_logs(
+    db: Session,
+    employee_id: Optional[UUID] = None,
+    session_id: Optional[UUID] = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> List[NetworkSpeedLog]:
+    q = db.query(NetworkSpeedLog)
+    if employee_id:
+        q = q.filter(NetworkSpeedLog.employee_id == employee_id)
+    if session_id:
+        q = q.filter(NetworkSpeedLog.session_id == session_id)
+    return q.order_by(desc(NetworkSpeedLog.timestamp)).offset(skip).limit(limit).all()
+
+
+
+====================================
+FILE: app/services/employee_service.py
+====================================
+"""
+Employee CRUD helpers extracted from the route layer so they can be
+reused by other services (e.g. seeding, tests) without importing FastAPI.
+"""
+import uuid
+from datetime import date
+from typing import Optional, List
+from uuid import UUID
+
+from sqlalchemy.orm import Session
+
+from app.models.employee import Employee
+from app.core.security import hash_password
+from app.core.exceptions import ConflictException, NotFoundException
+from app.schemas.employee import EmployeeCreate, EmployeeUpdate
+from app.utils.helpers import utcnow
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+def get_by_id(db: Session, employee_id: UUID) -> Employee:
+    emp = db.query(Employee).filter(Employee.employee_id == employee_id).first()
+    if not emp:
+        raise NotFoundException(f"Employee {employee_id} not found")
+    return emp
+
+
+def get_by_email(db: Session, email: str) -> Optional[Employee]:
+    return db.query(Employee).filter(Employee.email == email).first()
+
+
+def list_employees(
+    db: Session,
+    role: Optional[str] = None,
+    department: Optional[str] = None,
+    status: Optional[bool] = None,
+    skip: int = 0,
+    limit: int = 50,
+) -> List[Employee]:
+    q = db.query(Employee)
+    if role:
+        q = q.filter(Employee.role == role)
+    if department:
+        q = q.filter(Employee.department == department)
+    if status is not None:
+        q = q.filter(Employee.status == status)
+    return q.order_by(Employee.employee_name).offset(skip).limit(limit).all()
+
+
+def create_employee(
+    db: Session,
+    payload: EmployeeCreate,
+    created_by: Optional[UUID] = None,
+) -> Employee:
+    if get_by_email(db, payload.email):
+        raise ConflictException(f"Email '{payload.email}' is already registered")
+
+    emp = Employee(
+        employee_id=uuid.uuid4(),
+        employee_name=payload.employee_name,
+        email=payload.email,
+        password_hash=hash_password(payload.password),
+        department=payload.department,
+        role=payload.role,
+        created_by=created_by,
+        date_of_joining=payload.date_of_joining or date.today(),
+        status=True,
+        created_at=utcnow(),
+    )
+    db.add(emp)
+    db.commit()
+    db.refresh(emp)
+    logger.info(f"Created employee {emp.email} (role={emp.role})")
+    return emp
+
+
+def update_employee(db: Session, employee_id: UUID, payload: EmployeeUpdate) -> Employee:
+    emp = get_by_id(db, employee_id)
+    for field, value in payload.model_dump(exclude_none=True).items():
+        setattr(emp, field, value)
+    db.commit()
+    db.refresh(emp)
+    logger.info(f"Updated employee {emp.email}")
+    return emp
+
+
+def change_password(db: Session, employee_id: UUID, new_password: str) -> None:
+    emp = get_by_id(db, employee_id)
+    emp.password_hash = hash_password(new_password)
+    db.commit()
+    logger.info(f"Password changed for {emp.email}")
+
+
+def deactivate(db: Session, employee_id: UUID) -> None:
+    emp = get_by_id(db, employee_id)
+    emp.status = False
+    db.commit()
+    logger.info(f"Deactivated employee {emp.email}")
+
+
+def reactivate(db: Session, employee_id: UUID) -> None:
+    emp = get_by_id(db, employee_id)
+    emp.status = True
+    db.commit()
+    logger.info(f"Reactivated employee {emp.email}")
+
+
+
+====================================
+FILE: app/services/session_service.py
+====================================
+import uuid
+from datetime import date
+from sqlalchemy.orm import Session
+from sqlalchemy import desc
+from typing import Optional, List
+from uuid import UUID
+
+from app.models.session import Session as SessionModel
+from app.models.device import DeviceInfo, Device
+from app.models.network import NetworkInfo
+from app.schemas.session import ClockInRequest, ClockOutRequest
+from app.schemas.device import DeviceInfoCreate, NetworkInfoCreate
+from app.utils.helpers import utcnow
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+def get_active_session(db: Session, employee_id: UUID) -> Optional[SessionModel]:
+    return (
+        db.query(SessionModel)
+        .filter(
+            SessionModel.employee_id == employee_id,
+            SessionModel.session_status == "active",
+        )
+        .first()
+    )
+
+
+def clock_in(db: Session, employee_id: UUID, payload: ClockInRequest) -> SessionModel:
+    # Prevent double clock-in
+    existing = get_active_session(db, employee_id)
+    if existing:
+        logger.info(f"Employee {employee_id} already has active session {existing.session_id}")
+        return existing
+
+    now = utcnow()
+    session = SessionModel(
+        session_id=uuid.uuid4(),
+        employee_id=employee_id,
+        date=date.today(),
+        clock_in=now,
+        session_status="active",
+        ip_address=payload.ip_address,
+        location=payload.location,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+        city=payload.city,
+        country=payload.country,
+        network_speed_start=payload.network_speed_start,
+        device_id=payload.device_id,
+        total_active_time=0,
+        total_idle_time=0,
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    logger.info(f"Clock-in: employee={employee_id} session={session.session_id}")
+    return session
+
+
+def clock_out(db: Session, employee_id: UUID, payload: ClockOutRequest) -> SessionModel:
+    session = (
+        db.query(SessionModel)
+        .filter(
+            SessionModel.session_id == payload.session_id,
+            SessionModel.employee_id == employee_id,
+        )
+        .first()
+    )
+    if not session:
+        raise ValueError("Session not found or does not belong to this employee")
+    if session.session_status == "completed":
+        return session
+
+    session.clock_out = utcnow()
+    session.session_status = "completed"
+    session.total_active_time = payload.total_active_time or 0
+    session.total_idle_time = payload.total_idle_time or 0
+    db.commit()
+    db.refresh(session)
+    logger.info(f"Clock-out: employee={employee_id} session={session.session_id}")
+    return session
+
+
+def save_device_info(db: Session, employee_id: UUID, payload: DeviceInfoCreate) -> DeviceInfo:
+    record = DeviceInfo(
+        id=uuid.uuid4(),
+        session_id=payload.session_id,
+        employee_id=employee_id,
+        device_id=payload.device_id,
+        device_name=payload.device_name,
+        os=payload.os,
+        cpu=payload.cpu,
+        ram=payload.ram,
+        storage_total=payload.storage_total,
+        storage_free=payload.storage_free,
+        captured_at=utcnow(),
+    )
+    db.add(record)
+
+    # Upsert into devices master
+    if payload.device_id:
+        existing_device = db.query(Device).filter(Device.device_id == payload.device_id).first()
+        if existing_device:
+            existing_device.last_seen = utcnow()
+            existing_device.status = "active"
+        else:
+            db.add(
+                Device(
+                    device_id=payload.device_id,
+                    employee_id=employee_id,
+                    device_name=payload.device_name,
+                    os=payload.os,
+                    first_seen=utcnow(),
+                    last_seen=utcnow(),
+                    status="active",
+                )
+            )
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+def save_network_info(db: Session, employee_id: UUID, payload: NetworkInfoCreate) -> NetworkInfo:
+    record = NetworkInfo(
+        id=uuid.uuid4(),
+        session_id=payload.session_id,
+        employee_id=employee_id,
+        ip_address=payload.ip_address,
+        connection_type=payload.connection_type,
+        ssid=payload.ssid,
+        mac_address=payload.mac_address,
+        captured_at=utcnow(),
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+def get_sessions(
+    db: Session,
+    employee_id: Optional[UUID] = None,
+    session_date: Optional[date] = None,
+    status: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 50,
+) -> List[SessionModel]:
+    q = db.query(SessionModel)
+    if employee_id:
+        q = q.filter(SessionModel.employee_id == employee_id)
+    if session_date:
+        q = q.filter(SessionModel.date == session_date)
+    if status:
+        q = q.filter(SessionModel.session_status == status)
+    return q.order_by(desc(SessionModel.clock_in)).offset(skip).limit(limit).all()
+
+
+
+====================================
+FILE: app/services/auth_service.py
+====================================
+from sqlalchemy.orm import Session
+from typing import Optional
+from app.models.employee import Employee
+from app.core.security import verify_password, create_access_token, hash_password
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+def authenticate_employee(db: Session, email: str, password: str) -> Optional[Employee]:
+    employee = db.query(Employee).filter(Employee.email == email).first()
+    if not employee:
+        logger.warning(f"Login attempt for unknown email: {email}")
+        return None
+    if not verify_password(password, employee.password_hash):
+        logger.warning(f"Invalid password for: {email}")
+        return None
+    if not employee.status:
+        logger.warning(f"Disabled account login attempt: {email}")
+        return None
+    return employee
+
+
+def create_token_for_employee(employee: Employee) -> str:
+    return create_access_token(
+        data={
+            "sub": str(employee.employee_id),
+            "email": employee.email,
+            "role": employee.role,
+        }
+    )
+
+
+def seed_default_admin(db: Session, cfg) -> None:
+    """Create default admin if not present — called once at startup."""
+    existing = db.query(Employee).filter(Employee.email == cfg.DEFAULT_ADMIN_EMAIL).first()
+    if existing:
+        return
+    import uuid
+    from datetime import date
+    admin = Employee(
+        employee_id=uuid.uuid4(),
+        employee_name=cfg.DEFAULT_ADMIN_NAME,
+        email=cfg.DEFAULT_ADMIN_EMAIL,
+        password_hash=hash_password(cfg.DEFAULT_ADMIN_PASSWORD),
+        department=cfg.DEFAULT_ADMIN_DEPARTMENT,
+        role="admin",
+        status=True,
+        date_of_joining=date.today(),
+    )
+    db.add(admin)
+    db.commit()
+    logger.info(f"✅ Default admin seeded: {cfg.DEFAULT_ADMIN_EMAIL}")
+
+
+
+====================================
+FILE: app/services/analytics_service.py
+====================================
+from sqlalchemy.orm import Session
+from sqlalchemy import func, desc
+from typing import Optional, List
+from uuid import UUID
+from datetime import date
+
+from app.models.session import Session as SessionModel
+from app.models.activity import ActivityLog
+from app.models.website import WebsiteLog
+from app.models.keystroke import Keystroke
+from app.models.system_metrics import SystemMetric
+from app.models.employee import Employee
+from app.utils.helpers import seconds_to_hms
+
+
+def get_employee_summary(db: Session, employee_id: UUID, target_date: Optional[date] = None):
+    """Return a daily productivity summary for one employee."""
+    q = db.query(SessionModel).filter(SessionModel.employee_id == employee_id)
+    if target_date:
+        q = q.filter(SessionModel.date == target_date)
+
+    sessions = q.all()
+    total_active = sum(s.total_active_time or 0 for s in sessions)
+    total_idle = sum(s.total_idle_time or 0 for s in sessions)
+
+    # Keystroke total
+    ks_q = db.query(func.sum(Keystroke.keys_pressed_count)).filter(
+        Keystroke.employee_id == employee_id
+    )
+    if target_date:
+        session_ids = [s.session_id for s in sessions]
+        if session_ids:
+            ks_q = ks_q.filter(Keystroke.session_id.in_(session_ids))
+    total_keys = ks_q.scalar() or 0
+
+    # Top apps
+    al_q = db.query(
+        ActivityLog.app_name,
+        func.sum(ActivityLog.duration).label("total_duration"),
+    ).filter(ActivityLog.employee_id == employee_id)
+    if target_date:
+        session_ids = [s.session_id for s in sessions]
+        if session_ids:
+            al_q = al_q.filter(ActivityLog.session_id.in_(session_ids))
+    top_apps = (
+        al_q.group_by(ActivityLog.app_name)
+        .order_by(desc("total_duration"))
+        .limit(5)
+        .all()
+    )
+
+    # Top domains
+    wl_q = db.query(
+        WebsiteLog.domain,
+        func.sum(WebsiteLog.duration).label("total_duration"),
+    ).filter(WebsiteLog.employee_id == employee_id)
+    if target_date:
+        session_ids = [s.session_id for s in sessions]
+        if session_ids:
+            wl_q = wl_q.filter(WebsiteLog.session_id.in_(session_ids))
+    top_domains = (
+        wl_q.group_by(WebsiteLog.domain)
+        .order_by(desc("total_duration"))
+        .limit(5)
+        .all()
+    )
+
+    return {
+        "employee_id": str(employee_id),
+        "date": str(target_date) if target_date else "all-time",
+        "total_sessions": len(sessions),
+        "total_active_time": total_active,
+        "total_active_time_human": seconds_to_hms(total_active),
+        "total_idle_time": total_idle,
+        "total_idle_time_human": seconds_to_hms(total_idle),
+        "total_keystrokes": total_keys,
+        "top_apps": [{"app": r[0], "duration_seconds": r[1]} for r in top_apps],
+        "top_domains": [{"domain": r[0], "duration_seconds": r[1]} for r in top_domains],
+    }
+
+
+def get_all_employees_summary(db: Session, target_date: Optional[date] = None):
+    """Summary for every employee — admin dashboard overview."""
+    employees = db.query(Employee).filter(Employee.status == True).all()
+    return [get_employee_summary(db, emp.employee_id, target_date) for emp in employees]
+
+
+def get_avg_system_metrics(db: Session, session_id: UUID):
+    row = db.query(
+        func.avg(SystemMetric.cpu_usage).label("avg_cpu"),
+        func.avg(SystemMetric.memory_usage).label("avg_memory"),
+    ).filter(SystemMetric.session_id == session_id).first()
+    return {
+        "avg_cpu_usage": round(row.avg_cpu or 0, 2),
+        "avg_memory_usage": round(row.avg_memory or 0, 2),
+    }
+
+
+
+====================================
+FILE: app/core/__init__.py
+====================================
+
+
+
+====================================
+FILE: app/core/config.py
+====================================
+from pydantic_settings import BaseSettings
+from typing import Optional
+
+
+class Settings(BaseSettings):
+    DATABASE_URL: str
+    SECRET_KEY: str
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
+
+    DEFAULT_ADMIN_EMAIL: str = "admin@avdevs.com"
+    DEFAULT_ADMIN_PASSWORD: str = "1234"
+    DEFAULT_ADMIN_NAME: str = "Super Admin"
+    DEFAULT_ADMIN_DEPARTMENT: str = "IT"
+
+    class Config:
+        env_file = ".env"
+        extra = "ignore"
+
+
+settings = Settings()
+
+
+====================================
+FILE: app/core/middleware.py
+====================================
+import time
+from fastapi import Request
+from starlette.middleware.base import BaseHTTPMiddleware
+from app.utils.logger import get_logger
+
+logger = get_logger("request")
+
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    """Logs every request with method, path, status code, and duration."""
+
+    async def dispatch(self, request: Request, call_next):
+        start = time.perf_counter()
+        response = await call_next(request)
+        duration_ms = (time.perf_counter() - start) * 1000
+
+        # Skip health-check noise
+        if request.url.path not in ("/", "/health"):
+            logger.info(
+                f"{request.method} {request.url.path} "
+                f"→ {response.status_code} "
+                f"[{duration_ms:.1f}ms]"
+            )
+        return response
+
+
+
+====================================
+FILE: app/core/security.py
+====================================
+from datetime import datetime, timedelta, timezone
+from typing import Optional, Union
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from app.core.config import settings
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + (
+        expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def decode_token(token: str) -> Optional[dict]:
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        return payload
+    except JWTError:
+        return None
+
+
+
+====================================
+FILE: app/core/database.py
+====================================
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
+from app.core.config import settings
+
+engine = create_engine(
+    settings.DATABASE_URL,
+    pool_pre_ping=True,
+    pool_size=10,
+    max_overflow=20,
+)
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+Base = declarative_base()
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+
+====================================
+FILE: app/core/exceptions.py
+====================================
+from fastapi import HTTPException, status
+
+
+class NotFoundException(HTTPException):
+    def __init__(self, detail: str = "Resource not found"):
+        super().__init__(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
+
+
+class ForbiddenException(HTTPException):
+    def __init__(self, detail: str = "Access denied"):
+        super().__init__(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+
+
+class BadRequestException(HTTPException):
+    def __init__(self, detail: str = "Bad request"):
+        super().__init__(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+
+
+class UnauthorizedException(HTTPException):
+    def __init__(self, detail: str = "Unauthorized"):
+        super().__init__(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
+
+
+class ConflictException(HTTPException):
+    def __init__(self, detail: str = "Conflict"):
+        super().__init__(status_code=status.HTTP_409_CONFLICT, detail=detail)
+
+
+
+====================================
+FILE: app/main.py
+====================================
+import asyncio
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+
+from app.core.config import settings
+from app.core.database import engine, SessionLocal, Base
+from app.core.middleware import RequestLoggingMiddleware
+
+# Register all ORM models before create_all
+from app.models import (  # noqa: F401
+    employee, session, device, network,
+    activity, system_metrics, keystroke, website,
+)
+
+from app.api.routes import (
+    auth,
+    employee as emp_router,
+    session as session_router,
+    tracking,
+    admin,
+)
+from app.services.auth_service import seed_default_admin
+from app.workers.background_tasks import run_background_tasks
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
+from sqlalchemy.exc import IntegrityError
+
+
+# ── Lifespan ───────────────────────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("🚀 Starting Employee Monitor API...")
+
+    # Create / verify tables
+    try:
+        Base.metadata.create_all(bind=engine, checkfirst=True)
+        logger.info("✅ Database tables verified")
+    except IntegrityError:
+        logger.info("✅ Tables already exist, skipping creation")
+
+    # Seed default admin
+    db = SessionLocal()
+    try:
+        seed_default_admin(db, settings)
+    finally:
+        db.close()
+
+    # Background task worker
+    task = asyncio.create_task(run_background_tasks())
+
+    yield
+
+    task.cancel()
+    logger.info("👋 Shutting down")
+
+
+# ── App ────────────────────────────────────────────────────
+app = FastAPI(
+    title="Employee Monitor API",
+    description=(
+        "Production-ready backend for the Employee Monitoring desktop application.\n\n"
+        "**Default admin credentials:** `admin@avdevs.com` / `1234`\n\n"
+        "Use `POST /api/v1/auth/login` to get a JWT token, then click **Authorize** above."
+    ),
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+# ── Middleware ─────────────────────────────────────────────
+app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],        # Lock down in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ── Global exception handlers ──────────────────────────────
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    errors = [
+        {"field": ".".join(str(l) for l in e["loc"]), "message": e["msg"]}
+        for e in exc.errors()
+    ]
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"success": False, "message": "Validation error", "errors": errors},
+    )
+
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception on {request.method} {request.url.path}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"success": False, "message": "Internal server error"},
+    )
+
+
+# ── Routers ────────────────────────────────────────────────
+PREFIX = "/api/v1"
+
+app.include_router(auth.router,                 prefix=PREFIX)
+app.include_router(emp_router.router,           prefix=PREFIX)
+app.include_router(session_router.router,       prefix=PREFIX)
+app.include_router(tracking.router,             prefix=PREFIX)
+app.include_router(admin.router,                prefix=PREFIX)
+
+
+# ── Health ─────────────────────────────────────────────────
+@app.get("/", tags=["Health"], include_in_schema=False)
+def root():
+    return {"status": "ok", "service": "Employee Monitor API", "version": "1.0.0"}
+
+
+@app.get("/health", tags=["Health"])
+def health():
+    return {"status": "healthy"}
+
+
+
+====================================
+FILE: tests/__init__.py
+====================================
+
+
+
+====================================
+FILE: tests/test_sessions.py
+====================================
+import uuid
+
+
+def _make_employee_and_login(client, admin_headers):
+    email = f"sess_{uuid.uuid4().hex[:6]}@test.com"
+    client.post(
+        "/api/v1/employees",
+        json={
+            "employee_name": "Session Tester",
+            "email": email,
+            "password": "test1234",
+            "department": "QA",
+            "role": "employee",
+        },
+        headers=admin_headers,
+    )
+    login = client.post("/api/v1/auth/login", json={"email": email, "password": "test1234"})
+    token = login.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_clock_in(client, admin_headers):
+    headers = _make_employee_and_login(client, admin_headers)
+    resp = client.post(
+        "/api/v1/sessions/clock-in",
+        json={
+            "ip_address": "192.168.1.10",
+            "city": "Vadodara",
+            "country": "India",
+            "latitude": 22.307,
+            "longitude": 73.181,
+            "network_speed_start": 50.5,
+            "device_id": "DEV-001",
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["session_status"] == "active"
+    assert data["city"] == "Vadodara"
+    return data, headers
+
+
+def test_double_clock_in_returns_same_session(client, admin_headers):
+    headers = _make_employee_and_login(client, admin_headers)
+    r1 = client.post("/api/v1/sessions/clock-in", json={}, headers=headers)
+    r2 = client.post("/api/v1/sessions/clock-in", json={}, headers=headers)
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    assert r1.json()["session_id"] == r2.json()["session_id"]
+
+
+def test_get_active_session(client, admin_headers):
+    headers = _make_employee_and_login(client, admin_headers)
+    client.post("/api/v1/sessions/clock-in", json={}, headers=headers)
+    resp = client.get("/api/v1/sessions/active", headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["session_status"] == "active"
+
+
+def test_clock_out(client, admin_headers):
+    headers = _make_employee_and_login(client, admin_headers)
+    clock_in = client.post("/api/v1/sessions/clock-in", json={}, headers=headers).json()
+    session_id = clock_in["session_id"]
+
+    resp = client.post(
+        "/api/v1/sessions/clock-out",
+        json={"session_id": session_id, "total_active_time": 3600, "total_idle_time": 300},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["session_status"] == "completed"
+    assert data["total_active_time"] == 3600
+
+
+def test_my_sessions(client, admin_headers):
+    headers = _make_employee_and_login(client, admin_headers)
+    client.post("/api/v1/sessions/clock-in", json={}, headers=headers)
+    resp = client.get("/api/v1/sessions/my", headers=headers)
+    assert resp.status_code == 200
+    assert len(resp.json()) >= 1
+
+
+def test_clock_out_wrong_session(client, admin_headers):
+    headers = _make_employee_and_login(client, admin_headers)
+    resp = client.post(
+        "/api/v1/sessions/clock-out",
+        json={"session_id": str(uuid.uuid4()), "total_active_time": 0},
+        headers=headers,
+    )
+    assert resp.status_code == 404
+
+
+
+====================================
+FILE: tests/test_auth.py
+====================================
+def test_login_success(client):
+    resp = client.post(
+        "/api/v1/auth/login",
+        json={"email": "admin@avdevs.com", "password": "1234"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "access_token" in data
+    assert data["employee"]["role"] == "admin"
+
+
+def test_login_wrong_password(client):
+    resp = client.post(
+        "/api/v1/auth/login",
+        json={"email": "admin@avdevs.com", "password": "wrong"},
+    )
+    assert resp.status_code == 401
+
+
+def test_login_unknown_email(client):
+    resp = client.post(
+        "/api/v1/auth/login",
+        json={"email": "nobody@example.com", "password": "anything"},
+    )
+    assert resp.status_code == 401
+
+
+def test_me(client, admin_headers):
+    resp = client.get("/api/v1/auth/me", headers=admin_headers)
+    assert resp.status_code == 200
+    assert resp.json()["email"] == "admin@avdevs.com"
+
+
+def test_me_no_token(client):
+    resp = client.get("/api/v1/auth/me")
+    assert resp.status_code == 403  # HTTPBearer returns 403 when header missing
+
+
+
+====================================
+FILE: tests/test_employees.py
+====================================
+import uuid
+
+
+def _create_employee(client, admin_headers, email=None, role="employee"):
+    email = email or f"emp_{uuid.uuid4().hex[:6]}@test.com"
+    resp = client.post(
+        "/api/v1/employees",
+        json={
+            "employee_name": "Test User",
+            "email": email,
+            "password": "test1234",
+            "department": "Engineering",
+            "role": role,
+        },
+        headers=admin_headers,
+    )
+    return resp
+
+
+def test_create_employee(client, admin_headers):
+    resp = _create_employee(client, admin_headers)
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["role"] == "employee"
+    assert data["status"] is True
+
+
+def test_create_duplicate_email(client, admin_headers):
+    email = f"dup_{uuid.uuid4().hex[:6]}@test.com"
+    _create_employee(client, admin_headers, email=email)
+    resp = _create_employee(client, admin_headers, email=email)
+    assert resp.status_code == 409
+
+
+def test_list_employees_admin(client, admin_headers):
+    resp = client.get("/api/v1/employees", headers=admin_headers)
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
+
+
+def test_list_employees_forbidden_for_employee(client, admin_headers):
+    # Create an employee then try to list
+    email = f"nolist_{uuid.uuid4().hex[:6]}@test.com"
+    _create_employee(client, admin_headers, email=email)
+    login = client.post("/api/v1/auth/login", json={"email": email, "password": "test1234"})
+    token = login.json()["access_token"]
+    resp = client.get("/api/v1/employees", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 403
+
+
+def test_get_own_profile(client, admin_headers):
+    email = f"self_{uuid.uuid4().hex[:6]}@test.com"
+    _create_employee(client, admin_headers, email=email)
+    login = client.post("/api/v1/auth/login", json={"email": email, "password": "test1234"})
+    token = login.json()["access_token"]
+    resp = client.get("/api/v1/employees/me", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    assert resp.json()["email"] == email
+
+
+def test_deactivate_employee(client, admin_headers):
+    emp = _create_employee(client, admin_headers).json()
+    emp_id = emp["employee_id"]
+    resp = client.delete(f"/api/v1/employees/{emp_id}", headers=admin_headers)
+    assert resp.status_code == 204
+
+
+
+====================================
+FILE: tests/test_tracking.py
+====================================
+import uuid
+from datetime import datetime, timezone
+
+
+def _setup(client, admin_headers):
+    """Create employee, log in, clock in. Returns (emp_headers, session_id)."""
+    email = f"track_{uuid.uuid4().hex[:6]}@test.com"
+    client.post(
+        "/api/v1/employees",
+        json={
+            "employee_name": "Tracker",
+            "email": email,
+            "password": "test1234",
+            "department": "Dev",
+            "role": "employee",
+        },
+        headers=admin_headers,
+    )
+    token = client.post(
+        "/api/v1/auth/login", json={"email": email, "password": "test1234"}
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    session_id = client.post(
+        "/api/v1/sessions/clock-in", json={}, headers=headers
+    ).json()["session_id"]
+    return headers, session_id
+
+
+def test_log_activity(client, admin_headers):
+    headers, session_id = _setup(client, admin_headers)
+    now = datetime.now(timezone.utc).isoformat()
+    resp = client.post(
+        "/api/v1/tracking/activity",
+        json={
+            "session_id": session_id,
+            "app_name": "VS Code",
+            "window_title": "main.py - employee_monitor",
+            "start_time": now,
+            "end_time": now,
+            "duration": 120,
+            "is_idle": False,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["app_name"] == "VS Code"
+
+
+def test_log_activity_batch(client, admin_headers):
+    headers, session_id = _setup(client, admin_headers)
+    now = datetime.now(timezone.utc).isoformat()
+    resp = client.post(
+        "/api/v1/tracking/activity/batch",
+        json={
+            "logs": [
+                {"session_id": session_id, "app_name": "Chrome", "duration": 60},
+                {"session_id": session_id, "app_name": "Slack",  "duration": 30},
+            ]
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["saved"] == 2
+
+
+def test_log_website(client, admin_headers):
+    headers, session_id = _setup(client, admin_headers)
+    resp = client.post(
+        "/api/v1/tracking/website",
+        json={
+            "session_id": session_id,
+            "url": "https://github.com",
+            "domain": "github.com",
+            "title": "GitHub",
+            "duration": 200,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["domain"] == "github.com"
+
+
+def test_log_keystrokes(client, admin_headers):
+    headers, session_id = _setup(client, admin_headers)
+    resp = client.post(
+        "/api/v1/tracking/keystrokes",
+        json={"session_id": session_id, "keys_pressed_count": 342},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["keys_pressed_count"] == 342
+
+
+def test_log_system_metrics(client, admin_headers):
+    headers, session_id = _setup(client, admin_headers)
+    resp = client.post(
+        "/api/v1/tracking/system-metrics",
+        json={"session_id": session_id, "cpu_usage": 34.5, "memory_usage": 61.2},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["cpu_usage"] == 34.5
+
+
+def test_log_network_speed(client, admin_headers):
+    headers, session_id = _setup(client, admin_headers)
+    resp = client.post(
+        "/api/v1/tracking/network-speed",
+        json={
+            "session_id": session_id,
+            "download_speed": 95.3,
+            "upload_speed": 48.1,
+            "ping": 12.0,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["ping"] == 12.0
+
+
+def test_get_own_activity(client, admin_headers):
+    headers, session_id = _setup(client, admin_headers)
+    client.post(
+        "/api/v1/tracking/activity",
+        json={"session_id": session_id, "app_name": "Notepad", "duration": 10},
+        headers=headers,
+    )
+    resp = client.get(f"/api/v1/tracking/activity?session_id={session_id}", headers=headers)
+    assert resp.status_code == 200
+    assert len(resp.json()) >= 1
+
+
+
+====================================
+FILE: tests/conftest.py
+====================================
+"""
+Pytest fixtures for integration tests.
+Uses an in-memory SQLite DB so no real Postgres is needed to run tests.
+"""
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.core.database import Base, get_db
+from app.main import app
+
+SQLITE_URL = "sqlite:///./test.db"
+
+engine_test = create_engine(SQLITE_URL, connect_args={"check_same_thread": False})
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine_test)
+
+
+def override_get_db():
+    db = TestingSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_db():
+    Base.metadata.create_all(bind=engine_test)
+    yield
+    Base.metadata.drop_all(bind=engine_test)
+
+
+@pytest.fixture()
+def db():
+    db = TestingSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+@pytest.fixture()
+def client(db):
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture()
+def admin_token(client):
+    """Return a valid JWT token for the default admin."""
+    resp = client.post(
+        "/api/v1/auth/login",
+        json={"email": "admin@avdevs.com", "password": "1234"},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["access_token"]
+
+
+@pytest.fixture()
+def admin_headers(admin_token):
+    return {"Authorization": f"Bearer {admin_token}"}
+
+
+
+====================================
+FILE: tests/test_admin.py
+====================================
+import uuid
+
+
+def _create_emp_with_session(client, admin_headers):
+    email = f"adm_{uuid.uuid4().hex[:6]}@test.com"
+    client.post(
+        "/api/v1/employees",
+        json={
+            "employee_name": "Admin Target",
+            "email": email,
+            "password": "test1234",
+            "department": "Sales",
+            "role": "employee",
+        },
+        headers=admin_headers,
+    )
+    token = client.post(
+        "/api/v1/auth/login", json={"email": email, "password": "test1234"}
+    ).json()["access_token"]
+    emp_headers = {"Authorization": f"Bearer {token}"}
+    session = client.post("/api/v1/sessions/clock-in", json={}, headers=emp_headers).json()
+    return session["employee_id"], session["session_id"], emp_headers
+
+
+def test_admin_summary(client, admin_headers):
+    resp = client.get("/api/v1/admin/summary", headers=admin_headers)
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
+
+
+def test_admin_employee_summary(client, admin_headers):
+    emp_id, _, _ = _create_emp_with_session(client, admin_headers)
+    resp = client.get(f"/api/v1/admin/summary/{emp_id}", headers=admin_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "total_active_time" in data
+    assert "top_apps" in data
+
+
+def test_admin_sessions(client, admin_headers):
+    emp_id, _, _ = _create_emp_with_session(client, admin_headers)
+    resp = client.get(f"/api/v1/admin/sessions?employee_id={emp_id}", headers=admin_headers)
+    assert resp.status_code == 200
+    assert len(resp.json()) >= 1
+
+
+def test_admin_activity(client, admin_headers):
+    emp_id, session_id, emp_headers = _create_emp_with_session(client, admin_headers)
+    client.post(
+        "/api/v1/tracking/activity",
+        json={"session_id": session_id, "app_name": "Excel", "duration": 90},
+        headers=emp_headers,
+    )
+    resp = client.get(f"/api/v1/admin/activity?employee_id={emp_id}", headers=admin_headers)
+    assert resp.status_code == 200
+    assert any(r["app_name"] == "Excel" for r in resp.json())
+
+
+def test_admin_website(client, admin_headers):
+    emp_id, session_id, emp_headers = _create_emp_with_session(client, admin_headers)
+    client.post(
+        "/api/v1/tracking/website",
+        json={"session_id": session_id, "domain": "stackoverflow.com", "duration": 45},
+        headers=emp_headers,
+    )
+    resp = client.get(f"/api/v1/admin/website?employee_id={emp_id}", headers=admin_headers)
+    assert resp.status_code == 200
+    assert any(r["domain"] == "stackoverflow.com" for r in resp.json())
+
+
+def test_admin_keystrokes(client, admin_headers):
+    emp_id, session_id, emp_headers = _create_emp_with_session(client, admin_headers)
+    client.post(
+        "/api/v1/tracking/keystrokes",
+        json={"session_id": session_id, "keys_pressed_count": 500},
+        headers=emp_headers,
+    )
+    resp = client.get(f"/api/v1/admin/keystrokes?employee_id={emp_id}", headers=admin_headers)
+    assert resp.status_code == 200
+    assert any(r["keys_pressed_count"] == 500 for r in resp.json())
+
+
+def test_admin_system_metrics(client, admin_headers):
+    emp_id, session_id, emp_headers = _create_emp_with_session(client, admin_headers)
+    client.post(
+        "/api/v1/tracking/system-metrics",
+        json={"session_id": session_id, "cpu_usage": 72.1, "memory_usage": 55.0},
+        headers=emp_headers,
+    )
+    resp = client.get(f"/api/v1/admin/system-metrics?employee_id={emp_id}", headers=admin_headers)
+    assert resp.status_code == 200
+    assert any(r["cpu_usage"] == 72.1 for r in resp.json())
+
+
+def test_admin_route_blocked_for_employee(client, admin_headers):
+    email = f"nonadmin_{uuid.uuid4().hex[:6]}@test.com"
+    client.post(
+        "/api/v1/employees",
+        json={
+            "employee_name": "Regular",
+            "email": email,
+            "password": "test1234",
+            "role": "employee",
+        },
+        headers=admin_headers,
+    )
+    token = client.post(
+        "/api/v1/auth/login", json={"email": email, "password": "test1234"}
+    ).json()["access_token"]
+    resp = client.get(
+        "/api/v1/admin/summary",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 403
+
+
+
