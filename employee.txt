@@ -3,6 +3,9 @@
 ├── bitbucket-pipelines.yml
 ├── Desktop_App_electron
 │   ├── bitbucket-pipelines.yml
+│   ├── build
+│   │   └── linux
+│   │       └── postinst
 │   ├── deb-package
 │   │   ├── DEBIAN
 │   │   │   ├── control
@@ -19,9 +22,6 @@
 │   │               ├── icon.png
 │   │               └── metadata.json
 │   ├── Desktop_App_electron
-│   │   └── build
-│   │       └── linux
-│   │           └── postinst
 │   ├── package.json
 │   ├── package-lock.json
 │   ├── README.md
@@ -3989,10 +3989,12 @@ pipelines:
 ====================================
 FILE: ./.github/workflows/mac-build.yml
 ====================================
-name: Build macOS
+name: Build & Release macOS Intel
+
 on:
   push:
-    branches: [ add/pipeline ]
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 jobs:
@@ -4033,60 +4035,73 @@ jobs:
         run: |
           cd Desktop_App_electron/release
           for dmg in *.dmg; do
+            [ -f "$dmg" ] || continue
             xattr -rc "$dmg"
           done
 
-      - name: Upload Intel artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: mac-intel-dmg
-          path: Desktop_App_electron/release/*.dmg
-
-  build-mac-arm:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Install dependencies
+      - name: Upload to GitHub Releases
         working-directory: Desktop_App_electron
-        run: npm install
-
-      - name: Build TypeScript
-        working-directory: Desktop_App_electron
-        run: npm run build
-
-      - name: Copy inputWorker
-        working-directory: Desktop_App_electron
-        run: cp src/main/services/inputWorker.js dist/main/services/inputWorker.js
-
-      - name: Package macOS ARM
-        working-directory: Desktop_App_electron
-        run: npx electron-builder --mac dmg --arm64 --publish never
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
-
-      - name: Remove quarantine from DMG
         run: |
-          cd Desktop_App_electron/release
-          for dmg in *.dmg; do
-            xattr -rc "$dmg"
-          done
+          VERSION=$(node -p "require('./package.json').version")
+          echo "Building version: $VERSION"
 
-      - name: Upload ARM artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: mac-arm-dmg
-          path: Desktop_App_electron/release/*.dmg
+          DMG_FILE=$(ls release/*.dmg 2>/dev/null | head -1)
+          YML_FILE="release/latest-mac.yml"
+
+          if [ -z "$DMG_FILE" ]; then
+            echo "❌ No DMG file found"
+            ls release/
+            exit 1
+          fi
+
+          echo "Found: $DMG_FILE"
+
+          # Check if release already exists
+          EXISTING=$(curl -s \
+            -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/tags/v$VERSION")
+
+          RELEASE_ID=$(echo $EXISTING | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null || echo "")
+
+          if [ -z "$RELEASE_ID" ]; then
+            echo "Creating new release v$VERSION..."
+            RESPONSE=$(curl -s -X POST \
+              -H "Authorization: token $GH_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases" \
+              -d "{\"tag_name\":\"v$VERSION\",\"name\":\"v$VERSION\",\"draft\":false,\"prerelease\":false,\"body\":\"Release v$VERSION\"}")
+            RELEASE_ID=$(echo $RESPONSE | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+            echo "Created release ID: $RELEASE_ID"
+          else
+            echo "Using existing release ID: $RELEASE_ID"
+          fi
+
+          UPLOAD_URL="https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets"
+
+          # Upload DMG
+          FILENAME=$(basename "$DMG_FILE")
+          echo "Uploading $FILENAME..."
+          curl -s -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Content-Type: application/octet-stream" \
+            "$UPLOAD_URL?name=$FILENAME" \
+            --data-binary @"$DMG_FILE"
+          echo "✅ Uploaded $FILENAME"
+
+          # Upload latest-mac.yml
+          if [ -f "$YML_FILE" ]; then
+            echo "Uploading latest-mac.yml..."
+            curl -s -X POST \
+              -H "Authorization: token $GH_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              "$UPLOAD_URL?name=latest-mac.yml" \
+              --data-binary @"$YML_FILE"
+            echo "✅ Uploaded latest-mac.yml"
+          fi
+
+          echo "🎉 Mac Intel release complete for v$VERSION"
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
 
 ====================================
@@ -4205,10 +4220,12 @@ pipelines:
 ====================================
 FILE: ./Desktop_App_electron/.github/workflows/mac-build.yml
 ====================================
-name: Build macOS
+name: Build & Release macOS
+
 on:
   push:
-    branches: [ add/pipeline ]
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 jobs:
@@ -4249,60 +4266,74 @@ jobs:
         run: |
           cd Desktop_App_electron/release
           for dmg in *.dmg; do
+            [ -f "$dmg" ] || continue
             xattr -rc "$dmg"
           done
 
-      - name: Upload Intel artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: mac-intel-dmg
-          path: Desktop_App_electron/release/*.dmg
-
-  build-mac-arm:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Install dependencies
+      - name: Upload to GitHub Release
         working-directory: Desktop_App_electron
-        run: npm install
-
-      - name: Build TypeScript
-        working-directory: Desktop_App_electron
-        run: npm run build
-
-      - name: Copy inputWorker
-        working-directory: Desktop_App_electron
-        run: cp src/main/services/inputWorker.js dist/main/services/inputWorker.js
-
-      - name: Package macOS ARM
-        working-directory: Desktop_App_electron
-        run: npx electron-builder --mac dmg --arm64 --publish never
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
-
-      - name: Remove quarantine from DMG
         run: |
-          cd Desktop_App_electron/release
-          for dmg in *.dmg; do
-            xattr -rc "$dmg"
-          done
+          VERSION=$(node -p "require('./package.json').version")
+          echo "Version: $VERSION"
 
-      - name: Upload ARM artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: mac-arm-dmg
-          path: Desktop_App_electron/release/*.dmg
+          # Install GitHub CLI
+          brew install gh || true
+
+          # Find DMG file
+          DMG_FILE=$(ls release/*.dmg 2>/dev/null | head -1)
+          YML_FILE=$(ls release/latest-mac.yml 2>/dev/null | head -1)
+
+          if [ -z "$DMG_FILE" ]; then
+            echo "❌ No DMG file found"
+            ls release/
+            exit 1
+          fi
+
+          echo "Found DMG: $DMG_FILE"
+
+          # Check if release exists, create if not
+          EXISTING=$(curl -s \
+            -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
+            https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/tags/v$VERSION)
+
+          RELEASE_ID=$(echo $EXISTING | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null)
+
+          if [ -z "$RELEASE_ID" ]; then
+            echo "Creating new release v$VERSION..."
+            RESPONSE=$(curl -s -X POST \
+              -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
+              -H "Content-Type: application/json" \
+              https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases \
+              -d "{\"tag_name\":\"v$VERSION\",\"name\":\"v$VERSION\",\"draft\":false,\"prerelease\":false,\"body\":\"Release v$VERSION\"}")
+            RELEASE_ID=$(echo $RESPONSE | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+          fi
+
+          UPLOAD_URL="https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets"
+
+          # Upload DMG
+          FILENAME=$(basename "$DMG_FILE")
+          echo "Uploading $FILENAME..."
+          curl -s -X POST \
+            -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
+            -H "Content-Type: application/octet-stream" \
+            "$UPLOAD_URL?name=$FILENAME" \
+            --data-binary @"$DMG_FILE"
+          echo "✅ Uploaded $FILENAME"
+
+          # Upload latest-mac.yml if exists
+          if [ -n "$YML_FILE" ]; then
+            echo "Uploading latest-mac.yml..."
+            curl -s -X POST \
+              -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
+              -H "Content-Type: application/octet-stream" \
+              "$UPLOAD_URL?name=latest-mac.yml" \
+              --data-binary @"$YML_FILE"
+            echo "✅ Uploaded latest-mac.yml"
+          fi
+
+          echo "🎉 Mac Intel release done!"
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
 
 ====================================
@@ -4335,7 +4366,7 @@ FILE: ./Desktop_App_electron/package.json
 ====================================
 {
   "name": "employee-monitor-desktop",
-  "version": "1.0.0",
+  "version": "1.0.8",
   "description": "Employee Monitoring Desktop App",
   "main": "dist/main/main.js",
   "homepage": "https://avdevs.com",
@@ -4365,6 +4396,7 @@ FILE: ./Desktop_App_electron/package.json
     "wait-on": "^7.2.0"
   },
   "dependencies": {
+    "electron-updater": "^6.8.3",
     "node-fetch": "^2.7.0",
     "node-global-key-listener": "^0.3.0",
     "uiohook-napi": "^1.5.4",
@@ -4372,10 +4404,18 @@ FILE: ./Desktop_App_electron/package.json
   },
   "build": {
     "appId": "com.avdevs.employeemonitor",
-    "productName": "Employee Monitor",
+    "productName": "Employee-Monitor",
     "directories": {
       "output": "release"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "CaptainArmandoSalazar",
+        "repo": "employee-monitor-releases",
+        "releaseType": "release"
+      }
+    ],
     "files": [
       "dist/**/*",
       "src/renderer/**/*",
@@ -4447,7 +4487,6 @@ FILE: ./Desktop_App_electron/package.json
     "url": "https://github.com/CaptainArmandoSalazar/employee-monitor.git"
   }
 }
-
 
 
 ====================================
@@ -5533,7 +5572,7 @@ FILE: ./Desktop_App_electron/src/renderer/dashboard.html
       </div>
 
       <!-- Common nav (all roles) -->
-      <div class="nav-section-label">Workspace</div>
+      <div class="nav-section-label">My Workspace</div>
       <button class="nav-item active" data-page="overview">
         <span class="nav-icon">🏠</span> Overview
       </button>
@@ -5542,7 +5581,7 @@ FILE: ./Desktop_App_electron/src/renderer/dashboard.html
       </button>
 
       <!-- ── Super Admin only ── -->
-      <div class="nav-section-label role-only role-super_admin hidden">Admin</div>
+      <div class="nav-section-label role-only role-super_admin hidden">Organization</div>
       <button class="nav-item role-only role-super_admin hidden" data-page="super-admins">
         <span class="nav-icon">🛡️</span> Super Admins
       </button>
@@ -7599,6 +7638,7 @@ async function openUserSessions(empId, empName, pageId) {
 : pageId === 'my-employees'  ? 'my-emp-sessions-list'
 : pageId === 'admins'        ? 'admin-sessions-list'
 :                              'emp-sessions-list';
+
   const listSubId =
   pageId === 'super-admins'  ? 'super-admins-list'
 : pageId === 'hrs'           ? 'hrs-list'
@@ -7606,6 +7646,7 @@ async function openUserSessions(empId, empName, pageId) {
 : pageId === 'my-employees'  ? 'my-employees-list'
 : pageId === 'admins'        ? 'admins-list'
 :                              'employees-list';
+
   const container = g(sessSubId);
   if (!container) return;
   container.innerHTML = spinHtml();
@@ -7614,7 +7655,6 @@ async function openUserSessions(empId, empName, pageId) {
   try {
     const empIdStr = String(empId).trim();
 
-    // Strategy 1: fetch with employee_id filter
     let sessions = [];
     const r = await api.getAdminSessions({ employee_id: empIdStr, limit: '200' });
     console.log(`[openUserSessions] employee_id=${empIdStr}`, 'response:', r);
@@ -7622,8 +7662,6 @@ async function openUserSessions(empId, empName, pageId) {
     if (r && r.ok && Array.isArray(r.data) && r.data.length > 0) {
       sessions = r.data;
     } else {
-      // Strategy 2: fetch all sessions and filter client-side
-      // (fallback in case employee_id query param isn't working)
       console.log('[openUserSessions] Trying fallback: fetch all + filter client-side');
       const r2 = await api.getAdminSessions({ limit: '200' });
       console.log('[openUserSessions] fallback response:', r2);
@@ -7635,24 +7673,34 @@ async function openUserSessions(empId, empName, pageId) {
       }
     }
 
-    // Keystroke totals
+    // Build keystroke map
     const ksMap = {};
     try {
-      const kr = await api.getAdminKeystrokes({ employee_id: String(empId), limit: '500' });
+      const kr = await api.getAdminKeystrokes({ employee_id: empIdStr, limit: '500' });
       if (kr && kr.ok && Array.isArray(kr.data)) {
         kr.data.forEach(k => {
-          ksMap[k.session_id] = (ksMap[k.session_id]||0) + (k.keys_pressed_count||0);
+          ksMap[k.session_id] = (ksMap[k.session_id] || 0) + (k.keys_pressed_count || 0);
         });
       }
     } catch { /* optional */ }
 
-    // Calculate totals for header stats
-    const totalActive = sessions.reduce((a, s) => a + (s.total_active_time||0), 0);
-    const totalIdle   = sessions.reduce((a, s) => a + (s.total_idle_time||0), 0);
-    const totalKeys   = Object.values(ksMap).reduce((a, v) => a + v, 0);
+    // ── Get unique years from sessions for year dropdown ──
+    const uniqueYears = [...new Set(
+      sessions
+        .map(s => {
+          const raw = s.date || (s.clock_in || '').slice(0, 10);
+          if (!raw) return null;
+          const y = parseInt(raw.slice(0, 4));
+          return isNaN(y) ? null : y;
+        })
+        .filter(Boolean)
+    )].sort((a, b) => b - a);
 
+    // ── Render ─────────────────────────────────────────────
     container.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:20px;">
+
+        <!-- Header -->
         <div style="display:flex;align-items:center;gap:12px;">
           <button class="back-btn"
                   data-action="back-to-sub"
@@ -7662,30 +7710,29 @@ async function openUserSessions(empId, empName, pageId) {
           </button>
           <div>
             <div class="page-title">${esc(empName)}</div>
-            <div class="page-subtitle">All Sessions (${sessions.length})</div>
+            <div class="page-subtitle" id="usr-subtitle">All Sessions</div>
           </div>
         </div>
 
-        ${sessions.length > 0 ? `
-        <div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));">
-          <div class="stat-card accent">
-            <div class="stat-label">Total Sessions</div>
-            <div class="stat-value">${sessions.length}</div>
-          </div>
-          <div class="stat-card success">
-            <div class="stat-label">Total Active</div>
-            <div class="stat-value" style="font-size:20px;">${sToHm(totalActive)}</div>
-          </div>
-          <div class="stat-card warning">
-            <div class="stat-label">Total Idle</div>
-            <div class="stat-value" style="font-size:20px;">${sToHm(totalIdle)}</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Total Keystrokes</div>
-            <div class="stat-value" style="font-size:20px;">${totalKeys.toLocaleString()}</div>
-          </div>
-        </div>` : ''}
+        <!-- Filters -->
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+          <select id="usr-filter-period" class="filter-select">
+            <option value="all">All Time</option>
+            <option value="year">By Year</option>
+            <option value="month">By Month</option>
+            <option value="day">By Day</option>
+          </select>
+          <select id="usr-filter-year" class="filter-select" style="display:none;">
+            ${uniqueYears.map(y => `<option value="${y}">${y}</option>`).join('')}
+          </select>
+          <input type="month" id="usr-filter-month" class="filter-input" style="display:none;" />
+          <input type="date"  id="usr-filter-day"   class="filter-input" style="display:none;" />
+        </div>
 
+        <!-- Stats -->
+        <div id="usr-stats-grid" class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));"></div>
+
+        <!-- Table -->
         <div class="table-wrap">
           <table>
             <thead>
@@ -7701,45 +7748,138 @@ async function openUserSessions(empId, empName, pageId) {
                 <th>View</th>
               </tr>
             </thead>
-            <tbody>
-              ${sessions.length
-                ? sessions.map(s => `
-                    <tr>
-                      <td>${fmtDate(s.date||s.clock_in)}</td>
-                      <td class="td-mono">${fmtTime(s.clock_in)}</td>
-                      <td class="td-mono">
-                        ${s.clock_out
-                          ? fmtTime(s.clock_out)
-                          : '<span class="text-success">Active</span>'}
-                      </td>
-                      <td class="text-success">${sToHm(s.total_active_time)}</td>
-                      <td class="text-warning">${sToHm(s.total_idle_time)}</td>
-                      <td class="td-muted">${esc(locStr(s))}</td>
-                      <td>${(ksMap[s.session_id]||0).toLocaleString()}</td>
-                      <td>${statusBadge(s.session_status)}</td>
-                      <td>
-                        <button class="btn btn-ghost btn-sm"
-                                data-action="view-user-session"
-                                data-sid="${esc(s.session_id)}"
-                                data-page="${pageId}"
-                                data-back="${sessSubId}">
-                          View
-                        </button>
-                      </td>
-                    </tr>`).join('')
-                : `<tr><td colspan="9">
-                    <div class="empty-state">
-                      <span class="empty-icon">📭</span>
-                      <span class="empty-title">No sessions found for this user</span>
-                      <span class="empty-sub" style="font-size:11px;color:var(--text-muted);margin-top:4px;">
-                        This user has not clocked in yet, or sessions may not have synced.
-                      </span>
-                    </div>
-                  </td></tr>`}
+            <tbody id="usr-sessions-tbody">
+              <tr><td colspan="9"><div class="empty-state">
+                <span class="spinner"></span>
+              </div></td></tr>
             </tbody>
           </table>
         </div>
+
       </div>`;
+
+    // ── Filter + render logic ──────────────────────────────
+    function applyFilter() {
+      const period  = document.getElementById('usr-filter-period')?.value || 'all';
+      const monthEl = document.getElementById('usr-filter-month');
+      const dayEl   = document.getElementById('usr-filter-day');
+      const yearEl  = document.getElementById('usr-filter-year');
+
+      // Show/hide sub-filters
+      yearEl.style.display  = period === 'year'  ? '' : 'none';
+      monthEl.style.display = period === 'month' ? '' : 'none';
+      dayEl.style.display   = period === 'day'   ? '' : 'none';
+
+      const now      = new Date();
+      const todayStr = now.toISOString().slice(0, 10);
+      const thisMonth = now.toISOString().slice(0, 7);
+      const thisYear  = String(now.getFullYear());
+
+      // Set defaults when inputs are empty
+      if (period === 'month' && !monthEl.value) monthEl.value = thisMonth;
+      if (period === 'day'   && !dayEl.value)   dayEl.value   = todayStr;
+
+      const filtered = sessions.filter(s => {
+        const raw = s.date || (s.clock_in || '').slice(0, 10);
+        if (!raw) return false;
+        const dateStr = raw.slice(0, 10);
+        if (period === 'day')   return dateStr === (dayEl.value || todayStr);
+        if (period === 'month') return dateStr.slice(0, 7) === (monthEl.value || thisMonth);
+        if (period === 'year')  return dateStr.slice(0, 4) === (yearEl.value || thisYear);
+        return true;
+      });
+
+      // Update subtitle
+      const subtitleMap = {
+        all:   'All Sessions',
+        year:  `Year ${yearEl.value || thisYear}`,
+        month: `Month: ${monthEl.value || thisMonth}`,
+        day:   `Date: ${dayEl.value || todayStr}`,
+      };
+      const subtitleEl = document.getElementById('usr-subtitle');
+      if (subtitleEl) subtitleEl.textContent = `${subtitleMap[period] || 'All Sessions'} (${filtered.length})`;
+
+      // Compute stats
+      const totalActive = filtered.reduce((a, s) => a + (s.total_active_time || 0), 0);
+      const totalIdle   = filtered.reduce((a, s) => a + (s.total_idle_time   || 0), 0);
+      const totalKeys   = filtered.reduce((a, s) => a + (ksMap[s.session_id] || 0), 0);
+
+      // Render stats
+      const statsGrid = document.getElementById('usr-stats-grid');
+      if (statsGrid) {
+        statsGrid.innerHTML = `
+          <div class="stat-card accent">
+            <div class="stat-label">Total Sessions</div>
+            <div class="stat-value">${filtered.length}</div>
+            <div class="stat-sub">${subtitleMap[period] || 'All time'}</div>
+          </div>
+          <div class="stat-card success">
+            <div class="stat-label">Total Active Time</div>
+            <div class="stat-value" style="font-size:20px;">${sToHm(totalActive)}</div>
+            <div class="stat-sub">${filtered.length} session${filtered.length !== 1 ? 's' : ''}</div>
+          </div>
+          <div class="stat-card warning">
+            <div class="stat-label">Total Idle Time</div>
+            <div class="stat-value" style="font-size:20px;">${sToHm(totalIdle)}</div>
+            <div class="stat-sub">${filtered.length} session${filtered.length !== 1 ? 's' : ''}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Total Keystrokes</div>
+            <div class="stat-value" style="font-size:20px;">${totalKeys.toLocaleString()}</div>
+            <div class="stat-sub">${filtered.length} session${filtered.length !== 1 ? 's' : ''}</div>
+          </div>`;
+      }
+
+      // Render table rows
+      const tbody = document.getElementById('usr-sessions-tbody');
+      if (!tbody) return;
+
+      if (!filtered.length) {
+        tbody.innerHTML = `<tr><td colspan="9">
+          <div class="empty-state">
+            <span class="empty-icon">📭</span>
+            <span class="empty-title">No sessions found for this period</span>
+            <span class="empty-sub">Try selecting a different filter</span>
+          </div>
+        </td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(s => `
+        <tr>
+          <td>${fmtDate(s.date || s.clock_in)}</td>
+          <td class="td-mono">${fmtTime(s.clock_in)}</td>
+          <td class="td-mono">
+            ${s.clock_out
+              ? fmtTime(s.clock_out)
+              : '<span class="text-success">Active</span>'}
+          </td>
+          <td class="text-success">${sToHm(s.total_active_time)}</td>
+          <td class="text-warning">${sToHm(s.total_idle_time)}</td>
+          <td class="td-muted">${esc(locStr(s))}</td>
+          <td>${(ksMap[s.session_id] || 0).toLocaleString()}</td>
+          <td>${statusBadge(s.session_status)}</td>
+          <td>
+            <button class="btn btn-ghost btn-sm"
+                    data-action="view-user-session"
+                    data-sid="${esc(s.session_id)}"
+                    data-page="${pageId}"
+                    data-back="${sessSubId}">
+              View
+            </button>
+          </td>
+        </tr>`).join('');
+    }
+
+    // Wire up filter events after DOM is ready
+    setTimeout(() => {
+      document.getElementById('usr-filter-period')?.addEventListener('change', applyFilter);
+      document.getElementById('usr-filter-month')?.addEventListener('change', applyFilter);
+      document.getElementById('usr-filter-day')?.addEventListener('change', applyFilter);
+      document.getElementById('usr-filter-year')?.addEventListener('change', applyFilter);
+      applyFilter(); // initial render with "All Time"
+    }, 0);
+
   } catch (e) {
     console.error('openUserSessions error:', e);
     container.innerHTML = `
@@ -8358,7 +8498,7 @@ window.API = {
 ====================================
 FILE: ./Desktop_App_electron/src/main/main.ts
 ====================================
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, dialog } from 'electron';
 import * as path from 'path';
 import { createLoginWindow, createDashboardWindow, getMainWindow, setMainWindow } from './window';
 import { registerIpcHandlers } from './ipc';
@@ -8367,6 +8507,7 @@ import { trackingService } from './services/tracking.service';
 import { sessionService } from './services/session.service';
 import { authService } from './services/auth.service';
 import { apiService } from './services/api.service';
+import { autoUpdater } from 'electron-updater';
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) { app.quit(); process.exit(0); }
@@ -8375,6 +8516,105 @@ app.on('second-instance', () => {
   const win = getMainWindow();
   if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
 });
+
+// ── Auto Updater Setup ────────────────────────────────────
+function setupAutoUpdater(): void {
+  // Disable auto download — we'll control when to install
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  // Set your GitHub repo
+  autoUpdater.setFeedURL({
+    provider: 'github',
+    owner: 'CaptainArmandoSalazar',
+    repo: 'employee-monitor-releases',
+  });
+
+  // ── Update available ───────────────────────────────────
+  autoUpdater.on('update-available', (info) => {
+    console.log('[Updater] Update available:', info.version);
+    const win = getMainWindow();
+    if (!win) return;
+
+    dialog.showMessageBox(win, {
+      type: 'info',
+      title: 'Update Available',
+      message: `A new version (v${info.version}) is available.`,
+      detail: 'Would you like to download and install it now?',
+      buttons: ['Download Now', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+    }).then(({ response }) => {
+      if (response === 0) {
+        autoUpdater.downloadUpdate();
+      }
+    });
+  });
+
+  // ── No update ──────────────────────────────────────────
+  autoUpdater.on('update-not-available', () => {
+    console.log('[Updater] App is up to date.');
+  });
+
+  // ── Download progress ──────────────────────────────────
+  autoUpdater.on('download-progress', (progress) => {
+    const win = getMainWindow();
+    if (win) {
+      win.setProgressBar(progress.percent / 100);
+      win.setTitle(`Downloading update… ${Math.round(progress.percent)}%`);
+    }
+    console.log(`[Updater] Download progress: ${Math.round(progress.percent)}%`);
+  });
+
+  // ── Downloaded — ready to install ─────────────────────
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('[Updater] Update downloaded:', info.version);
+    const win = getMainWindow();
+
+    // Reset progress bar and title
+    if (win) {
+      win.setProgressBar(-1);
+      win.setTitle('Employee Monitor');
+    }
+
+    dialog.showMessageBox(win!, {
+      type: 'info',
+      title: 'Update Ready',
+      message: `v${info.version} has been downloaded.`,
+      detail: 'The update will be installed when you restart the app. Restart now?',
+      buttons: ['Restart Now', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+    }).then(({ response }) => {
+      if (response === 0) {
+        // Clock out before restarting
+        forceClockOut().then(() => {
+          autoUpdater.quitAndInstall(false, true);
+        });
+      }
+    });
+  });
+
+  // ── Error ──────────────────────────────────────────────
+  autoUpdater.on('error', (err) => {
+    console.error('[Updater] Error:', err?.message || err);
+    // Don't show dialog for update errors — just log silently
+  });
+
+  // ── Check on startup (delay 10s to let app fully load) ─
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch(err => {
+      console.error('[Updater] Check failed:', err?.message);
+    });
+  }, 10_000);
+
+  // ── Check every 30 minutes while app is running ────────
+  setInterval(() => {
+    autoUpdater.checkForUpdates().catch(err => {
+      console.error('[Updater] Periodic check failed:', err?.message);
+    });
+  }, 30 * 60 * 1000);
+}
 
 // ── Force clock-out ───────────────────────────────────────
 let _clockOutDone = false;
@@ -8396,7 +8636,6 @@ async function forceClockOut(): Promise<void> {
     let activeTime = totals.active;
     let idleTime   = totals.idle;
 
-    // If in-memory counters are 0, calculate from timestamps
     if (session && session.clock_in && activeTime === 0 && idleTime === 0) {
       const clockInStr = String(session.clock_in);
       const clockInISO = clockInStr.endsWith('Z') || clockInStr.includes('+')
@@ -8404,7 +8643,6 @@ async function forceClockOut(): Promise<void> {
       const clockInMs = new Date(clockInISO).getTime();
       const nowMs     = Date.now();
 
-      // Use last_heartbeat to split active vs idle
       let lastActiveMs = nowMs;
       if ((session as any).last_heartbeat) {
         const hbStr = String((session as any).last_heartbeat);
@@ -8464,6 +8702,14 @@ app.whenReady().then(() => {
   registerIpcHandlers();
   const win = createLoginWindow();
   setMainWindow(win);
+
+  // Start auto updater (only in production builds)
+  if (app.isPackaged) {
+    setupAutoUpdater();
+  } else {
+    console.log('[Updater] Skipping auto-update in dev mode.');
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       const w = createLoginWindow();
@@ -8515,7 +8761,6 @@ process.on('uncaughtException', (err) => {
 
 process.on('unhandledRejection', (reason) => {
   console.error('[App] Unhandled rejection:', reason);
-  // Don't exit on unhandled rejection — just log
 });
 
 // ── Security ──────────────────────────────────────────────
@@ -10298,7 +10543,11 @@ export const apiService = {
     request<T>('POST', endpoint, body, token),
 
   get: <T>(endpoint: string, token?: string, params?: Record<string, string>) => {
-    const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    const query = params
+      ? '?' + new URLSearchParams(
+          Object.fromEntries(Object.entries(params).filter(([_, v]) => v != null && v !== ''))
+        ).toString()
+      : '';
     return request<T>('GET', endpoint + query, undefined, token);
   },
 

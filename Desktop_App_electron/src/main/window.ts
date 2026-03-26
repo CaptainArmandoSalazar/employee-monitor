@@ -42,7 +42,7 @@ export function createLoginWindow(): BrowserWindow {
     width: 480,
     height: 620,
     resizable: false,
-    title: 'Employee Monitor — Login',
+    title: 'AV DEVS Collab — Login',
   });
 
   win.loadFile(path.join(__dirname, '../../src/renderer/login.html'));
@@ -58,7 +58,7 @@ export function createDashboardWindow(): BrowserWindow {
     height: 780,
     minWidth: 900,
     minHeight: 600,
-    title: 'Employee Monitor',
+    title: 'AV DEVS Collab',
   });
 
   win.loadFile(path.join(__dirname, '../../src/renderer/dashboard.html'));

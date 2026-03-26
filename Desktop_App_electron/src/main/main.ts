@@ -74,7 +74,7 @@ function setupAutoUpdater(): void {
     // Reset progress bar and title
     if (win) {
       win.setProgressBar(-1);
-      win.setTitle('Employee Monitor');
+      win.setTitle('AV DEVS Collab');
     }
 
     dialog.showMessageBox(win!, {
