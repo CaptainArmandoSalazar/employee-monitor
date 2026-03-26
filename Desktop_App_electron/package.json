@@ -1,6 +1,6 @@
 {
   "name": "employee-monitor-desktop",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Employee Monitoring Desktop App",
   "main": "dist/main/main.js",
   "homepage": "https://avdevs.com",
@@ -38,7 +38,7 @@
   },
   "build": {
     "appId": "com.avdevs.employeemonitor",
-    "productName": "Employee Monitor",
+    "productName": "Employee-Monitor",
     "directories": {
       "output": "release"
     },
