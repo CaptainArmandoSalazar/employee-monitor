@@ -53,12 +53,14 @@ jobs:
 
           # Upload all mac files
           for file in release/*; do
-            echo "Uploading $file"
-            curl -s -X POST \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Content-Type: application/octet-stream" \
-              "https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?name=$(basename $file)" \
-              --data-binary @"$file"
+            if [ -f "$file" ]; then
+              echo "Uploading $file"
+              curl -s -X POST \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "Content-Type: application/octet-stream" \
+                "https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?name=$(basename $file)" \
+                --data-binary @"$file"
+            fi
           done
 
   build-linux:
@@ -95,12 +97,14 @@ jobs:
           RELEASE_ID=$(echo $RELEASE | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
 
           for file in release/*; do
-            echo "Uploading $file"
-            curl -s -X POST \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Content-Type: application/octet-stream" \
-              "https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?name=$(basename $file)" \
-              --data-binary @"$file"
+            if [ -f "$file" ]; then
+              echo "Uploading $file"
+              curl -s -X POST \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "Content-Type: application/octet-stream" \
+                "https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?name=$(basename $file)" \
+                --data-binary @"$file"
+            fi
           done
 
   build-windows:
@@ -138,10 +142,12 @@ jobs:
           RELEASE_ID=$(echo $RELEASE | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
 
           for file in release/*; do
-            echo "Uploading $file"
-            curl -s -X POST \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Content-Type: application/octet-stream" \
-              "https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?name=$(basename $file)" \
-              --data-binary @"$file"
+            if [ -f "$file" ]; then
+              echo "Uploading $file"
+              curl -s -X POST \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "Content-Type: application/octet-stream" \
+                "https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?name=$(basename $file)" \
+                --data-binary @"$file"
+            fi
           done
