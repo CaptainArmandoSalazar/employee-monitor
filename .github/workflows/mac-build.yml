@@ -80,6 +80,9 @@ jobs:
       - run: npm run build
         working-directory: Desktop_App_electron
 
+      - run: cp src/main/services/inputWorker.js dist/main/services/inputWorker.js
+        working-directory: Desktop_App_electron
+
       - run: npx electron-builder --linux AppImage deb --publish never
         working-directory: Desktop_App_electron
 

@@ -1,6 +1,6 @@
 {
   "name": "employee-monitor-desktop",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "description": "Employee Monitoring Desktop App",
   "main": "dist/main/main.js",
   "homepage": "https://avdevs.com",
@@ -106,7 +106,6 @@
       "createStartMenuShortcut": true
     },
     "deb": {
-      "afterInstall": "build/linux/postinst",
       "depends": [
         "libxtst6",
         "libx11-6",
