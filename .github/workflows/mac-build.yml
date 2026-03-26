@@ -1,12 +1,14 @@
-name: Build macOS
+name: Build & Release macOS Intel
+
 on:
   push:
-    branches: [ add/pipeline ]
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 jobs:
   build-mac-intel:
-    runs-on: macos-latest
+    runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
 
@@ -42,57 +44,70 @@ jobs:
         run: |
           cd Desktop_App_electron/release
           for dmg in *.dmg; do
+            [ -f "$dmg" ] || continue
             xattr -rc "$dmg"
           done
 
-      - name: Upload Intel artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: mac-intel-dmg
-          path: Desktop_App_electron/release/*.dmg
-
-  build-mac-arm:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Install dependencies
+      - name: Upload to GitHub Releases
         working-directory: Desktop_App_electron
-        run: npm install
-
-      - name: Build TypeScript
-        working-directory: Desktop_App_electron
-        run: npm run build
-
-      - name: Copy inputWorker
-        working-directory: Desktop_App_electron
-        run: cp src/main/services/inputWorker.js dist/main/services/inputWorker.js
-
-      - name: Package macOS ARM
-        working-directory: Desktop_App_electron
-        run: npx electron-builder --mac dmg --arm64 --publish never
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
-
-      - name: Remove quarantine from DMG
         run: |
-          cd Desktop_App_electron/release
-          for dmg in *.dmg; do
-            xattr -rc "$dmg"
-          done
+          VERSION=$(node -p "require('./package.json').version")
+          echo "Building version: $VERSION"
 
-      - name: Upload ARM artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: mac-arm-dmg
-          path: Desktop_App_electron/release/*.dmg
+          DMG_FILE=$(ls release/*.dmg 2>/dev/null | head -1)
+          YML_FILE="release/latest-mac.yml"
+
+          if [ -z "$DMG_FILE" ]; then
+            echo "❌ No DMG file found"
+            ls release/
+            exit 1
+          fi
+
+          echo "Found: $DMG_FILE"
+
+          # Check if release already exists
+          EXISTING=$(curl -s \
+            -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/tags/v$VERSION")
+
+          RELEASE_ID=$(echo $EXISTING | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null || echo "")
+
+          if [ -z "$RELEASE_ID" ]; then
+            echo "Creating new release v$VERSION..."
+            RESPONSE=$(curl -s -X POST \
+              -H "Authorization: token $GH_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases" \
+              -d "{\"tag_name\":\"v$VERSION\",\"name\":\"v$VERSION\",\"draft\":false,\"prerelease\":false,\"body\":\"Release v$VERSION\"}")
+            RELEASE_ID=$(echo $RESPONSE | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+            echo "Created release ID: $RELEASE_ID"
+          else
+            echo "Using existing release ID: $RELEASE_ID"
+          fi
+
+          UPLOAD_URL="https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets"
+
+          # Upload DMG
+          FILENAME=$(basename "$DMG_FILE")
+          echo "Uploading $FILENAME..."
+          curl -s -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Content-Type: application/octet-stream" \
+            "$UPLOAD_URL?name=$FILENAME" \
+            --data-binary @"$DMG_FILE"
+          echo "✅ Uploaded $FILENAME"
+
+          # Upload latest-mac.yml
+          if [ -f "$YML_FILE" ]; then
+            echo "Uploading latest-mac.yml..."
+            curl -s -X POST \
+              -H "Authorization: token $GH_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              "$UPLOAD_URL?name=latest-mac.yml" \
+              --data-binary @"$YML_FILE"
+            echo "✅ Uploaded latest-mac.yml"
+          fi
+
+          echo "🎉 Mac Intel release complete for v$VERSION"
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
