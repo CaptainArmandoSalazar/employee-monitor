@@ -1,7 +1,7 @@
 {
   "name": "av-devs-collab",
-  "version": "1.0.15",
-  "description": "AV Devs Collab",
+  "version": "1.0.23",
+  "description": "Av devs collab App",
   "main": "dist/main/main.js",
   "homepage": "https://avdevs.com",
   "author": {
