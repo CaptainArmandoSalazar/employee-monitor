@@ -1,6 +1,6 @@
 {
   "name": "employee-monitor-desktop",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "description": "Employee Monitoring Desktop App",
   "main": "dist/main/main.js",
   "homepage": "https://avdevs.com",
