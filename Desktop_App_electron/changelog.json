@@ -1,6 +1,13 @@
 {
   "history": [
     {
+      "version": "v1.0.16",
+      "date": "2026-03-27",
+      "changes": [
+            "Corrected Pipeline issue"
+      ]
+    },
+    {
       "version": "v1.0.15",
       "date": "2026-03-27",
       "changes": [
