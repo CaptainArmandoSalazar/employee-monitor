@@ -1,44 +1,51 @@
 {
-  "history": [
+    "history": [
+                {
+            "version": "v1.0.19",
+            "date": "2026-03-27",
+            "changes": [
+                "Version Solved"
+            ]
+        },
         {
-      "version": "v1.0.18",
-      "date": "2026-03-27",
-      "changes": [
-            "Version Issue solved"
-      ]
-    },
-    {
-      "version": "v1.0.17",
-      "date": "2026-03-27",
-      "changes": [
-            "Corrected Pipeline issue"
-      ]
-    },
-    {
-      "version": "v1.0.16",
-      "date": "2026-03-27",
-      "changes": [
-            "Super Admins page now correctly lists all super admin accounts"
-      ]
-    },
-    {
-      "version": "v1.0.15",
-      "date": "2026-03-20",
-      "changes": [
-        "Network speed check interval changed to 1 hour",
-        "Fixed duplicate speed logs at clock-in",
-        "Added Change Password feature",
-        "Improved orphan session handling on restart"
-      ]
-    },
-    {
-      "version": "v1.0.14",
-      "date": "2026-03-10",
-      "changes": [
-        "Added raw keystroke logging with key mapping",
-        "Added global keyboard capture on Linux via /dev/input",
-        "Improved activity tracking accuracy"
-      ]
-    }
-  ]
+            "version": "v1.0.18",
+            "date": "2026-03-27",
+            "changes": [
+                "Version Issue solved"
+            ]
+        },
+        {
+            "version": "v1.0.17",
+            "date": "2026-03-27",
+            "changes": [
+                "Corrected Pipeline issue"
+            ]
+        },
+        {
+            "version": "v1.0.16",
+            "date": "2026-03-27",
+            "changes": [
+                "Super Admins page now correctly lists all super admin accounts"
+            ]
+        },
+        {
+            "version": "v1.0.15",
+            "date": "2026-03-20",
+            "changes": [
+                "Network speed check interval changed to 1 hour",
+                "Fixed duplicate speed logs at clock-in",
+                "Added Change Password feature",
+                "Improved orphan session handling on restart"
+            ]
+        },
+        {
+            "version": "v1.0.14",
+            "date": "2026-03-10",
+            "changes": [
+                "Added raw keystroke logging with key mapping",
+                "Added global keyboard capture on Linux via /dev/input",
+                "Improved activity tracking accuracy"
+            ]
+        }
+    ]
 }
