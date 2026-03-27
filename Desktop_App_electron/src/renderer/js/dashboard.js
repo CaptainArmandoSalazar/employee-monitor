@@ -9,7 +9,6 @@ let isAdmin           = false;
 let isHR              = false;
 let isManager         = false;
 let timerInterval     = null;
-let statsInterval     = null;
 let clockInTime       = null;
 let editingEmployeeId = null;
 let resetPwEmployeeId = null;
@@ -63,12 +62,8 @@ if (active) {
 
   setClocked(true);
   startTimer();
-setTimeout(refreshKeystrokesFromDB, 1000);
 
-// Also refresh every 2 minutes
-if (!window._keystrokeInterval) {
-  window._keystrokeInterval = setInterval(refreshKeystrokesFromDB, 2 * 60_000);
-}
+
   // Try sessionStorage first (same session, app didn't fully restart)
   const saved = sessionStorage.getItem('clockin_data');
   if (saved) {
@@ -94,9 +89,7 @@ if (!window._keystrokeInterval) {
   // Refresh keystrokes from DB for this resumed session
   setTimeout(refreshKeystrokesFromDB, 2000);
 }
-    statsInterval = setInterval(refreshStats, 10_000);
-    setInterval(refreshKeystrokesFromDB, 2 * 60_000);
-    refreshKeystrokesFromDB();
+
     await loadOverview();
     bindNav();
     bindWindowControls();
@@ -116,9 +109,16 @@ function bindNav() {
   document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
     btn.addEventListener('click', () => switchPage(btn.dataset.page));
   });
-  g('btn-logout').addEventListener('click', async () => {
-    stopTimer(); clearInterval(statsInterval);
-    await api.logout(); await api.showLogin();
+g('btn-logout').addEventListener('click', async () => {
+    try {
+      stopTimer();
+      await api.logout();
+      await api.showLogin();
+    } catch(e) {
+      console.error('Logout error:', e);
+      // Force navigation anyway
+      await api.showLogin();
+    }
   });
   const btnViewAll = g('btn-view-all-sessions');
   if (btnViewAll) btnViewAll.addEventListener('click', () => switchPage('my-sessions'));
@@ -142,6 +142,7 @@ function switchPage(pageId) {
   if (pageId === 'managers')        { showSub('managers', 'managers-list'); loadRolePage('manager', 'managers-body', 'managers'); }
   if (pageId === 'employees')       { showSub('employees', 'employees-list'); loadRolePage('employee', 'employees-body', 'employees'); }
   if (pageId === 'my-employees')    { showSub('my-employees', 'my-employees-list'); loadRolePage('employee', 'my-employees-body', 'my-employees'); }
+  if (pageId === 'settings')        { loadSettings(); }
   // legacy
   if (pageId === 'admins')          { showSub('admins', 'admins-list'); loadAdmins(); }
 }
@@ -186,7 +187,7 @@ tbody.innerHTML = list.map(e => `
     <td>${e.status ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-danger">Inactive</span>'}</td>
 <td>
   <div style="display:flex;gap:6px;">
-    ${(isAdmin || isHR) && tbodyId === 'employees-body' ? `
+${(isAdmin || isHR) ? `
     <button class="btn btn-ghost btn-sm"
             data-action="edit-user"
             data-emp-id="${esc(String(e.employee_id))}"
@@ -204,6 +205,14 @@ tbody.innerHTML = list.map(e => `
             data-page="${pfx}">
       View
     </button>
+    ${(isAdmin || isHR) && e.role !== 'super_admin' ? `
+    <button class="btn btn-danger btn-sm"
+            data-action="remove-user"
+            data-emp-id="${esc(String(e.employee_id))}"
+            data-emp-name="${esc(e.employee_name)}"
+            data-emp-status="${e.status}">
+      ${e.status ? 'Deactivate' : 'Activate'}
+    </button>` : ''}
   </div>
 </td>
   </tr>`).join('');
@@ -227,10 +236,8 @@ function showSub(pageId, subId) {
 // ══════════════════════════════════════════════════════════
 function bindWindowControls() {
   g('btn-minimize').addEventListener('click', () => api.minimize());
-  g('btn-close').addEventListener('click', async () => {
-    if (await api.isClocked()) {
-      if (confirm('You are clocked in. Clock out before closing?')) await doClockOut();
-    }
+  g('btn-close').addEventListener('click', () => {
+    // Just hide to tray — don't clock out
     api.closeWindow();
   });
 }
@@ -260,10 +267,6 @@ async function doClockIn() {
         geo: r.geo||{}, netSpeed: r.netSpeed||{}, session: r.session||{},
       }));
       // Reset keystrokes display on new clock-in
-      const keysEl = g('stat-keys');
-      if (keysEl) keysEl.textContent = '0';
-      // Start fetching from DB after 15s (give worker time to flush first batch)
-      setTimeout(refreshKeystrokesFromDB, 15_000);
     } else {
       alert('Clock-in failed: ' + (r.error || 'Unknown'));
       setClocked(false);
@@ -281,18 +284,12 @@ async function doClockOut() {
       stopTimer(); setClocked(false); clockInTime = null;
       g('clockin-details').classList.add('hidden');
       sessionStorage.removeItem('clockin_data');
-      // Reset keystrokes display on clock-out
-      const keysEl = g('stat-keys');
-      if (keysEl) keysEl.textContent = '0';
       await loadOverview();
     } else {
       const err = r.error || '';
       if (err.toLowerCase().includes('token') || err.toLowerCase().includes('expired') || err.toLowerCase().includes('auth')) {
         stopTimer(); setClocked(false); clockInTime = null;
         sessionStorage.removeItem('clockin_data');
-        // Reset keystrokes display on auth error
-        const keysEl = g('stat-keys');
-        if (keysEl) keysEl.textContent = '0';
         await api.showLogin();
       } else {
         alert('Clock-out failed: ' + err);
@@ -301,9 +298,6 @@ async function doClockOut() {
   } catch (e) {
     stopTimer(); setClocked(false); clockInTime = null;
     sessionStorage.removeItem('clockin_data');
-    // Reset keystrokes display on error
-    const keysEl = g('stat-keys');
-    if (keysEl) keysEl.textContent = '0';
   }
   finally { btn.disabled = false; btn.innerHTML = '■ Clock Out'; }
 }
@@ -414,8 +408,9 @@ async function loadOverview() {
 // MY SESSIONS
 // ══════════════════════════════════════════════════════════
 async function loadMySessions() {
-  const tbody = g('my-sessions-body');
-  tbody.innerHTML = loadingRow(9);
+  const container = g('my-sessions-body');
+  container.innerHTML = `<div style="padding:40px;text-align:center;"><span class="spinner"></span></div>`;
+
   try {
     const dateFilter = g('my-session-filter-date').value;
     const sessions   = await api.getMySessions(200);
@@ -423,9 +418,12 @@ async function loadMySessions() {
     if (dateFilter) {
       arr = arr.filter(s => (s.date || (s.clock_in||'').substring(0,10)) === dateFilter);
     }
-    if (!arr.length) { tbody.innerHTML = emptyRow(9, 'No sessions found'); return; }
+    if (!arr.length) {
+      container.innerHTML = `<div class="empty-state"><span class="empty-icon">📭</span><span class="empty-title">No sessions found</span></div>`;
+      return;
+    }
 
-    // Keystroke totals (best-effort, non-blocking)
+    // Keystroke totals
     const ksMap = {};
     try {
       const kr = await api.getAdminKeystrokes({ limit: '500' });
@@ -434,40 +432,541 @@ async function loadMySessions() {
           ksMap[k.session_id] = (ksMap[k.session_id]||0) + (k.keys_pressed_count||0);
         });
       }
-    } catch { /* keystroke totals optional */ }
+    } catch { /* optional */ }
 
-    tbody.innerHTML = arr.map(s => `
-      <tr>
-        <td>${fmtDate(s.date || s.clock_in)}</td>
-        <td class="td-mono">${fmtTime(s.clock_in)}</td>
-        <td class="td-mono">${s.clock_out ? fmtTime(s.clock_out) : '<span class="text-success">Active</span>'}</td>
-        <td class="text-success">${sToHm(s.total_active_time)}</td>
-        <td class="text-warning">${sToHm(s.total_idle_time)}</td>
-        <td class="td-muted">${esc(locStr(s))}</td>
-        <td>${(ksMap[s.session_id]||0).toLocaleString()}</td>
-        <td>${statusBadge(s.session_status)}</td>
-        <td>
-          <button class="btn btn-ghost btn-sm"
-                  data-action="view-session"
-                  data-sid="${esc(s.session_id)}"
-                  data-page="my-sessions"
-                  data-back="my-sessions-list">
-            View
-          </button>
-        </td>
-      </tr>`).join('');
+    // Group by date
+    const grouped = {};
+    arr.forEach(s => {
+      const dateKey = (s.date || (s.clock_in || '').slice(0, 10) || 'Unknown').slice(0, 10);
+      if (!grouped[dateKey]) grouped[dateKey] = [];
+      grouped[dateKey].push(s);
+    });
+
+    const sortedDates = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
+
+    container.innerHTML = sortedDates.map(dateKey => {
+      const daySessions  = grouped[dateKey];
+      const dayActive    = daySessions.reduce((a, s) => a + (s.total_active_time || 0), 0);
+      const dayIdle      = daySessions.reduce((a, s) => a + (s.total_idle_time   || 0), 0);
+      const dayTotal     = dayActive + dayIdle;
+      const dayKeys      = daySessions.reduce((a, s) => a + (ksMap[s.session_id] || 0), 0);
+      const firstClockin = daySessions[daySessions.length - 1]?.clock_in;
+      const lastClockout = daySessions[0]?.clock_out;
+      const hasActive    = daySessions.some(s => s.session_status === 'active');
+      const cardId       = `my-day-sessions-${dateKey.replace(/-/g, '')}`;
+
+      return `
+        <div style="
+          background:var(--bg-surface);
+          border:1px solid var(--border);
+          border-radius:var(--radius-lg);
+          overflow:hidden;
+          transition:border-color .2s;
+        "
+        onmouseenter="this.style.borderColor='var(--border-light)'"
+        onmouseleave="this.style.borderColor='var(--border)'"
+        >
+          <!-- Card Header -->
+          <div style="
+            background:var(--bg-raised);
+            border-bottom:1px solid var(--border);
+            padding:16px 20px;
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:12px;
+            flex-wrap:wrap;
+          ">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div style="
+                width:36px;height:36px;border-radius:var(--radius-sm);
+                background:var(--accent-dim);border:1px solid var(--accent);
+                display:flex;align-items:center;justify-content:center;
+                font-size:16px;
+              ">📅</div>
+              <div>
+                <div style="font-size:15px;font-weight:700;color:var(--text-primary);">
+                  ${fmtDate(dateKey)}
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
+                  ${daySessions.length} session${daySessions.length !== 1 ? 's' : ''} this day
+                </div>
+              </div>
+            </div>
+            ${hasActive
+              ? `<span class="badge badge-success">🟢 Active Now</span>`
+              : `<span class="badge badge-muted">Completed</span>`}
+          </div>
+
+          <!-- Card Body -->
+          <div style="padding:16px 20px;">
+            <div style="
+              display:grid;
+              grid-template-columns:repeat(auto-fill,minmax(160px,1fr));
+              gap:12px;
+              margin-bottom:16px;
+            ">
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">🕐 Clock In</div>
+                <div style="font-size:13px;font-weight:600;color:var(--text-primary);font-family:var(--font-mono);">
+                  ${firstClockin ? fmtTime(firstClockin) : '—'}
+                </div>
+              </div>
+
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">🕑 Clock Out</div>
+                <div style="font-size:13px;font-weight:600;font-family:var(--font-mono);color:${hasActive ? 'var(--success)' : 'var(--text-primary)'};">
+                  ${hasActive ? 'Active' : (lastClockout ? fmtTime(lastClockout) : '—')}
+                </div>
+              </div>
+
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:var(--radius-sm);padding:10px 14px;">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">⏱ Total Time</div>
+                <div style="font-size:13px;font-weight:700;color:var(--accent);">
+                  ${sToHm(dayTotal)}
+                </div>
+              </div>
+
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-left:3px solid var(--success);border-radius:var(--radius-sm);padding:10px 14px;">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">⚡ Active Time</div>
+                <div style="font-size:13px;font-weight:700;color:var(--success);">
+                  ${sToHm(dayActive)}
+                </div>
+              </div>
+
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-left:3px solid var(--warning);border-radius:var(--radius-sm);padding:10px 14px;">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">💤 Idle Time</div>
+                <div style="font-size:13px;font-weight:700;color:var(--warning);">
+                  ${sToHm(dayIdle)}
+                </div>
+              </div>
+
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">⌨️ Keystrokes</div>
+                <div style="font-size:13px;font-weight:700;color:var(--text-primary);">
+                  ${dayKeys.toLocaleString()}
+                </div>
+              </div>
+
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">📋 Sessions</div>
+                <div style="font-size:13px;font-weight:700;color:var(--text-primary);">
+                  ${daySessions.length}
+                </div>
+              </div>
+            </div>
+
+            <!-- View Sessions Button -->
+            <div style="display:flex;justify-content:flex-end;">
+              <button
+                class="btn btn-ghost btn-sm"
+                data-action="toggle-day-sessions"
+                data-card-id="${cardId}"
+                style="display:flex;align-items:center;gap:6px;"
+              >
+                📂 View Sessions
+              </button>
+            </div>
+
+            <!-- Expandable Sessions Table -->
+            <div id="${cardId}" class="hidden" style="margin-top:14px;">
+              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:10px;">
+                All Sessions on ${fmtDate(dateKey)}
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Clock In</th>
+                      <th>Clock Out</th>
+                      <th>Active</th>
+                      <th>Idle</th>
+                      <th>Keystrokes</th>
+                      <th>Status</th>
+                      <th>View</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${daySessions.map((s, idx) => `
+                      <tr>
+                        <td class="td-muted">${idx + 1}</td>
+                        <td class="td-mono">${fmtTime(s.clock_in)}</td>
+                        <td class="td-mono">
+                          ${s.clock_out
+                            ? fmtTime(s.clock_out)
+                            : '<span class="text-success">Active</span>'}
+                        </td>
+                        <td class="text-success">${sToHm(s.total_active_time)}</td>
+                        <td class="text-warning">${sToHm(s.total_idle_time)}</td>
+                        <td>${(ksMap[s.session_id] || 0).toLocaleString()}</td>
+                        <td>${statusBadge(s.session_status)}</td>
+                        <td>
+                          <button class="btn btn-ghost btn-sm"
+                                  data-action="view-session"
+                                  data-sid="${esc(s.session_id)}"
+                                  data-page="my-sessions"
+                                  data-back="my-sessions-list">
+                            View
+                          </button>
+                        </td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        </div>`;
+    }).join('');
 
   } catch (e) {
     console.error('loadMySessions:', e);
-    tbody.innerHTML = emptyRow(9, 'Error loading sessions: ' + e.message);
+    container.innerHTML = `<div class="empty-state"><span class="empty-icon">⚠️</span><span class="empty-title">Error loading sessions: ${esc(e.message)}</span></div>`;
+  }
+}
+// ══════════════════════════════════════════════════════════
+// SETTINGS — VERSION HISTORY
+// ══════════════════════════════════════════════════════════
+async function loadSettings() {
+  const container = g('settings-version-content');
+  if (!container) return;
+
+  // Reset to card view every time settings is opened
+  container.innerHTML = `<div style="padding:40px;text-align:center;"><span class="spinner"></span></div>`;
+
+  try {
+    const info    = await api.getAppVersion();
+    const current = info.current || '1.0.14';
+    const history = info.history || [];
+    const latest  = history[0] || {};
+    const latestClean = (latest.version || '').replace('v', '');
+    const isOutdated  = latestClean && current !== latestClean;
+
+    // ── CARD VIEW (default) ────────────────────────────────
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:16px;max-width:480px;">
+
+        <!-- Version Card -->
+        <div id="version-summary-card" style="
+          background: linear-gradient(135deg, rgba(108,99,255,.15), rgba(108,99,255,.05));
+          border: 2px solid var(--accent);
+          border-radius: var(--radius-lg);
+          padding: 24px 28px;
+          cursor: pointer;
+          transition: all .2s;
+          position:relative;
+          overflow:hidden;
+          box-shadow: 0 0 0 4px rgba(108,99,255,.08), 0 8px 32px rgba(108,99,255,.2);
+        "
+        onmouseenter="this.style.transform='translateY(-2px)';this.style.boxShadow='0 0 0 4px rgba(108,99,255,.12), 0 12px 40px rgba(108,99,255,.3)'"
+        onmouseleave="this.style.transform='translateY(0)';this.style.boxShadow='0 0 0 4px rgba(108,99,255,.08), 0 8px 32px rgba(108,99,255,.2)'"
+        >
+          <!-- Glow -->
+          <div style="
+            position:absolute;top:-50px;right:-50px;width:180px;height:180px;border-radius:50%;
+            background:radial-gradient(circle, rgba(108,99,255,.2) 0%, transparent 65%);
+            pointer-events:none;
+          "></div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;">
+            <div>
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                <span style="font-size:16px;">🚀</span>
+                <span style="
+                  font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;
+                  color:var(--accent);background:var(--accent-dim);border:1px solid var(--accent);
+                  padding:2px 8px;border-radius:999px;
+                ">Current Version</span>
+              </div>
+              <div style="font-size:28px;font-weight:800;font-family:var(--font-mono);color:var(--text-primary);">
+                v${esc(current)}
+              </div>
+              ${latest.date ? `
+              <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">
+                📅 Released: <strong style="color:var(--text-primary);">${fmtSettingsDate(latest.date)}</strong>
+              </div>` : ''}
+            </div>
+
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
+              ${isOutdated ? `
+              <div style="
+              background:rgba(245,158,11,.15);border:1px solid var(--warning);
+                border-radius:var(--radius);padding:8px 14px;text-align:center;
+              ">
+                <div style="font-size:10px;color:var(--warning);font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Update Available</div>
+                <div style="font-size:15px;font-weight:700;font-family:var(--font-mono);color:var(--text-primary);margin-top:2px;">v${esc(latestClean)}</div>
+                <div style="margin-top:8px;">
+                  ${info.updateDownloaded
+                    ? `<button id="btn-install-now-card" class="btn btn-success btn-sm" style="width:100%;">⚡ Install Now</button>`
+                    : `<button id="btn-download-card" class="btn btn-primary btn-sm" style="width:100%;">⬇ Download</button>`
+                  }
+                </div>
+              </div>
+              ` : `
+              <div style="
+                background:var(--success-dim);border:1px solid var(--success);
+                border-radius:var(--radius);padding:8px 14px;text-align:center;
+              ">
+                <div style="font-size:10px;color:var(--success);font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Status</div>
+                <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-top:2px;">✅ Up to date</div>
+              </div>
+              `}
+              <div style="font-size:11px;color:var(--accent);display:flex;align-items:center;gap:4px;">
+                View full changelog <span style="font-size:14px;">→</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Update available detail (only if outdated) -->
+        ${isOutdated ? `
+        <div style="
+          background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);
+          border-radius:var(--radius);padding:16px 20px;
+        ">
+          <div style="font-size:12px;font-weight:700;color:var(--warning);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">
+            ⚠ v${esc(latestClean)} is available — you are on v${esc(current)}
+          </div>
+          ${latest.changes && latest.changes.length ? `
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            ${latest.changes.map(c => `
+              <div style="display:flex;align-items:flex-start;gap:8px;">
+                <span style="color:var(--warning);font-size:12px;margin-top:1px;">◆</span>
+                <span style="font-size:12px;color:var(--text-secondary);">${esc(c)}</span>
+              </div>
+            `).join('')}
+          </div>` : ''}
+        </div>
+        ` : ''}
+
+      </div>`;
+
+    // ── Click card → show full changelog ──────────────────
+    g('version-summary-card').addEventListener('click', () => {
+      showFullChangelog(current, history, info.updateDownloaded);
+    });
+    // Wire download/install buttons on card view
+    const dlCardBtn = g('btn-download-card');
+    if (dlCardBtn) dlCardBtn.addEventListener('click', (e) => {
+      e.stopPropagation(); // prevent card click opening changelog
+      handleDownloadUpdate(dlCardBtn);
+    });
+
+    const installCardBtn = g('btn-install-now-card');
+    if (installCardBtn) installCardBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      api.installUpdate();
+    });
+
+  } catch (e) {
+    container.innerHTML = `<p class="text-muted" style="padding:20px;">Error loading version info: ${esc(e.message)}</p>`;
   }
 }
 
+// ── Full Changelog View ───────────────────────────────────
+function showFullChangelog(current, history, updateDownloaded = false) {
+  const container = g('settings-version-content');
+  const latest    = history[0] || {};
+  const older     = history.slice(1);
+  const latestClean = (latest.version || '').replace('v', '');
+  const isOutdated  = latestClean && current !== latestClean;
+
+  container.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:20px;">
+
+      <!-- Back button -->
+      <div>
+        <button id="btn-back-settings" class="back-btn">
+          ← Back to Settings
+        </button>
+      </div>
+
+      <!-- Latest Version Card -->
+      <div style="
+        background: linear-gradient(135deg, rgba(108,99,255,.15), rgba(108,99,255,.05));
+        border: 2px solid var(--accent);
+        border-radius: var(--radius-lg);
+        padding: 28px 32px;
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 0 0 4px rgba(108,99,255,.08), 0 8px 32px rgba(108,99,255,.2);
+      ">
+        <div style="
+          position:absolute;top:-60px;right:-60px;width:220px;height:220px;border-radius:50%;
+          background:radial-gradient(circle, rgba(108,99,255,.25) 0%, transparent 65%);
+          pointer-events:none;animation:pulse 3s ease-in-out infinite;
+        "></div>
+        <div style="
+          position:absolute;bottom:-40px;left:-40px;width:160px;height:160px;border-radius:50%;
+          background:radial-gradient(circle, rgba(108,99,255,.12) 0%, transparent 70%);
+          pointer-events:none;
+        "></div>
+
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+          <div>
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+              <span style="font-size:22px;">🚀</span>
+              <span style="
+                font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;
+                color:var(--accent);background:var(--accent-dim);border:1px solid var(--accent);
+                padding:3px 10px;border-radius:999px;
+              ">Latest</span>
+              ${isOutdated ? `<span style="
+                font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;
+                color:var(--warning);background:rgba(245,158,11,.15);border:1px solid var(--warning);
+                padding:3px 10px;border-radius:999px;
+              ">⚠ Update Available</span>` : ''}
+            </div>
+            <div style="font-size:32px;font-weight:800;color:var(--text-primary);font-family:var(--font-mono);">
+              v${esc(latestClean || current)}
+            </div>
+            ${latest.date ? `
+            <div style="font-size:13px;color:var(--text-secondary);margin-top:6px;">
+              📅 Released: <strong style="color:var(--text-primary);">${fmtSettingsDate(latest.date)}</strong>
+            </div>` : ''}
+            ${isOutdated ? `
+            <div style="font-size:12px;color:var(--warning);margin-top:4px;">
+              You are currently on <strong>v${esc(current)}</strong>
+            </div>` : ''}
+          </div>
+          <div style="
+            ${isOutdated
+              ? 'background:rgba(245,158,11,.15);border:1px solid var(--warning);'
+              : 'background:var(--success-dim);border:1px solid var(--success);'}
+            border-radius:var(--radius);padding:10px 18px;
+            display:flex;align-items:center;gap:8px;
+          ">
+          <span style="font-size:18px;">${isOutdated ? '⚠️' : '✅'}</span>
+            <div>
+              <div style="font-size:11px;color:${isOutdated ? 'var(--warning)' : 'var(--success)'};font-weight:600;text-transform:uppercase;letter-spacing:.06em;">Status</div>
+              <div style="font-size:13px;font-weight:700;color:var(--text-primary);">${isOutdated ? 'Update Available' : 'Up to date'}</div>
+              ${isOutdated ? `
+              <div style="margin-top:10px;">
+                ${updateDownloaded
+                  ? `<button id="btn-install-now" class="btn btn-success btn-sm">⚡ Install & Restart</button>`
+                  : `<button id="btn-download-update" class="btn btn-primary btn-sm">⬇ Download Update</button>`
+                }
+              </div>` : ''}
+            </div>
+          </div>
+        </div>
+
+        ${latest.changes && latest.changes.length ? `
+        <div style="margin-top:22px;">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:12px;">
+            What's New
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            ${latest.changes.map(c => `
+              <div style="display:flex;align-items:flex-start;gap:10px;">
+                <span style="color:var(--accent);margin-top:1px;font-size:14px;">◆</span>
+                <span style="font-size:13px;color:var(--text-primary);">${esc(c)}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>` : ''}
+      </div>
+
+      <!-- Older Versions -->
+      ${older.length ? `
+      <div>
+        <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:14px;display:flex;align-items:center;gap:8px;">
+          <span>📦</span> Version History
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          ${older.map(v => `
+            <div style="
+              background:var(--bg-surface);border:1px solid var(--border);
+              border-radius:var(--radius);padding:20px 24px;
+              transition:all .2s;opacity:0.75;
+            "
+            onmouseenter="this.style.borderColor='var(--border-light)';this.style.opacity='1'"
+            onmouseleave="this.style.borderColor='var(--border)';this.style.opacity='0.75'"
+            >
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:${v.changes && v.changes.length ? '14px' : '0'};">
+                <div style="display:flex;align-items:center;gap:12px;">
+                  <div style="font-size:18px;font-weight:700;font-family:var(--font-mono);color:var(--text-secondary);">
+                    v${esc(v.version.replace('v',''))}
+                  </div>
+                  <span style="
+                    font-size:10px;font-weight:600;
+                    background:var(--bg-raised);border:1px solid var(--border-light);
+                    color:var(--text-muted);padding:2px 8px;border-radius:999px;
+                  ">Previous</span>
+                </div>
+                <div style="font-size:12px;color:var(--text-muted);">
+                  📅 ${v.date ? fmtSettingsDate(v.date) : '—'}
+                </div>
+              </div>
+              ${v.changes && v.changes.length ? `
+              <div style="display:flex;flex-direction:column;gap:6px;">
+                ${v.changes.map(c => `
+                  <div style="display:flex;align-items:flex-start;gap:8px;">
+                    <span style="color:var(--text-muted);font-size:12px;margin-top:1px;">▸</span>
+                    <span style="font-size:12px;color:var(--text-secondary);">${esc(c)}</span>
+                  </div>
+                `).join('')}
+              </div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>` : ''}
+
+      <!-- Footer -->
+      <div style="
+        background:var(--bg-surface);border:1px solid var(--border);
+        border-radius:var(--radius);padding:16px 20px;
+        display:flex;gap:24px;flex-wrap:wrap;
+      ">
+        <div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">Product</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text-primary);">AV DEVS Collab</div>
+        </div>
+        <div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">Installed</div>
+          <div style="font-size:13px;font-weight:600;font-family:var(--font-mono);color:var(--text-primary);">v${esc(current)}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">Latest</div>
+          <div style="font-size:13px;font-weight:600;font-family:var(--font-mono);color:${isOutdated ? 'var(--warning)' : 'var(--success)'};">v${esc(latestClean || current)}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">Developer</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text-primary);">AvDevs</div>
+        </div>
+        <div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">License</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text-primary);">MIT</div>
+        </div>
+      </div>
+
+    </div>`;
+
+  // Back button
+  g('btn-back-settings').addEventListener('click', () => loadSettings());
+  // Wire download button
+  const dlBtn = g('btn-download-update');
+  if (dlBtn) dlBtn.addEventListener('click', () => handleDownloadUpdate(dlBtn));
+
+  // Wire install button
+  const installBtn = g('btn-install-now');
+  if (installBtn) installBtn.addEventListener('click', () => api.installUpdate());
+}
+
+function fmtSettingsDate(dateStr) {
+  try {
+    return new Date(dateStr).toLocaleDateString('en-IN', {
+      day: 'numeric', month: 'long', year: 'numeric'
+    });
+  } catch { return dateStr; }
+}
 g('btn-refresh-my-sessions').addEventListener('click', loadMySessions);
 g('my-session-filter-date').addEventListener('change', loadMySessions);
 
 // ── Single delegated click handler for ALL view buttons ──
-document.addEventListener('click', function(e) {
+document.addEventListener('click', async function(e) {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
 
@@ -489,6 +988,48 @@ document.addEventListener('click', function(e) {
   }
   if (action === 'view-user-session' && sid && pageId && backSub) {
     openSessionDetail(sid, pageId, backSub);
+  }
+  if (action === 'remove-user') {
+    const empId     = btn.dataset.empId;
+    const empName   = btn.dataset.empName;
+    const isActive  = btn.dataset.empStatus === 'true';
+    const actionStr = isActive ? 'deactivate' : 'reactivate';
+
+    if (!confirm(`Are you sure you want to ${actionStr} ${empName}?`)) return;
+
+    btn.disabled    = true;
+    btn.textContent = isActive ? 'Deactivating…' : 'Activating…';
+
+    try {
+      const r = isActive
+        ? await api.deactivateEmployee(empId)
+        : await api.reactivateEmployee(empId);
+
+      if (r && (r.ok || r.status === 204)) {
+        // Refresh the current page
+        const activePage = document.querySelector('.page-view.active');
+        if (activePage) {
+          const pageId = activePage.id.replace('page-', '');
+          switchPage(pageId);
+        }
+      } else {
+        alert('Action failed. Please try again.');
+        btn.disabled    = false;
+        btn.textContent = isActive ? 'Deactivate' : 'Activate';
+      }
+    } catch (e) {
+      alert('Error: ' + e.message);
+      btn.disabled    = false;
+      btn.textContent = isActive ? 'Deactivate' : 'Activate';
+    }
+  }
+  if (action === 'toggle-day-sessions') {
+    const cardId  = btn.dataset.cardId;
+    const section = document.getElementById(cardId);
+    if (!section) return;
+    const isHidden = section.classList.contains('hidden');
+    section.classList.toggle('hidden');
+    btn.textContent = isHidden ? '📂 Hide Sessions' : '📂 View Sessions';
   }
   if (action === 'back-to-sub') {
     const targetPage = btn.dataset.targetPage;
@@ -542,6 +1083,38 @@ async function openEditUserModal(id, name, email, dept, role, currentManagerId) 
 
   g('modal-employee').classList.remove('hidden');
 }
+
+async function handleDownloadUpdate(btn) {
+  if (!btn) return;
+  btn.disabled    = true;
+  btn.innerHTML   = '<span class="spinner"></span> Downloading…';
+  btn.style.cursor = 'not-allowed';
+
+  try {
+    const r = await api.downloadUpdate();
+    if (r && r.ok) {
+      btn.innerHTML          = '⚡ Install & Restart';
+      btn.disabled           = false;
+      btn.style.cursor       = 'pointer';
+      btn.className          = 'btn btn-success btn-sm';
+      btn.style.width        = '100%';
+      btn.onclick            = () => api.installUpdate();
+    } else {
+      btn.innerHTML  = '❌ ' + (r?.error || 'Failed');
+      btn.disabled   = false;
+      btn.style.cursor = 'pointer';
+      setTimeout(() => {
+        btn.innerHTML  = '⬇ Retry Download';
+        btn.className  = 'btn btn-primary btn-sm';
+      }, 3000);
+    }
+  } catch (e) {
+    btn.innerHTML  = '❌ Error';
+    btn.disabled   = false;
+    btn.style.cursor = 'pointer';
+  }
+}
+
 async function openActivityPage(sessionId, pageId, backDetailSubId) {
 const actSubId =
   pageId === 'my-sessions'   ? 'my-session-activity'
@@ -911,6 +1484,7 @@ const detailSubId =
             <div class="detail-tile-label">💤 Idle Time</div>
             <div class="detail-tile-value text-warning">${it}</div>
           </div>
+${isAdmin ? `
           <div class="detail-tile clickable"
                data-action="open-keystrokes"
                data-sid="${sessionId}"
@@ -923,16 +1497,18 @@ const detailSubId =
             </div>
           </div>
           <div class="detail-tile clickable"
-     data-action="open-activity"
-     data-sid="${sessionId}"
-     data-page="${pageId}"
-     data-back="${detailSubId}">
-  <div class="detail-tile-label">🌐 Activity Tracking</div>
-  <div class="detail-tile-value">View Logs</div>
-  <div class="detail-tile-sub" style="color:var(--accent);margin-top:4px;">
-    Click to view app &amp; website logs →
-  </div>
-</div>
+               data-action="open-activity"
+               data-sid="${sessionId}"
+               data-page="${pageId}"
+               data-back="${detailSubId}">
+            <div class="detail-tile-label">🌐 Activity Tracking</div>
+            <div class="detail-tile-value">View Logs</div>
+            <div class="detail-tile-sub" style="color:var(--accent);margin-top:4px;">
+              Click to view app &amp; website logs →
+            </div>
+          </div>
+          ` : `
+          `}
           <div class="detail-tile clickable"
                data-action="open-netspeed"
                data-sid="${sessionId}"
@@ -1323,7 +1899,7 @@ const nsSubId =
           <div>
             <div class="page-title">📶 Network & System Metrics</div>
             <div class="page-subtitle">
-              Captured every 5 minutes · ${rows.length} snapshot${rows.length !== 1 ? 's' : ''}
+              Captured every 1 Hour · ${rows.length} snapshot${rows.length !== 1 ? 's' : ''}
             </div>
           </div>
         </div>
@@ -1562,6 +2138,23 @@ async function openUserSessions(empId, empName, pageId) {
           String(s.employee_id).toLowerCase().trim() === empIdStr.toLowerCase()
         );
         console.log(`[openUserSessions] after client-side filter: ${sessions.length} sessions`);
+        if (sessions.length === 0) {
+          container.innerHTML = `
+            <div style="padding:20px;">
+              <button class="back-btn"
+                      data-action="back-to-sub"
+                      data-target-page="${pageId}"
+                      data-target-sub="${listSubId}">
+                ← Back
+              </button>
+              <div class="empty-state" style="margin-top:24px;">
+                <span class="empty-icon">📭</span>
+                <span class="empty-title">No sessions found for ${esc(empName)}</span>
+                <span class="empty-sub">This employee has not clocked in yet</span>
+              </div>
+            </div>`;
+          return;
+        }
       }
     }
 
@@ -1621,53 +2214,38 @@ async function openUserSessions(empId, empName, pageId) {
           <input type="date"  id="usr-filter-day"   class="filter-input" style="display:none;" />
         </div>
 
-        <!-- Stats -->
-        <div id="usr-stats-grid" class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));"></div>
 
         <!-- Table -->
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Clock In</th>
-                <th>Clock Out</th>
-                <th>Active</th>
-                <th>Idle</th>
-                <th>Location</th>
-                <th>Keystrokes</th>
-                <th>Status</th>
-                <th>View</th>
-              </tr>
-            </thead>
-            <tbody id="usr-sessions-tbody">
-              <tr><td colspan="9"><div class="empty-state">
-                <span class="spinner"></span>
-              </div></td></tr>
-            </tbody>
-          </table>
+<!-- Date Cards Grid -->
+        <div id="usr-sessions-tbody" style="display:flex;flex-direction:column;gap:12px;">
+          <div style="padding:40px;text-align:center;"><span class="spinner"></span></div>
         </div>
 
       </div>`;
 
-    // ── Filter + render logic ──────────────────────────────
-    function applyFilter() {
-      const period  = document.getElementById('usr-filter-period')?.value || 'all';
-      const monthEl = document.getElementById('usr-filter-month');
-      const dayEl   = document.getElementById('usr-filter-day');
-      const yearEl  = document.getElementById('usr-filter-year');
+function applyFilter() {
+      const periodEl = document.getElementById('usr-filter-period');
+      const monthEl  = document.getElementById('usr-filter-month');
+      const dayEl    = document.getElementById('usr-filter-day');
+      const yearEl   = document.getElementById('usr-filter-year');
+
+      if (!periodEl || !monthEl || !dayEl || !yearEl) {
+        console.error('[applyFilter] DOM elements not ready');
+        return;
+      }
+
+      const period = periodEl.value || 'all';
 
       // Show/hide sub-filters
       yearEl.style.display  = period === 'year'  ? '' : 'none';
       monthEl.style.display = period === 'month' ? '' : 'none';
       dayEl.style.display   = period === 'day'   ? '' : 'none';
 
-      const now      = new Date();
-      const todayStr = now.toISOString().slice(0, 10);
+      const now       = new Date();
+      const todayStr  = now.toISOString().slice(0, 10);
       const thisMonth = now.toISOString().slice(0, 7);
       const thisYear  = String(now.getFullYear());
 
-      // Set defaults when inputs are empty
       if (period === 'month' && !monthEl.value) monthEl.value = thisMonth;
       if (period === 'day'   && !dayEl.value)   dayEl.value   = todayStr;
 
@@ -1691,86 +2269,235 @@ async function openUserSessions(empId, empName, pageId) {
       const subtitleEl = document.getElementById('usr-subtitle');
       if (subtitleEl) subtitleEl.textContent = `${subtitleMap[period] || 'All Sessions'} (${filtered.length})`;
 
-      // Compute stats
-      const totalActive = filtered.reduce((a, s) => a + (s.total_active_time || 0), 0);
-      const totalIdle   = filtered.reduce((a, s) => a + (s.total_idle_time   || 0), 0);
-      const totalKeys   = filtered.reduce((a, s) => a + (ksMap[s.session_id] || 0), 0);
 
-      // Render stats
-      const statsGrid = document.getElementById('usr-stats-grid');
-      if (statsGrid) {
-        statsGrid.innerHTML = `
-          <div class="stat-card accent">
-            <div class="stat-label">Total Sessions</div>
-            <div class="stat-value">${filtered.length}</div>
-            <div class="stat-sub">${subtitleMap[period] || 'All time'}</div>
-          </div>
-          <div class="stat-card success">
-            <div class="stat-label">Total Active Time</div>
-            <div class="stat-value" style="font-size:20px;">${sToHm(totalActive)}</div>
-            <div class="stat-sub">${filtered.length} session${filtered.length !== 1 ? 's' : ''}</div>
-          </div>
-          <div class="stat-card warning">
-            <div class="stat-label">Total Idle Time</div>
-            <div class="stat-value" style="font-size:20px;">${sToHm(totalIdle)}</div>
-            <div class="stat-sub">${filtered.length} session${filtered.length !== 1 ? 's' : ''}</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Total Keystrokes</div>
-            <div class="stat-value" style="font-size:20px;">${totalKeys.toLocaleString()}</div>
-            <div class="stat-sub">${filtered.length} session${filtered.length !== 1 ? 's' : ''}</div>
-          </div>`;
-      }
 
-      // Render table rows
+
+
+      // ── Group sessions by date ──────────────────────────
+      const grouped = {};
+      filtered.forEach(s => {
+        const dateKey = (s.date || (s.clock_in || '').slice(0, 10) || 'Unknown').slice(0, 10);
+        if (!grouped[dateKey]) grouped[dateKey] = [];
+        grouped[dateKey].push(s);
+      });
+
+      // Sort dates descending
+      const sortedDates = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
+
       const tbody = document.getElementById('usr-sessions-tbody');
       if (!tbody) return;
 
-      if (!filtered.length) {
-        tbody.innerHTML = `<tr><td colspan="9">
+      if (!sortedDates.length) {
+        tbody.innerHTML = `
           <div class="empty-state">
             <span class="empty-icon">📭</span>
             <span class="empty-title">No sessions found for this period</span>
             <span class="empty-sub">Try selecting a different filter</span>
-          </div>
-        </td></tr>`;
+          </div>`;
         return;
       }
 
-      tbody.innerHTML = filtered.map(s => `
-        <tr>
-          <td>${fmtDate(s.date || s.clock_in)}</td>
-          <td class="td-mono">${fmtTime(s.clock_in)}</td>
-          <td class="td-mono">
-            ${s.clock_out
-              ? fmtTime(s.clock_out)
-              : '<span class="text-success">Active</span>'}
-          </td>
-          <td class="text-success">${sToHm(s.total_active_time)}</td>
-          <td class="text-warning">${sToHm(s.total_idle_time)}</td>
-          <td class="td-muted">${esc(locStr(s))}</td>
-          <td>${(ksMap[s.session_id] || 0).toLocaleString()}</td>
-          <td>${statusBadge(s.session_status)}</td>
-          <td>
-            <button class="btn btn-ghost btn-sm"
-                    data-action="view-user-session"
-                    data-sid="${esc(s.session_id)}"
-                    data-page="${pageId}"
-                    data-back="${sessSubId}">
-              View
-            </button>
-          </td>
-        </tr>`).join('');
+      tbody.innerHTML = sortedDates.map(dateKey => {
+        const daySessions = grouped[dateKey];
+
+        // Day-level aggregates
+        const dayActive   = daySessions.reduce((a, s) => a + (s.total_active_time || 0), 0);
+        const dayIdle     = daySessions.reduce((a, s) => a + (s.total_idle_time   || 0), 0);
+        const dayTotal    = dayActive + dayIdle;
+        const dayKeys     = daySessions.reduce((a, s) => a + (ksMap[s.session_id] || 0), 0);
+        const firstClockin  = daySessions[daySessions.length - 1]?.clock_in;
+        const lastClockout  = daySessions[0]?.clock_out;
+        const hasActive     = daySessions.some(s => s.session_status === 'active');
+        const cardId        = `day-sessions-${dateKey.replace(/-/g, '')}`;
+
+        return `
+          <!-- Date Card -->
+          <div style="
+            background:var(--bg-surface);
+            border:1px solid var(--border);
+            border-radius:var(--radius-lg);
+            overflow:hidden;
+            transition:border-color .2s;
+          "
+          onmouseenter="this.style.borderColor='var(--border-light)'"
+          onmouseleave="this.style.borderColor='var(--border)'"
+          >
+            <!-- Card Header -->
+            <div style="
+              background:var(--bg-raised);
+              border-bottom:1px solid var(--border);
+              padding:16px 20px;
+              display:flex;
+              align-items:center;
+              justify-content:space-between;
+              gap:12px;
+              flex-wrap:wrap;
+            ">
+              <div style="display:flex;align-items:center;gap:12px;">
+                <div style="
+                  width:36px;height:36px;border-radius:var(--radius-sm);
+                  background:var(--accent-dim);border:1px solid var(--accent);
+                  display:flex;align-items:center;justify-content:center;
+                  font-size:16px;
+                ">📅</div>
+                <div>
+                  <div style="font-size:15px;font-weight:700;color:var(--text-primary);">
+                    ${fmtDate(dateKey)}
+                  </div>
+                  <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
+                    ${daySessions.length} session${daySessions.length !== 1 ? 's' : ''} this day
+                  </div>
+                </div>
+              </div>
+              ${hasActive
+                ? `<span class="badge badge-success">🟢 Active Now</span>`
+                : `<span class="badge badge-muted">Completed</span>`}
+            </div>
+
+            <!-- Card Body — Info Grid -->
+            <div style="padding:16px 20px;">
+              <div style="
+                display:grid;
+                grid-template-columns:repeat(auto-fill,minmax(160px,1fr));
+                gap:12px;
+                margin-bottom:16px;
+              ">
+                <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;">
+                  <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">🕐 Clock In</div>
+                  <div style="font-size:13px;font-weight:600;color:var(--text-primary);font-family:var(--font-mono);">
+                    ${firstClockin ? fmtTime(firstClockin) : '—'}
+                  </div>
+                </div>
+
+                <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;">
+                  <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">🕑 Clock Out</div>
+                  <div style="font-size:13px;font-weight:600;font-family:var(--font-mono);color:${hasActive ? 'var(--success)' : 'var(--text-primary)'};">
+                    ${hasActive ? 'Active' : (lastClockout ? fmtTime(lastClockout) : '—')}
+                  </div>
+                </div>
+
+                <div style="background:var(--bg-raised);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:var(--radius-sm);padding:10px 14px;">
+                  <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">⏱ Total Time</div>
+                  <div style="font-size:13px;font-weight:700;color:var(--accent);">
+                    ${sToHm(dayTotal)}
+                  </div>
+                </div>
+
+                <div style="background:var(--bg-raised);border:1px solid var(--border);border-left:3px solid var(--success);border-radius:var(--radius-sm);padding:10px 14px;">
+                  <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">⚡ Active Time</div>
+                  <div style="font-size:13px;font-weight:700;color:var(--success);">
+                    ${sToHm(dayActive)}
+                  </div>
+                </div>
+
+                <div style="background:var(--bg-raised);border:1px solid var(--border);border-left:3px solid var(--warning);border-radius:var(--radius-sm);padding:10px 14px;">
+                  <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">💤 Idle Time</div>
+                  <div style="font-size:13px;font-weight:700;color:var(--warning);">
+                    ${sToHm(dayIdle)}
+                  </div>
+                </div>
+
+                <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;">
+                  <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">⌨️ Keystrokes</div>
+                  <div style="font-size:13px;font-weight:700;color:var(--text-primary);">
+                    ${dayKeys.toLocaleString()}
+                  </div>
+                </div>
+
+                <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;">
+                  <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">📋 Sessions</div>
+                  <div style="font-size:13px;font-weight:700;color:var(--text-primary);">
+                    ${daySessions.length}
+                  </div>
+                </div>
+              </div>
+
+<!-- View Button -->
+              <div style="display:flex;justify-content:flex-end;">
+                <button
+                  class="btn btn-ghost btn-sm"
+                  data-action="toggle-day-sessions"
+                  data-card-id="${cardId}"
+                  style="display:flex;align-items:center;gap:6px;"
+                >
+                  📂 View Sessions
+                </button>
+              </div>
+
+              <!-- Expandable Sessions Table -->
+              <div id="${cardId}" class="hidden" style="margin-top:14px;">
+                <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:10px;">
+                  All Sessions on ${fmtDate(dateKey)}
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Clock In</th>
+                        <th>Clock Out</th>
+                        <th>Active</th>
+                        <th>Idle</th>
+                        <th>Keystrokes</th>
+                        <th>Status</th>
+                        <th>View</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${daySessions.map((s, idx) => `
+                        <tr>
+                          <td class="td-muted">${idx + 1}</td>
+                          <td class="td-mono">${fmtTime(s.clock_in)}</td>
+                          <td class="td-mono">
+                            ${s.clock_out
+                              ? fmtTime(s.clock_out)
+                              : '<span class="text-success">Active</span>'}
+                          </td>
+                          <td class="text-success">${sToHm(s.total_active_time)}</td>
+                          <td class="text-warning">${sToHm(s.total_idle_time)}</td>
+                          <td>${(ksMap[s.session_id] || 0).toLocaleString()}</td>
+                          <td>${statusBadge(s.session_status)}</td>
+                          <td>
+                            <button class="btn btn-ghost btn-sm"
+                                    data-action="view-user-session"
+                                    data-sid="${esc(s.session_id)}"
+                                    data-page="${pageId}"
+                                    data-back="${sessSubId}">
+                              View
+                            </button>
+                          </td>
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+            </div>
+          </div>`;
+      }).join('');
     }
 
+
     // Wire up filter events after DOM is ready
-    setTimeout(() => {
-      document.getElementById('usr-filter-period')?.addEventListener('change', applyFilter);
-      document.getElementById('usr-filter-month')?.addEventListener('change', applyFilter);
-      document.getElementById('usr-filter-day')?.addEventListener('change', applyFilter);
-      document.getElementById('usr-filter-year')?.addEventListener('change', applyFilter);
-      applyFilter(); // initial render with "All Time"
-    }, 0);
+setTimeout(() => {
+      const periodEl = document.getElementById('usr-filter-period');
+      const monthEl  = document.getElementById('usr-filter-month');
+      const dayEl    = document.getElementById('usr-filter-day');
+      const yearEl   = document.getElementById('usr-filter-year');
+
+      if (!periodEl) {
+        console.error('[openUserSessions] Filter elements not found in DOM');
+        return;
+      }
+
+      periodEl.addEventListener('change', applyFilter);
+      monthEl?.addEventListener('change', applyFilter);
+      dayEl?.addEventListener('change', applyFilter);
+      yearEl?.addEventListener('change', applyFilter);
+
+      applyFilter();
+    }, 50);
 
   } catch (e) {
     console.error('openUserSessions error:', e);
@@ -2125,12 +2852,12 @@ function fmtDate(v) {
 }
 function fmtTime(v) {
   if (!v) return '—';
-  try { return toUtc(v).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true,timeZone:'Asia/Kolkata'}); }
+  try { return toUtc(v).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true,timeZone:'Asia/Kolkata'}); }
   catch { return String(v); }
 }
 function fmtDateTime(v) {
   if (!v) return '—';
-  try { return toUtc(v).toLocaleString('en-IN',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true,timeZone:'Asia/Kolkata'}); }
+  try { return toUtc(v).toLocaleString('en-IN',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:true,timeZone:'Asia/Kolkata'}); }
   catch { return String(v); }
 }
 function pad(n)  { return String(n).padStart(2,'0'); }

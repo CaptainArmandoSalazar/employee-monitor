@@ -252,28 +252,7 @@
         </div>
 
         <!-- Stats row -->
-        <div class="stats-grid">
-          <div class="stat-card accent">
-            <div class="stat-label">Active Time</div>
-            <div class="stat-value" id="stat-active">0h 0m</div>
-            <div class="stat-sub">Today</div>
-          </div>
-          <div class="stat-card warning">
-            <div class="stat-label">Idle Time</div>
-            <div class="stat-value" id="stat-idle">0h 0m</div>
-            <div class="stat-sub">Today</div>
-          </div>
-          <div class="stat-card success">
-            <div class="stat-label">Keystrokes</div>
-            <div class="stat-value" id="stat-keys">0</div>
-            <div class="stat-sub">This session</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Sessions</div>
-            <div class="stat-value" id="stat-sessions">0</div>
-            <div class="stat-sub">Total today</div>
-          </div>
-        </div>
+
 
         <!-- Recent sessions -->
         <div class="card">
@@ -316,23 +295,8 @@
               <button class="btn btn-ghost btn-sm" id="btn-refresh-my-sessions">↻ Refresh</button>
             </div>
           </div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr>
-                <th>Date</th>
-                <th>Clock In</th>
-                <th>Clock Out</th>
-                <th>Active Time</th>
-                <th>Idle Time</th>
-                <th>Location</th>
-                <th>Keystrokes</th>
-                <th>Status</th>
-                <th>View</th>
-              </tr></thead>
-              <tbody id="my-sessions-body">
-                <tr><td colspan="9"><div class="empty-state"><span class="empty-icon">⏳</span><span class="empty-title">Loading sessions…</span></div></td></tr>
-              </tbody>
-            </table>
+          <div id="my-sessions-body" style="display:flex;flex-direction:column;gap:12px;">
+            <div style="padding:40px;text-align:center;"><span class="spinner"></span></div>
           </div>
         </div>
         <div class="subpage" id="my-session-detail"></div>
@@ -524,16 +488,16 @@
 
 
       <!-- ══════════════ SETTINGS PAGE ══════════════ -->
+<!-- ══════════════ SETTINGS PAGE ══════════════ -->
       <div class="page-view" id="page-settings">
         <div class="page-header">
           <div>
             <div class="page-title">Settings</div>
-            <div class="page-subtitle">Application configuration</div>
+            <div class="page-subtitle">Application configuration &amp; version history</div>
           </div>
         </div>
-        <div class="card">
-          <div class="card-header"><div class="card-title">General Settings</div></div>
-          <p style="color:var(--text-secondary);font-size:13px">Settings panel coming soon.</p>
+        <div id="settings-version-content">
+          <div style="padding:40px;text-align:center;"><span class="spinner"></span></div>
         </div>
       </div><!-- /settings -->
 

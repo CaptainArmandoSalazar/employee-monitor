@@ -84,8 +84,11 @@ globalKeyboard.start(async (count: number, raw?: string) => {
 });
 
     // ── Metrics 5s after start, then every 5 min ──────────
-    setTimeout(() => this.sendPeriodicMetrics(), 5_000);
-    _metricsInterval = setInterval(() => this.sendPeriodicMetrics(), 5 * 60_000);
+    setTimeout(() => this.sendCpuMemMetrics(), 5_000);
+    _metricsInterval = setInterval(() => this.sendCpuMemMetrics(), 5 * 60_000);
+
+    // Speed: first check at 5s (captures clock-in speed in logs), then every 1 hour
+    setInterval(() => this.sendSpeedMetrics(), 60 * 60_000);
 
     console.log('[Tracking] Started.');
   },
@@ -135,20 +138,26 @@ globalKeyboard.start(async (count: number, raw?: string) => {
     return Promise.resolve();
   },
 
-  async sendPeriodicMetrics(): Promise<void> {
+async sendCpuMemMetrics(): Promise<void> {
     const session = sessionService.getActiveSession();
     const token   = authService.getToken();
     if (!session || !token) return;
 
     const { getCpuUsage, getMemoryUsage } = await import('../system/metrics');
-    const { getNetworkSpeed }              = await import('../system/network');
-
     const [cpu, mem] = await Promise.all([getCpuUsage(), getMemoryUsage()]);
+
     await apiService.post('/tracking/system-metrics', {
       session_id: session.session_id, cpu_usage: cpu,
       memory_usage: mem, timestamp: nowIST(),
     }, token).catch(() => {});
+  },
 
+  async sendSpeedMetrics(): Promise<void> {
+    const session = sessionService.getActiveSession();
+    const token   = authService.getToken();
+    if (!session || !token) return;
+
+    const { getNetworkSpeed } = await import('../system/network');
     const speed = await getNetworkSpeed();
     _lastSpeed = speed;
 
@@ -161,7 +170,6 @@ globalKeyboard.start(async (count: number, raw?: string) => {
       upload_speed: speed.upload, ping: speed.ping, timestamp: nowIST(),
     }, t2).catch(() => {});
   },
-
   async flushBuffers(): Promise<void> {
     await Promise.allSettled([this.flushActivity(), this.flushWebsite()]);
   },

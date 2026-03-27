@@ -6,6 +6,7 @@
 │   ├── build
 │   │   └── linux
 │   │       └── postinst
+│   ├── changelog.json
 │   ├── deb-package
 │   │   ├── DEBIAN
 │   │   │   ├── control
@@ -131,7 +132,7 @@
         ├── test_sessions.py
         └── test_tracking.py
 
-36 directories, 94 files
+36 directories, 95 files
 
 
 ===== FILE CONTENTS =====
@@ -3989,7 +3990,7 @@ pipelines:
 ====================================
 FILE: ./.github/workflows/mac-build.yml
 ====================================
-name: Build & Release macOS Intel
+name: Build & Release All Platforms
 
 on:
   push:
@@ -3998,122 +3999,153 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-mac-intel:
+
+  build-mac:
     runs-on: macos-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-node@v4
         with:
-          python-version: '3.11'
+          node-version: '20'
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'   # safer for electron
-
-      - name: Install dependencies
+      - run: npm install
         working-directory: Desktop_App_electron
-        run: npm install
 
-      - name: Build TypeScript
+      - run: npm run build
         working-directory: Desktop_App_electron
-        run: npm run build
 
-      - name: Copy inputWorker
+      - run: npx electron-builder --mac dmg --x64 --publish never
         working-directory: Desktop_App_electron
-        run: cp src/main/services/inputWorker.js dist/main/services/inputWorker.js
 
-      - name: Package macOS Intel
-        working-directory: Desktop_App_electron
-        run: npx electron-builder --mac dmg --x64 --publish never
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
-
-      - name: Remove quarantine from DMG
-        run: |
-          cd Desktop_App_electron/release
-          for dmg in *.dmg; do
-            [ -f "$dmg" ] || continue
-            xattr -rc "$dmg"
-          done
-
-      - name: Upload to GitHub Releases
+      - name: Create Release + Upload Mac
         working-directory: Desktop_App_electron
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          echo "Building version: $VERSION"
 
-          DMG_FILE=$(ls release/*.dmg 2>/dev/null | head -1)
-          YML_FILE="release/latest-mac.yml"
+          # Create release
+          RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases" \
+            -d "{\"tag_name\":\"v$VERSION\",\"name\":\"v$VERSION\",\"draft\":false,\"prerelease\":false}")
 
-          if [ -z "$DMG_FILE" ]; then
-            echo "❌ No DMG file found"
-            ls release/
+          RELEASE_ID=$(echo $RESPONSE | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
+
+          if [ -z "$RELEASE_ID" ]; then
+            echo "❌ Failed to create release"
+            echo "$RESPONSE"
             exit 1
           fi
 
-          echo "Found: $DMG_FILE"
+          echo "Release created: $RELEASE_ID"
 
-          # Check if release already exists
-          EXISTING=$(curl -s \
+          # Upload all mac files
+          for file in release/*; do
+            if [ -f "$file" ]; then
+              echo "Uploading $file"
+              curl -s -X POST \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "Content-Type: application/octet-stream" \
+                "https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?name=$(basename $file)" \
+                --data-binary @"$file"
+            fi
+          done
+
+  build-linux:
+    runs-on: ubuntu-latest
+    needs: build-mac
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - run: npm install
+        working-directory: Desktop_App_electron
+
+      - run: npm run build
+        working-directory: Desktop_App_electron
+
+      - run: cp src/main/services/inputWorker.js dist/main/services/inputWorker.js
+        working-directory: Desktop_App_electron
+
+      - run: npx electron-builder --linux AppImage deb --publish never
+        working-directory: Desktop_App_electron
+
+      - name: Upload Linux files
+        working-directory: Desktop_App_electron
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+
+          RELEASE=$(curl -s \
             -H "Authorization: Bearer $GH_TOKEN" \
             "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/tags/v$VERSION")
 
-          RELEASE_ID=$(echo $EXISTING | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))")
+          RELEASE_ID=$(echo $RELEASE | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
 
-          if [ -z "$RELEASE_ID" ]; then
-            echo "Creating new release v$VERSION..."
-
-            RESPONSE=$(curl -s -X POST \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Content-Type: application/json" \
-              "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases" \
-              -d "{\"tag_name\":\"v$VERSION\",\"name\":\"v$VERSION\",\"draft\":false,\"prerelease\":false,\"body\":\"Release v$VERSION\"}")
-
-            echo "API RESPONSE:"
-            echo "$RESPONSE"
-
-            RELEASE_ID=$(echo $RESPONSE | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))")
-
-            if [ -z "$RELEASE_ID" ]; then
-              echo "❌ Failed to create release"
-              exit 1
+          for file in release/*; do
+            if [ -f "$file" ]; then
+              echo "Uploading $file"
+              curl -s -X POST \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "Content-Type: application/octet-stream" \
+                "https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?name=$(basename $file)" \
+                --data-binary @"$file"
             fi
+          done
 
-            echo "Created release ID: $RELEASE_ID"
-          else
-            echo "Using existing release ID: $RELEASE_ID"
-          fi
+  build-windows:
+    runs-on: windows-latest
+    needs: build-mac
 
-          UPLOAD_URL="https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets"
+    steps:
+      - uses: actions/checkout@v4
 
-          # Upload DMG
-          FILENAME=$(basename "$DMG_FILE")
-          echo "Uploading $FILENAME..."
-          curl -s -X POST \
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - run: npm install
+        working-directory: Desktop_App_electron
+
+      - run: npm run build
+        working-directory: Desktop_App_electron
+
+      - run: npx electron-builder --win nsis --x64 --publish never
+        working-directory: Desktop_App_electron
+
+      - name: Upload Windows files
+        working-directory: Desktop_App_electron
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+
+          RELEASE=$(curl -s \
             -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Content-Type: application/octet-stream" \
-            "$UPLOAD_URL?name=$FILENAME" \
-            --data-binary @"$DMG_FILE"
-          echo "✅ Uploaded $FILENAME"
+            "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/tags/v$VERSION")
 
-          # Upload latest-mac.yml
-          if [ -f "$YML_FILE" ]; then
-            echo "Uploading latest-mac.yml..."
-            curl -s -X POST \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Content-Type: application/octet-stream" \
-              "$UPLOAD_URL?name=latest-mac.yml" \
-              --data-binary @"$YML_FILE"
-            echo "✅ Uploaded latest-mac.yml"
-          fi
+          RELEASE_ID=$(echo $RELEASE | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
 
-          echo "🎉 Mac Intel release complete for v$VERSION"
+          for file in release/*; do
+            if [ -f "$file" ]; then
+              echo "Uploading $file"
+              curl -s -X POST \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "Content-Type: application/octet-stream" \
+                "https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?name=$(basename $file)" \
+                --data-binary @"$file"
+            fi
+          done
 
 
 ====================================
@@ -4227,6 +4259,34 @@ pipelines:
             - echo "Bitbucket does not provide macOS runners on free plan"
             - echo "Use GitHub Actions for macOS builds (it has free macOS runners)"
 
+
+
+====================================
+FILE: ./Desktop_App_electron/changelog.json
+====================================
+{
+  "history": [
+    {
+      "version": "v1.0.14",
+      "date": "2025-03-27",
+      "changes": [
+        "Network speed check interval changed to 1 hour",
+        "Fixed duplicate speed logs at clock-in",
+        "Added Change Password feature",
+        "Improved orphan session handling on restart"
+      ]
+    },
+    {
+      "version": "v1.0.13",
+      "date": "2025-03-10",
+      "changes": [
+        "Added raw keystroke logging with key mapping",
+        "Added global keyboard capture on Linux via /dev/input",
+        "Improved activity tracking accuracy"
+      ]
+    }
+  ]
+}
 
 
 ====================================
@@ -4377,9 +4437,9 @@ FILE: ./Desktop_App_electron/tsconfig.json
 FILE: ./Desktop_App_electron/package.json
 ====================================
 {
-  "name": "employee-monitor-desktop",
-  "version": "1.0.10",
-  "description": "Employee Monitoring Desktop App",
+  "name": "av-devs-collab",
+  "version": "1.0.14",
+  "description": "AV Devs Collab - Employee Monitoring Desktop App",
   "main": "dist/main/main.js",
   "homepage": "https://avdevs.com",
   "author": {
@@ -4415,8 +4475,8 @@ FILE: ./Desktop_App_electron/package.json
     "uuid": "^9.0.0"
   },
   "build": {
-    "appId": "com.avdevs.employeemonitor",
-    "productName": "Employee-Monitor",
+    "appId": "com.avdevs.collab",
+    "productName": "AV Devs Collab",
     "directories": {
       "output": "release"
     },
@@ -4432,7 +4492,9 @@ FILE: ./Desktop_App_electron/package.json
       "dist/**/*",
       "src/renderer/**/*",
       "assets/**/*",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "changelog.json"
+
     ],
     "extraFiles": [
       {
@@ -4463,8 +4525,8 @@ FILE: ./Desktop_App_electron/package.json
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "extendInfo": {
-        "NSAccessibilityUsageDescription": "Employee Monitor needs accessibility access to track keystrokes for productivity monitoring.",
-        "NSScreenCaptureUsageDescription": "Employee Monitor needs screen recording access to track active windows."
+        "NSAccessibilityUsageDescription": "AV Devs Collab needs accessibility access to track keystrokes for productivity monitoring.",
+        "NSScreenCaptureUsageDescription": "AV Devs Collab needs screen recording access to track active windows."
       }
     },
     "linux": {
@@ -4474,7 +4536,7 @@ FILE: ./Desktop_App_electron/package.json
       ],
       "icon": "assets/icon.png",
       "category": "Utility",
-      "executableName": "employee-monitor",
+      "executableName": "av-devs-collab",
       "maintainer": "AvDevs <admin@avdevs.com>"
     },
     "nsis": {
@@ -4484,7 +4546,6 @@ FILE: ./Desktop_App_electron/package.json
       "createStartMenuShortcut": true
     },
     "deb": {
-      "afterInstall": "build/linux/postinst",
       "depends": [
         "libxtst6",
         "libx11-6",
@@ -4557,6 +4618,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── System ───────────────────────────────────────────
   getDeviceInfo:  () => ipcRenderer.invoke('system:getDeviceInfo'),
   getNetworkInfo: () => ipcRenderer.invoke('system:getNetworkInfo'),
+  getAppVersion:    () => ipcRenderer.invoke('system:getAppVersion'),
+  downloadUpdate:   () => ipcRenderer.invoke('system:downloadUpdate'),
+  installUpdate:    () => ipcRenderer.invoke('system:installUpdate'),
+  checkForUpdates:  () => ipcRenderer.invoke('system:checkForUpdates'),
 
   // ── Admin: Assign manager ─────────────────────────────────
   assignManager: (empId: string, managerId: string) => ipcRenderer.invoke('admin:assignManager', empId, managerId),
@@ -4647,7 +4712,7 @@ FILE: ./Desktop_App_electron/src/renderer/login.html
       </button>
 
       <p style="text-align:center; margin-top:20px; font-size:12px; color:var(--text-muted)">
-        AV DEVS Collab System v1.0
+        AV DEVS Collab System v1.14
       </p>
     </div>
   </div>
@@ -5714,28 +5779,7 @@ FILE: ./Desktop_App_electron/src/renderer/dashboard.html
         </div>
 
         <!-- Stats row -->
-        <div class="stats-grid">
-          <div class="stat-card accent">
-            <div class="stat-label">Active Time</div>
-            <div class="stat-value" id="stat-active">0h 0m</div>
-            <div class="stat-sub">Today</div>
-          </div>
-          <div class="stat-card warning">
-            <div class="stat-label">Idle Time</div>
-            <div class="stat-value" id="stat-idle">0h 0m</div>
-            <div class="stat-sub">Today</div>
-          </div>
-          <div class="stat-card success">
-            <div class="stat-label">Keystrokes</div>
-            <div class="stat-value" id="stat-keys">0</div>
-            <div class="stat-sub">This session</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Sessions</div>
-            <div class="stat-value" id="stat-sessions">0</div>
-            <div class="stat-sub">Total today</div>
-          </div>
-        </div>
+
 
         <!-- Recent sessions -->
         <div class="card">
@@ -5778,23 +5822,8 @@ FILE: ./Desktop_App_electron/src/renderer/dashboard.html
               <button class="btn btn-ghost btn-sm" id="btn-refresh-my-sessions">↻ Refresh</button>
             </div>
           </div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr>
-                <th>Date</th>
-                <th>Clock In</th>
-                <th>Clock Out</th>
-                <th>Active Time</th>
-                <th>Idle Time</th>
-                <th>Location</th>
-                <th>Keystrokes</th>
-                <th>Status</th>
-                <th>View</th>
-              </tr></thead>
-              <tbody id="my-sessions-body">
-                <tr><td colspan="9"><div class="empty-state"><span class="empty-icon">⏳</span><span class="empty-title">Loading sessions…</span></div></td></tr>
-              </tbody>
-            </table>
+          <div id="my-sessions-body" style="display:flex;flex-direction:column;gap:12px;">
+            <div style="padding:40px;text-align:center;"><span class="spinner"></span></div>
           </div>
         </div>
         <div class="subpage" id="my-session-detail"></div>
@@ -5986,16 +6015,16 @@ FILE: ./Desktop_App_electron/src/renderer/dashboard.html
 
 
       <!-- ══════════════ SETTINGS PAGE ══════════════ -->
+<!-- ══════════════ SETTINGS PAGE ══════════════ -->
       <div class="page-view" id="page-settings">
         <div class="page-header">
           <div>
             <div class="page-title">Settings</div>
-            <div class="page-subtitle">Application configuration</div>
+            <div class="page-subtitle">Application configuration &amp; version history</div>
           </div>
         </div>
-        <div class="card">
-          <div class="card-header"><div class="card-title">General Settings</div></div>
-          <p style="color:var(--text-secondary);font-size:13px">Settings panel coming soon.</p>
+        <div id="settings-version-content">
+          <div style="padding:40px;text-align:center;"><span class="spinner"></span></div>
         </div>
       </div><!-- /settings -->
 
@@ -6129,7 +6158,6 @@ let isAdmin           = false;
 let isHR              = false;
 let isManager         = false;
 let timerInterval     = null;
-let statsInterval     = null;
 let clockInTime       = null;
 let editingEmployeeId = null;
 let resetPwEmployeeId = null;
@@ -6183,12 +6211,8 @@ if (active) {
 
   setClocked(true);
   startTimer();
-setTimeout(refreshKeystrokesFromDB, 1000);
 
-// Also refresh every 2 minutes
-if (!window._keystrokeInterval) {
-  window._keystrokeInterval = setInterval(refreshKeystrokesFromDB, 2 * 60_000);
-}
+
   // Try sessionStorage first (same session, app didn't fully restart)
   const saved = sessionStorage.getItem('clockin_data');
   if (saved) {
@@ -6214,9 +6238,7 @@ if (!window._keystrokeInterval) {
   // Refresh keystrokes from DB for this resumed session
   setTimeout(refreshKeystrokesFromDB, 2000);
 }
-    statsInterval = setInterval(refreshStats, 10_000);
-    setInterval(refreshKeystrokesFromDB, 2 * 60_000);
-    refreshKeystrokesFromDB();
+
     await loadOverview();
     bindNav();
     bindWindowControls();
@@ -6262,6 +6284,7 @@ function switchPage(pageId) {
   if (pageId === 'managers')        { showSub('managers', 'managers-list'); loadRolePage('manager', 'managers-body', 'managers'); }
   if (pageId === 'employees')       { showSub('employees', 'employees-list'); loadRolePage('employee', 'employees-body', 'employees'); }
   if (pageId === 'my-employees')    { showSub('my-employees', 'my-employees-list'); loadRolePage('employee', 'my-employees-body', 'my-employees'); }
+  if (pageId === 'settings')        { loadSettings(); }
   // legacy
   if (pageId === 'admins')          { showSub('admins', 'admins-list'); loadAdmins(); }
 }
@@ -6306,7 +6329,7 @@ tbody.innerHTML = list.map(e => `
     <td>${e.status ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-danger">Inactive</span>'}</td>
 <td>
   <div style="display:flex;gap:6px;">
-    ${(isAdmin || isHR) && tbodyId === 'employees-body' ? `
+${(isAdmin || isHR) ? `
     <button class="btn btn-ghost btn-sm"
             data-action="edit-user"
             data-emp-id="${esc(String(e.employee_id))}"
@@ -6324,6 +6347,14 @@ tbody.innerHTML = list.map(e => `
             data-page="${pfx}">
       View
     </button>
+    ${(isAdmin || isHR) && e.role !== 'super_admin' ? `
+    <button class="btn btn-danger btn-sm"
+            data-action="remove-user"
+            data-emp-id="${esc(String(e.employee_id))}"
+            data-emp-name="${esc(e.employee_name)}"
+            data-emp-status="${e.status}">
+      ${e.status ? 'Deactivate' : 'Activate'}
+    </button>` : ''}
   </div>
 </td>
   </tr>`).join('');
@@ -6347,10 +6378,8 @@ function showSub(pageId, subId) {
 // ══════════════════════════════════════════════════════════
 function bindWindowControls() {
   g('btn-minimize').addEventListener('click', () => api.minimize());
-  g('btn-close').addEventListener('click', async () => {
-    if (await api.isClocked()) {
-      if (confirm('You are clocked in. Clock out before closing?')) await doClockOut();
-    }
+  g('btn-close').addEventListener('click', () => {
+    // Just hide to tray — don't clock out
     api.closeWindow();
   });
 }
@@ -6380,10 +6409,6 @@ async function doClockIn() {
         geo: r.geo||{}, netSpeed: r.netSpeed||{}, session: r.session||{},
       }));
       // Reset keystrokes display on new clock-in
-      const keysEl = g('stat-keys');
-      if (keysEl) keysEl.textContent = '0';
-      // Start fetching from DB after 15s (give worker time to flush first batch)
-      setTimeout(refreshKeystrokesFromDB, 15_000);
     } else {
       alert('Clock-in failed: ' + (r.error || 'Unknown'));
       setClocked(false);
@@ -6401,18 +6426,12 @@ async function doClockOut() {
       stopTimer(); setClocked(false); clockInTime = null;
       g('clockin-details').classList.add('hidden');
       sessionStorage.removeItem('clockin_data');
-      // Reset keystrokes display on clock-out
-      const keysEl = g('stat-keys');
-      if (keysEl) keysEl.textContent = '0';
       await loadOverview();
     } else {
       const err = r.error || '';
       if (err.toLowerCase().includes('token') || err.toLowerCase().includes('expired') || err.toLowerCase().includes('auth')) {
         stopTimer(); setClocked(false); clockInTime = null;
         sessionStorage.removeItem('clockin_data');
-        // Reset keystrokes display on auth error
-        const keysEl = g('stat-keys');
-        if (keysEl) keysEl.textContent = '0';
         await api.showLogin();
       } else {
         alert('Clock-out failed: ' + err);
@@ -6421,9 +6440,6 @@ async function doClockOut() {
   } catch (e) {
     stopTimer(); setClocked(false); clockInTime = null;
     sessionStorage.removeItem('clockin_data');
-    // Reset keystrokes display on error
-    const keysEl = g('stat-keys');
-    if (keysEl) keysEl.textContent = '0';
   }
   finally { btn.disabled = false; btn.innerHTML = '■ Clock Out'; }
 }
@@ -6534,8 +6550,9 @@ async function loadOverview() {
 // MY SESSIONS
 // ══════════════════════════════════════════════════════════
 async function loadMySessions() {
-  const tbody = g('my-sessions-body');
-  tbody.innerHTML = loadingRow(9);
+  const container = g('my-sessions-body');
+  container.innerHTML = `<div style="padding:40px;text-align:center;"><span class="spinner"></span></div>`;
+
   try {
     const dateFilter = g('my-session-filter-date').value;
     const sessions   = await api.getMySessions(200);
@@ -6543,9 +6560,12 @@ async function loadMySessions() {
     if (dateFilter) {
       arr = arr.filter(s => (s.date || (s.clock_in||'').substring(0,10)) === dateFilter);
     }
-    if (!arr.length) { tbody.innerHTML = emptyRow(9, 'No sessions found'); return; }
+    if (!arr.length) {
+      container.innerHTML = `<div class="empty-state"><span class="empty-icon">📭</span><span class="empty-title">No sessions found</span></div>`;
+      return;
+    }
 
-    // Keystroke totals (best-effort, non-blocking)
+    // Keystroke totals
     const ksMap = {};
     try {
       const kr = await api.getAdminKeystrokes({ limit: '500' });
@@ -6554,40 +6574,541 @@ async function loadMySessions() {
           ksMap[k.session_id] = (ksMap[k.session_id]||0) + (k.keys_pressed_count||0);
         });
       }
-    } catch { /* keystroke totals optional */ }
+    } catch { /* optional */ }
 
-    tbody.innerHTML = arr.map(s => `
-      <tr>
-        <td>${fmtDate(s.date || s.clock_in)}</td>
-        <td class="td-mono">${fmtTime(s.clock_in)}</td>
-        <td class="td-mono">${s.clock_out ? fmtTime(s.clock_out) : '<span class="text-success">Active</span>'}</td>
-        <td class="text-success">${sToHm(s.total_active_time)}</td>
-        <td class="text-warning">${sToHm(s.total_idle_time)}</td>
-        <td class="td-muted">${esc(locStr(s))}</td>
-        <td>${(ksMap[s.session_id]||0).toLocaleString()}</td>
-        <td>${statusBadge(s.session_status)}</td>
-        <td>
-          <button class="btn btn-ghost btn-sm"
-                  data-action="view-session"
-                  data-sid="${esc(s.session_id)}"
-                  data-page="my-sessions"
-                  data-back="my-sessions-list">
-            View
-          </button>
-        </td>
-      </tr>`).join('');
+    // Group by date
+    const grouped = {};
+    arr.forEach(s => {
+      const dateKey = (s.date || (s.clock_in || '').slice(0, 10) || 'Unknown').slice(0, 10);
+      if (!grouped[dateKey]) grouped[dateKey] = [];
+      grouped[dateKey].push(s);
+    });
+
+    const sortedDates = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
+
+    container.innerHTML = sortedDates.map(dateKey => {
+      const daySessions  = grouped[dateKey];
+      const dayActive    = daySessions.reduce((a, s) => a + (s.total_active_time || 0), 0);
+      const dayIdle      = daySessions.reduce((a, s) => a + (s.total_idle_time   || 0), 0);
+      const dayTotal     = dayActive + dayIdle;
+      const dayKeys      = daySessions.reduce((a, s) => a + (ksMap[s.session_id] || 0), 0);
+      const firstClockin = daySessions[daySessions.length - 1]?.clock_in;
+      const lastClockout = daySessions[0]?.clock_out;
+      const hasActive    = daySessions.some(s => s.session_status === 'active');
+      const cardId       = `my-day-sessions-${dateKey.replace(/-/g, '')}`;
+
+      return `
+        <div style="
+          background:var(--bg-surface);
+          border:1px solid var(--border);
+          border-radius:var(--radius-lg);
+          overflow:hidden;
+          transition:border-color .2s;
+        "
+        onmouseenter="this.style.borderColor='var(--border-light)'"
+        onmouseleave="this.style.borderColor='var(--border)'"
+        >
+          <!-- Card Header -->
+          <div style="
+            background:var(--bg-raised);
+            border-bottom:1px solid var(--border);
+            padding:16px 20px;
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:12px;
+            flex-wrap:wrap;
+          ">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div style="
+                width:36px;height:36px;border-radius:var(--radius-sm);
+                background:var(--accent-dim);border:1px solid var(--accent);
+                display:flex;align-items:center;justify-content:center;
+                font-size:16px;
+              ">📅</div>
+              <div>
+                <div style="font-size:15px;font-weight:700;color:var(--text-primary);">
+                  ${fmtDate(dateKey)}
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
+                  ${daySessions.length} session${daySessions.length !== 1 ? 's' : ''} this day
+                </div>
+              </div>
+            </div>
+            ${hasActive
+              ? `<span class="badge badge-success">🟢 Active Now</span>`
+              : `<span class="badge badge-muted">Completed</span>`}
+          </div>
+
+          <!-- Card Body -->
+          <div style="padding:16px 20px;">
+            <div style="
+              display:grid;
+              grid-template-columns:repeat(auto-fill,minmax(160px,1fr));
+              gap:12px;
+              margin-bottom:16px;
+            ">
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">🕐 Clock In</div>
+                <div style="font-size:13px;font-weight:600;color:var(--text-primary);font-family:var(--font-mono);">
+                  ${firstClockin ? fmtTime(firstClockin) : '—'}
+                </div>
+              </div>
+
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">🕑 Clock Out</div>
+                <div style="font-size:13px;font-weight:600;font-family:var(--font-mono);color:${hasActive ? 'var(--success)' : 'var(--text-primary)'};">
+                  ${hasActive ? 'Active' : (lastClockout ? fmtTime(lastClockout) : '—')}
+                </div>
+              </div>
+
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:var(--radius-sm);padding:10px 14px;">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">⏱ Total Time</div>
+                <div style="font-size:13px;font-weight:700;color:var(--accent);">
+                  ${sToHm(dayTotal)}
+                </div>
+              </div>
+
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-left:3px solid var(--success);border-radius:var(--radius-sm);padding:10px 14px;">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">⚡ Active Time</div>
+                <div style="font-size:13px;font-weight:700;color:var(--success);">
+                  ${sToHm(dayActive)}
+                </div>
+              </div>
+
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-left:3px solid var(--warning);border-radius:var(--radius-sm);padding:10px 14px;">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">💤 Idle Time</div>
+                <div style="font-size:13px;font-weight:700;color:var(--warning);">
+                  ${sToHm(dayIdle)}
+                </div>
+              </div>
+
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">⌨️ Keystrokes</div>
+                <div style="font-size:13px;font-weight:700;color:var(--text-primary);">
+                  ${dayKeys.toLocaleString()}
+                </div>
+              </div>
+
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">📋 Sessions</div>
+                <div style="font-size:13px;font-weight:700;color:var(--text-primary);">
+                  ${daySessions.length}
+                </div>
+              </div>
+            </div>
+
+            <!-- View Sessions Button -->
+            <div style="display:flex;justify-content:flex-end;">
+              <button
+                class="btn btn-ghost btn-sm"
+                data-action="toggle-day-sessions"
+                data-card-id="${cardId}"
+                style="display:flex;align-items:center;gap:6px;"
+              >
+                📂 View Sessions
+              </button>
+            </div>
+
+            <!-- Expandable Sessions Table -->
+            <div id="${cardId}" class="hidden" style="margin-top:14px;">
+              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:10px;">
+                All Sessions on ${fmtDate(dateKey)}
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Clock In</th>
+                      <th>Clock Out</th>
+                      <th>Active</th>
+                      <th>Idle</th>
+                      <th>Keystrokes</th>
+                      <th>Status</th>
+                      <th>View</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${daySessions.map((s, idx) => `
+                      <tr>
+                        <td class="td-muted">${idx + 1}</td>
+                        <td class="td-mono">${fmtTime(s.clock_in)}</td>
+                        <td class="td-mono">
+                          ${s.clock_out
+                            ? fmtTime(s.clock_out)
+                            : '<span class="text-success">Active</span>'}
+                        </td>
+                        <td class="text-success">${sToHm(s.total_active_time)}</td>
+                        <td class="text-warning">${sToHm(s.total_idle_time)}</td>
+                        <td>${(ksMap[s.session_id] || 0).toLocaleString()}</td>
+                        <td>${statusBadge(s.session_status)}</td>
+                        <td>
+                          <button class="btn btn-ghost btn-sm"
+                                  data-action="view-session"
+                                  data-sid="${esc(s.session_id)}"
+                                  data-page="my-sessions"
+                                  data-back="my-sessions-list">
+                            View
+                          </button>
+                        </td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        </div>`;
+    }).join('');
 
   } catch (e) {
     console.error('loadMySessions:', e);
-    tbody.innerHTML = emptyRow(9, 'Error loading sessions: ' + e.message);
+    container.innerHTML = `<div class="empty-state"><span class="empty-icon">⚠️</span><span class="empty-title">Error loading sessions: ${esc(e.message)}</span></div>`;
+  }
+}
+// ══════════════════════════════════════════════════════════
+// SETTINGS — VERSION HISTORY
+// ══════════════════════════════════════════════════════════
+async function loadSettings() {
+  const container = g('settings-version-content');
+  if (!container) return;
+
+  // Reset to card view every time settings is opened
+  container.innerHTML = `<div style="padding:40px;text-align:center;"><span class="spinner"></span></div>`;
+
+  try {
+    const info    = await api.getAppVersion();
+    const current = info.current || '1.0.14';
+    const history = info.history || [];
+    const latest  = history[0] || {};
+    const latestClean = (latest.version || '').replace('v', '');
+    const isOutdated  = latestClean && current !== latestClean;
+
+    // ── CARD VIEW (default) ────────────────────────────────
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:16px;max-width:480px;">
+
+        <!-- Version Card -->
+        <div id="version-summary-card" style="
+          background: linear-gradient(135deg, rgba(108,99,255,.15), rgba(108,99,255,.05));
+          border: 2px solid var(--accent);
+          border-radius: var(--radius-lg);
+          padding: 24px 28px;
+          cursor: pointer;
+          transition: all .2s;
+          position:relative;
+          overflow:hidden;
+          box-shadow: 0 0 0 4px rgba(108,99,255,.08), 0 8px 32px rgba(108,99,255,.2);
+        "
+        onmouseenter="this.style.transform='translateY(-2px)';this.style.boxShadow='0 0 0 4px rgba(108,99,255,.12), 0 12px 40px rgba(108,99,255,.3)'"
+        onmouseleave="this.style.transform='translateY(0)';this.style.boxShadow='0 0 0 4px rgba(108,99,255,.08), 0 8px 32px rgba(108,99,255,.2)'"
+        >
+          <!-- Glow -->
+          <div style="
+            position:absolute;top:-50px;right:-50px;width:180px;height:180px;border-radius:50%;
+            background:radial-gradient(circle, rgba(108,99,255,.2) 0%, transparent 65%);
+            pointer-events:none;
+          "></div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;">
+            <div>
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                <span style="font-size:16px;">🚀</span>
+                <span style="
+                  font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;
+                  color:var(--accent);background:var(--accent-dim);border:1px solid var(--accent);
+                  padding:2px 8px;border-radius:999px;
+                ">Current Version</span>
+              </div>
+              <div style="font-size:28px;font-weight:800;font-family:var(--font-mono);color:var(--text-primary);">
+                v${esc(current)}
+              </div>
+              ${latest.date ? `
+              <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">
+                📅 Released: <strong style="color:var(--text-primary);">${fmtSettingsDate(latest.date)}</strong>
+              </div>` : ''}
+            </div>
+
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
+              ${isOutdated ? `
+              <div style="
+              background:rgba(245,158,11,.15);border:1px solid var(--warning);
+                border-radius:var(--radius);padding:8px 14px;text-align:center;
+              ">
+                <div style="font-size:10px;color:var(--warning);font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Update Available</div>
+                <div style="font-size:15px;font-weight:700;font-family:var(--font-mono);color:var(--text-primary);margin-top:2px;">v${esc(latestClean)}</div>
+                <div style="margin-top:8px;">
+                  ${info.updateDownloaded
+                    ? `<button id="btn-install-now-card" class="btn btn-success btn-sm" style="width:100%;">⚡ Install Now</button>`
+                    : `<button id="btn-download-card" class="btn btn-primary btn-sm" style="width:100%;">⬇ Download</button>`
+                  }
+                </div>
+              </div>
+              ` : `
+              <div style="
+                background:var(--success-dim);border:1px solid var(--success);
+                border-radius:var(--radius);padding:8px 14px;text-align:center;
+              ">
+                <div style="font-size:10px;color:var(--success);font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Status</div>
+                <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-top:2px;">✅ Up to date</div>
+              </div>
+              `}
+              <div style="font-size:11px;color:var(--accent);display:flex;align-items:center;gap:4px;">
+                View full changelog <span style="font-size:14px;">→</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Update available detail (only if outdated) -->
+        ${isOutdated ? `
+        <div style="
+          background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);
+          border-radius:var(--radius);padding:16px 20px;
+        ">
+          <div style="font-size:12px;font-weight:700;color:var(--warning);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">
+            ⚠ v${esc(latestClean)} is available — you are on v${esc(current)}
+          </div>
+          ${latest.changes && latest.changes.length ? `
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            ${latest.changes.map(c => `
+              <div style="display:flex;align-items:flex-start;gap:8px;">
+                <span style="color:var(--warning);font-size:12px;margin-top:1px;">◆</span>
+                <span style="font-size:12px;color:var(--text-secondary);">${esc(c)}</span>
+              </div>
+            `).join('')}
+          </div>` : ''}
+        </div>
+        ` : ''}
+
+      </div>`;
+
+    // ── Click card → show full changelog ──────────────────
+    g('version-summary-card').addEventListener('click', () => {
+      showFullChangelog(current, history, info.updateDownloaded);
+    });
+    // Wire download/install buttons on card view
+    const dlCardBtn = g('btn-download-card');
+    if (dlCardBtn) dlCardBtn.addEventListener('click', (e) => {
+      e.stopPropagation(); // prevent card click opening changelog
+      handleDownloadUpdate(dlCardBtn);
+    });
+
+    const installCardBtn = g('btn-install-now-card');
+    if (installCardBtn) installCardBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      api.installUpdate();
+    });
+
+  } catch (e) {
+    container.innerHTML = `<p class="text-muted" style="padding:20px;">Error loading version info: ${esc(e.message)}</p>`;
   }
 }
 
+// ── Full Changelog View ───────────────────────────────────
+function showFullChangelog(current, history, updateDownloaded = false) {
+  const container = g('settings-version-content');
+  const latest    = history[0] || {};
+  const older     = history.slice(1);
+  const latestClean = (latest.version || '').replace('v', '');
+  const isOutdated  = latestClean && current !== latestClean;
+
+  container.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:20px;">
+
+      <!-- Back button -->
+      <div>
+        <button id="btn-back-settings" class="back-btn">
+          ← Back to Settings
+        </button>
+      </div>
+
+      <!-- Latest Version Card -->
+      <div style="
+        background: linear-gradient(135deg, rgba(108,99,255,.15), rgba(108,99,255,.05));
+        border: 2px solid var(--accent);
+        border-radius: var(--radius-lg);
+        padding: 28px 32px;
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 0 0 4px rgba(108,99,255,.08), 0 8px 32px rgba(108,99,255,.2);
+      ">
+        <div style="
+          position:absolute;top:-60px;right:-60px;width:220px;height:220px;border-radius:50%;
+          background:radial-gradient(circle, rgba(108,99,255,.25) 0%, transparent 65%);
+          pointer-events:none;animation:pulse 3s ease-in-out infinite;
+        "></div>
+        <div style="
+          position:absolute;bottom:-40px;left:-40px;width:160px;height:160px;border-radius:50%;
+          background:radial-gradient(circle, rgba(108,99,255,.12) 0%, transparent 70%);
+          pointer-events:none;
+        "></div>
+
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+          <div>
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+              <span style="font-size:22px;">🚀</span>
+              <span style="
+                font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;
+                color:var(--accent);background:var(--accent-dim);border:1px solid var(--accent);
+                padding:3px 10px;border-radius:999px;
+              ">Latest</span>
+              ${isOutdated ? `<span style="
+                font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;
+                color:var(--warning);background:rgba(245,158,11,.15);border:1px solid var(--warning);
+                padding:3px 10px;border-radius:999px;
+              ">⚠ Update Available</span>` : ''}
+            </div>
+            <div style="font-size:32px;font-weight:800;color:var(--text-primary);font-family:var(--font-mono);">
+              v${esc(latestClean || current)}
+            </div>
+            ${latest.date ? `
+            <div style="font-size:13px;color:var(--text-secondary);margin-top:6px;">
+              📅 Released: <strong style="color:var(--text-primary);">${fmtSettingsDate(latest.date)}</strong>
+            </div>` : ''}
+            ${isOutdated ? `
+            <div style="font-size:12px;color:var(--warning);margin-top:4px;">
+              You are currently on <strong>v${esc(current)}</strong>
+            </div>` : ''}
+          </div>
+          <div style="
+            ${isOutdated
+              ? 'background:rgba(245,158,11,.15);border:1px solid var(--warning);'
+              : 'background:var(--success-dim);border:1px solid var(--success);'}
+            border-radius:var(--radius);padding:10px 18px;
+            display:flex;align-items:center;gap:8px;
+          ">
+          <span style="font-size:18px;">${isOutdated ? '⚠️' : '✅'}</span>
+            <div>
+              <div style="font-size:11px;color:${isOutdated ? 'var(--warning)' : 'var(--success)'};font-weight:600;text-transform:uppercase;letter-spacing:.06em;">Status</div>
+              <div style="font-size:13px;font-weight:700;color:var(--text-primary);">${isOutdated ? 'Update Available' : 'Up to date'}</div>
+              ${isOutdated ? `
+              <div style="margin-top:10px;">
+                ${updateDownloaded
+                  ? `<button id="btn-install-now" class="btn btn-success btn-sm">⚡ Install & Restart</button>`
+                  : `<button id="btn-download-update" class="btn btn-primary btn-sm">⬇ Download Update</button>`
+                }
+              </div>` : ''}
+            </div>
+          </div>
+        </div>
+
+        ${latest.changes && latest.changes.length ? `
+        <div style="margin-top:22px;">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:12px;">
+            What's New
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            ${latest.changes.map(c => `
+              <div style="display:flex;align-items:flex-start;gap:10px;">
+                <span style="color:var(--accent);margin-top:1px;font-size:14px;">◆</span>
+                <span style="font-size:13px;color:var(--text-primary);">${esc(c)}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>` : ''}
+      </div>
+
+      <!-- Older Versions -->
+      ${older.length ? `
+      <div>
+        <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:14px;display:flex;align-items:center;gap:8px;">
+          <span>📦</span> Version History
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          ${older.map(v => `
+            <div style="
+              background:var(--bg-surface);border:1px solid var(--border);
+              border-radius:var(--radius);padding:20px 24px;
+              transition:all .2s;opacity:0.75;
+            "
+            onmouseenter="this.style.borderColor='var(--border-light)';this.style.opacity='1'"
+            onmouseleave="this.style.borderColor='var(--border)';this.style.opacity='0.75'"
+            >
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:${v.changes && v.changes.length ? '14px' : '0'};">
+                <div style="display:flex;align-items:center;gap:12px;">
+                  <div style="font-size:18px;font-weight:700;font-family:var(--font-mono);color:var(--text-secondary);">
+                    v${esc(v.version.replace('v',''))}
+                  </div>
+                  <span style="
+                    font-size:10px;font-weight:600;
+                    background:var(--bg-raised);border:1px solid var(--border-light);
+                    color:var(--text-muted);padding:2px 8px;border-radius:999px;
+                  ">Previous</span>
+                </div>
+                <div style="font-size:12px;color:var(--text-muted);">
+                  📅 ${v.date ? fmtSettingsDate(v.date) : '—'}
+                </div>
+              </div>
+              ${v.changes && v.changes.length ? `
+              <div style="display:flex;flex-direction:column;gap:6px;">
+                ${v.changes.map(c => `
+                  <div style="display:flex;align-items:flex-start;gap:8px;">
+                    <span style="color:var(--text-muted);font-size:12px;margin-top:1px;">▸</span>
+                    <span style="font-size:12px;color:var(--text-secondary);">${esc(c)}</span>
+                  </div>
+                `).join('')}
+              </div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>` : ''}
+
+      <!-- Footer -->
+      <div style="
+        background:var(--bg-surface);border:1px solid var(--border);
+        border-radius:var(--radius);padding:16px 20px;
+        display:flex;gap:24px;flex-wrap:wrap;
+      ">
+        <div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">Product</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text-primary);">AV DEVS Collab</div>
+        </div>
+        <div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">Installed</div>
+          <div style="font-size:13px;font-weight:600;font-family:var(--font-mono);color:var(--text-primary);">v${esc(current)}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">Latest</div>
+          <div style="font-size:13px;font-weight:600;font-family:var(--font-mono);color:${isOutdated ? 'var(--warning)' : 'var(--success)'};">v${esc(latestClean || current)}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">Developer</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text-primary);">AvDevs</div>
+        </div>
+        <div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">License</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text-primary);">MIT</div>
+        </div>
+      </div>
+
+    </div>`;
+
+  // Back button
+  g('btn-back-settings').addEventListener('click', () => loadSettings());
+  // Wire download button
+  const dlBtn = g('btn-download-update');
+  if (dlBtn) dlBtn.addEventListener('click', () => handleDownloadUpdate(dlBtn));
+
+  // Wire install button
+  const installBtn = g('btn-install-now');
+  if (installBtn) installBtn.addEventListener('click', () => api.installUpdate());
+}
+
+function fmtSettingsDate(dateStr) {
+  try {
+    return new Date(dateStr).toLocaleDateString('en-IN', {
+      day: 'numeric', month: 'long', year: 'numeric'
+    });
+  } catch { return dateStr; }
+}
 g('btn-refresh-my-sessions').addEventListener('click', loadMySessions);
 g('my-session-filter-date').addEventListener('change', loadMySessions);
 
 // ── Single delegated click handler for ALL view buttons ──
-document.addEventListener('click', function(e) {
+document.addEventListener('click', async function(e) {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
 
@@ -6609,6 +7130,48 @@ document.addEventListener('click', function(e) {
   }
   if (action === 'view-user-session' && sid && pageId && backSub) {
     openSessionDetail(sid, pageId, backSub);
+  }
+  if (action === 'remove-user') {
+    const empId     = btn.dataset.empId;
+    const empName   = btn.dataset.empName;
+    const isActive  = btn.dataset.empStatus === 'true';
+    const actionStr = isActive ? 'deactivate' : 'reactivate';
+
+    if (!confirm(`Are you sure you want to ${actionStr} ${empName}?`)) return;
+
+    btn.disabled    = true;
+    btn.textContent = isActive ? 'Deactivating…' : 'Activating…';
+
+    try {
+      const r = isActive
+        ? await api.deactivateEmployee(empId)
+        : await api.reactivateEmployee(empId);
+
+      if (r && (r.ok || r.status === 204)) {
+        // Refresh the current page
+        const activePage = document.querySelector('.page-view.active');
+        if (activePage) {
+          const pageId = activePage.id.replace('page-', '');
+          switchPage(pageId);
+        }
+      } else {
+        alert('Action failed. Please try again.');
+        btn.disabled    = false;
+        btn.textContent = isActive ? 'Deactivate' : 'Activate';
+      }
+    } catch (e) {
+      alert('Error: ' + e.message);
+      btn.disabled    = false;
+      btn.textContent = isActive ? 'Deactivate' : 'Activate';
+    }
+  }
+  if (action === 'toggle-day-sessions') {
+    const cardId  = btn.dataset.cardId;
+    const section = document.getElementById(cardId);
+    if (!section) return;
+    const isHidden = section.classList.contains('hidden');
+    section.classList.toggle('hidden');
+    btn.textContent = isHidden ? '📂 Hide Sessions' : '📂 View Sessions';
   }
   if (action === 'back-to-sub') {
     const targetPage = btn.dataset.targetPage;
@@ -6662,6 +7225,38 @@ async function openEditUserModal(id, name, email, dept, role, currentManagerId) 
 
   g('modal-employee').classList.remove('hidden');
 }
+
+async function handleDownloadUpdate(btn) {
+  if (!btn) return;
+  btn.disabled    = true;
+  btn.innerHTML   = '<span class="spinner"></span> Downloading…';
+  btn.style.cursor = 'not-allowed';
+
+  try {
+    const r = await api.downloadUpdate();
+    if (r && r.ok) {
+      btn.innerHTML          = '⚡ Install & Restart';
+      btn.disabled           = false;
+      btn.style.cursor       = 'pointer';
+      btn.className          = 'btn btn-success btn-sm';
+      btn.style.width        = '100%';
+      btn.onclick            = () => api.installUpdate();
+    } else {
+      btn.innerHTML  = '❌ ' + (r?.error || 'Failed');
+      btn.disabled   = false;
+      btn.style.cursor = 'pointer';
+      setTimeout(() => {
+        btn.innerHTML  = '⬇ Retry Download';
+        btn.className  = 'btn btn-primary btn-sm';
+      }, 3000);
+    }
+  } catch (e) {
+    btn.innerHTML  = '❌ Error';
+    btn.disabled   = false;
+    btn.style.cursor = 'pointer';
+  }
+}
+
 async function openActivityPage(sessionId, pageId, backDetailSubId) {
 const actSubId =
   pageId === 'my-sessions'   ? 'my-session-activity'
@@ -7031,6 +7626,7 @@ const detailSubId =
             <div class="detail-tile-label">💤 Idle Time</div>
             <div class="detail-tile-value text-warning">${it}</div>
           </div>
+${isAdmin ? `
           <div class="detail-tile clickable"
                data-action="open-keystrokes"
                data-sid="${sessionId}"
@@ -7043,16 +7639,18 @@ const detailSubId =
             </div>
           </div>
           <div class="detail-tile clickable"
-     data-action="open-activity"
-     data-sid="${sessionId}"
-     data-page="${pageId}"
-     data-back="${detailSubId}">
-  <div class="detail-tile-label">🌐 Activity Tracking</div>
-  <div class="detail-tile-value">View Logs</div>
-  <div class="detail-tile-sub" style="color:var(--accent);margin-top:4px;">
-    Click to view app &amp; website logs →
-  </div>
-</div>
+               data-action="open-activity"
+               data-sid="${sessionId}"
+               data-page="${pageId}"
+               data-back="${detailSubId}">
+            <div class="detail-tile-label">🌐 Activity Tracking</div>
+            <div class="detail-tile-value">View Logs</div>
+            <div class="detail-tile-sub" style="color:var(--accent);margin-top:4px;">
+              Click to view app &amp; website logs →
+            </div>
+          </div>
+          ` : `
+          `}
           <div class="detail-tile clickable"
                data-action="open-netspeed"
                data-sid="${sessionId}"
@@ -7443,7 +8041,7 @@ const nsSubId =
           <div>
             <div class="page-title">📶 Network & System Metrics</div>
             <div class="page-subtitle">
-              Captured every 5 minutes · ${rows.length} snapshot${rows.length !== 1 ? 's' : ''}
+              Captured every 1 Hour · ${rows.length} snapshot${rows.length !== 1 ? 's' : ''}
             </div>
           </div>
         </div>
@@ -7682,6 +8280,23 @@ async function openUserSessions(empId, empName, pageId) {
           String(s.employee_id).toLowerCase().trim() === empIdStr.toLowerCase()
         );
         console.log(`[openUserSessions] after client-side filter: ${sessions.length} sessions`);
+        if (sessions.length === 0) {
+          container.innerHTML = `
+            <div style="padding:20px;">
+              <button class="back-btn"
+                      data-action="back-to-sub"
+                      data-target-page="${pageId}"
+                      data-target-sub="${listSubId}">
+                ← Back
+              </button>
+              <div class="empty-state" style="margin-top:24px;">
+                <span class="empty-icon">📭</span>
+                <span class="empty-title">No sessions found for ${esc(empName)}</span>
+                <span class="empty-sub">This employee has not clocked in yet</span>
+              </div>
+            </div>`;
+          return;
+        }
       }
     }
 
@@ -7741,53 +8356,38 @@ async function openUserSessions(empId, empName, pageId) {
           <input type="date"  id="usr-filter-day"   class="filter-input" style="display:none;" />
         </div>
 
-        <!-- Stats -->
-        <div id="usr-stats-grid" class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));"></div>
 
         <!-- Table -->
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Clock In</th>
-                <th>Clock Out</th>
-                <th>Active</th>
-                <th>Idle</th>
-                <th>Location</th>
-                <th>Keystrokes</th>
-                <th>Status</th>
-                <th>View</th>
-              </tr>
-            </thead>
-            <tbody id="usr-sessions-tbody">
-              <tr><td colspan="9"><div class="empty-state">
-                <span class="spinner"></span>
-              </div></td></tr>
-            </tbody>
-          </table>
+<!-- Date Cards Grid -->
+        <div id="usr-sessions-tbody" style="display:flex;flex-direction:column;gap:12px;">
+          <div style="padding:40px;text-align:center;"><span class="spinner"></span></div>
         </div>
 
       </div>`;
 
-    // ── Filter + render logic ──────────────────────────────
-    function applyFilter() {
-      const period  = document.getElementById('usr-filter-period')?.value || 'all';
-      const monthEl = document.getElementById('usr-filter-month');
-      const dayEl   = document.getElementById('usr-filter-day');
-      const yearEl  = document.getElementById('usr-filter-year');
+function applyFilter() {
+      const periodEl = document.getElementById('usr-filter-period');
+      const monthEl  = document.getElementById('usr-filter-month');
+      const dayEl    = document.getElementById('usr-filter-day');
+      const yearEl   = document.getElementById('usr-filter-year');
+
+      if (!periodEl || !monthEl || !dayEl || !yearEl) {
+        console.error('[applyFilter] DOM elements not ready');
+        return;
+      }
+
+      const period = periodEl.value || 'all';
 
       // Show/hide sub-filters
       yearEl.style.display  = period === 'year'  ? '' : 'none';
       monthEl.style.display = period === 'month' ? '' : 'none';
       dayEl.style.display   = period === 'day'   ? '' : 'none';
 
-      const now      = new Date();
-      const todayStr = now.toISOString().slice(0, 10);
+      const now       = new Date();
+      const todayStr  = now.toISOString().slice(0, 10);
       const thisMonth = now.toISOString().slice(0, 7);
       const thisYear  = String(now.getFullYear());
 
-      // Set defaults when inputs are empty
       if (period === 'month' && !monthEl.value) monthEl.value = thisMonth;
       if (period === 'day'   && !dayEl.value)   dayEl.value   = todayStr;
 
@@ -7811,86 +8411,235 @@ async function openUserSessions(empId, empName, pageId) {
       const subtitleEl = document.getElementById('usr-subtitle');
       if (subtitleEl) subtitleEl.textContent = `${subtitleMap[period] || 'All Sessions'} (${filtered.length})`;
 
-      // Compute stats
-      const totalActive = filtered.reduce((a, s) => a + (s.total_active_time || 0), 0);
-      const totalIdle   = filtered.reduce((a, s) => a + (s.total_idle_time   || 0), 0);
-      const totalKeys   = filtered.reduce((a, s) => a + (ksMap[s.session_id] || 0), 0);
 
-      // Render stats
-      const statsGrid = document.getElementById('usr-stats-grid');
-      if (statsGrid) {
-        statsGrid.innerHTML = `
-          <div class="stat-card accent">
-            <div class="stat-label">Total Sessions</div>
-            <div class="stat-value">${filtered.length}</div>
-            <div class="stat-sub">${subtitleMap[period] || 'All time'}</div>
-          </div>
-          <div class="stat-card success">
-            <div class="stat-label">Total Active Time</div>
-            <div class="stat-value" style="font-size:20px;">${sToHm(totalActive)}</div>
-            <div class="stat-sub">${filtered.length} session${filtered.length !== 1 ? 's' : ''}</div>
-          </div>
-          <div class="stat-card warning">
-            <div class="stat-label">Total Idle Time</div>
-            <div class="stat-value" style="font-size:20px;">${sToHm(totalIdle)}</div>
-            <div class="stat-sub">${filtered.length} session${filtered.length !== 1 ? 's' : ''}</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Total Keystrokes</div>
-            <div class="stat-value" style="font-size:20px;">${totalKeys.toLocaleString()}</div>
-            <div class="stat-sub">${filtered.length} session${filtered.length !== 1 ? 's' : ''}</div>
-          </div>`;
-      }
 
-      // Render table rows
+
+
+      // ── Group sessions by date ──────────────────────────
+      const grouped = {};
+      filtered.forEach(s => {
+        const dateKey = (s.date || (s.clock_in || '').slice(0, 10) || 'Unknown').slice(0, 10);
+        if (!grouped[dateKey]) grouped[dateKey] = [];
+        grouped[dateKey].push(s);
+      });
+
+      // Sort dates descending
+      const sortedDates = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
+
       const tbody = document.getElementById('usr-sessions-tbody');
       if (!tbody) return;
 
-      if (!filtered.length) {
-        tbody.innerHTML = `<tr><td colspan="9">
+      if (!sortedDates.length) {
+        tbody.innerHTML = `
           <div class="empty-state">
             <span class="empty-icon">📭</span>
             <span class="empty-title">No sessions found for this period</span>
             <span class="empty-sub">Try selecting a different filter</span>
-          </div>
-        </td></tr>`;
+          </div>`;
         return;
       }
 
-      tbody.innerHTML = filtered.map(s => `
-        <tr>
-          <td>${fmtDate(s.date || s.clock_in)}</td>
-          <td class="td-mono">${fmtTime(s.clock_in)}</td>
-          <td class="td-mono">
-            ${s.clock_out
-              ? fmtTime(s.clock_out)
-              : '<span class="text-success">Active</span>'}
-          </td>
-          <td class="text-success">${sToHm(s.total_active_time)}</td>
-          <td class="text-warning">${sToHm(s.total_idle_time)}</td>
-          <td class="td-muted">${esc(locStr(s))}</td>
-          <td>${(ksMap[s.session_id] || 0).toLocaleString()}</td>
-          <td>${statusBadge(s.session_status)}</td>
-          <td>
-            <button class="btn btn-ghost btn-sm"
-                    data-action="view-user-session"
-                    data-sid="${esc(s.session_id)}"
-                    data-page="${pageId}"
-                    data-back="${sessSubId}">
-              View
-            </button>
-          </td>
-        </tr>`).join('');
+      tbody.innerHTML = sortedDates.map(dateKey => {
+        const daySessions = grouped[dateKey];
+
+        // Day-level aggregates
+        const dayActive   = daySessions.reduce((a, s) => a + (s.total_active_time || 0), 0);
+        const dayIdle     = daySessions.reduce((a, s) => a + (s.total_idle_time   || 0), 0);
+        const dayTotal    = dayActive + dayIdle;
+        const dayKeys     = daySessions.reduce((a, s) => a + (ksMap[s.session_id] || 0), 0);
+        const firstClockin  = daySessions[daySessions.length - 1]?.clock_in;
+        const lastClockout  = daySessions[0]?.clock_out;
+        const hasActive     = daySessions.some(s => s.session_status === 'active');
+        const cardId        = `day-sessions-${dateKey.replace(/-/g, '')}`;
+
+        return `
+          <!-- Date Card -->
+          <div style="
+            background:var(--bg-surface);
+            border:1px solid var(--border);
+            border-radius:var(--radius-lg);
+            overflow:hidden;
+            transition:border-color .2s;
+          "
+          onmouseenter="this.style.borderColor='var(--border-light)'"
+          onmouseleave="this.style.borderColor='var(--border)'"
+          >
+            <!-- Card Header -->
+            <div style="
+              background:var(--bg-raised);
+              border-bottom:1px solid var(--border);
+              padding:16px 20px;
+              display:flex;
+              align-items:center;
+              justify-content:space-between;
+              gap:12px;
+              flex-wrap:wrap;
+            ">
+              <div style="display:flex;align-items:center;gap:12px;">
+                <div style="
+                  width:36px;height:36px;border-radius:var(--radius-sm);
+                  background:var(--accent-dim);border:1px solid var(--accent);
+                  display:flex;align-items:center;justify-content:center;
+                  font-size:16px;
+                ">📅</div>
+                <div>
+                  <div style="font-size:15px;font-weight:700;color:var(--text-primary);">
+                    ${fmtDate(dateKey)}
+                  </div>
+                  <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
+                    ${daySessions.length} session${daySessions.length !== 1 ? 's' : ''} this day
+                  </div>
+                </div>
+              </div>
+              ${hasActive
+                ? `<span class="badge badge-success">🟢 Active Now</span>`
+                : `<span class="badge badge-muted">Completed</span>`}
+            </div>
+
+            <!-- Card Body — Info Grid -->
+            <div style="padding:16px 20px;">
+              <div style="
+                display:grid;
+                grid-template-columns:repeat(auto-fill,minmax(160px,1fr));
+                gap:12px;
+                margin-bottom:16px;
+              ">
+                <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;">
+                  <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">🕐 Clock In</div>
+                  <div style="font-size:13px;font-weight:600;color:var(--text-primary);font-family:var(--font-mono);">
+                    ${firstClockin ? fmtTime(firstClockin) : '—'}
+                  </div>
+                </div>
+
+                <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;">
+                  <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">🕑 Clock Out</div>
+                  <div style="font-size:13px;font-weight:600;font-family:var(--font-mono);color:${hasActive ? 'var(--success)' : 'var(--text-primary)'};">
+                    ${hasActive ? 'Active' : (lastClockout ? fmtTime(lastClockout) : '—')}
+                  </div>
+                </div>
+
+                <div style="background:var(--bg-raised);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:var(--radius-sm);padding:10px 14px;">
+                  <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">⏱ Total Time</div>
+                  <div style="font-size:13px;font-weight:700;color:var(--accent);">
+                    ${sToHm(dayTotal)}
+                  </div>
+                </div>
+
+                <div style="background:var(--bg-raised);border:1px solid var(--border);border-left:3px solid var(--success);border-radius:var(--radius-sm);padding:10px 14px;">
+                  <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">⚡ Active Time</div>
+                  <div style="font-size:13px;font-weight:700;color:var(--success);">
+                    ${sToHm(dayActive)}
+                  </div>
+                </div>
+
+                <div style="background:var(--bg-raised);border:1px solid var(--border);border-left:3px solid var(--warning);border-radius:var(--radius-sm);padding:10px 14px;">
+                  <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">💤 Idle Time</div>
+                  <div style="font-size:13px;font-weight:700;color:var(--warning);">
+                    ${sToHm(dayIdle)}
+                  </div>
+                </div>
+
+                <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;">
+                  <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">⌨️ Keystrokes</div>
+                  <div style="font-size:13px;font-weight:700;color:var(--text-primary);">
+                    ${dayKeys.toLocaleString()}
+                  </div>
+                </div>
+
+                <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;">
+                  <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px;">📋 Sessions</div>
+                  <div style="font-size:13px;font-weight:700;color:var(--text-primary);">
+                    ${daySessions.length}
+                  </div>
+                </div>
+              </div>
+
+<!-- View Button -->
+              <div style="display:flex;justify-content:flex-end;">
+                <button
+                  class="btn btn-ghost btn-sm"
+                  data-action="toggle-day-sessions"
+                  data-card-id="${cardId}"
+                  style="display:flex;align-items:center;gap:6px;"
+                >
+                  📂 View Sessions
+                </button>
+              </div>
+
+              <!-- Expandable Sessions Table -->
+              <div id="${cardId}" class="hidden" style="margin-top:14px;">
+                <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:10px;">
+                  All Sessions on ${fmtDate(dateKey)}
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Clock In</th>
+                        <th>Clock Out</th>
+                        <th>Active</th>
+                        <th>Idle</th>
+                        <th>Keystrokes</th>
+                        <th>Status</th>
+                        <th>View</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${daySessions.map((s, idx) => `
+                        <tr>
+                          <td class="td-muted">${idx + 1}</td>
+                          <td class="td-mono">${fmtTime(s.clock_in)}</td>
+                          <td class="td-mono">
+                            ${s.clock_out
+                              ? fmtTime(s.clock_out)
+                              : '<span class="text-success">Active</span>'}
+                          </td>
+                          <td class="text-success">${sToHm(s.total_active_time)}</td>
+                          <td class="text-warning">${sToHm(s.total_idle_time)}</td>
+                          <td>${(ksMap[s.session_id] || 0).toLocaleString()}</td>
+                          <td>${statusBadge(s.session_status)}</td>
+                          <td>
+                            <button class="btn btn-ghost btn-sm"
+                                    data-action="view-user-session"
+                                    data-sid="${esc(s.session_id)}"
+                                    data-page="${pageId}"
+                                    data-back="${sessSubId}">
+                              View
+                            </button>
+                          </td>
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+            </div>
+          </div>`;
+      }).join('');
     }
 
+
     // Wire up filter events after DOM is ready
-    setTimeout(() => {
-      document.getElementById('usr-filter-period')?.addEventListener('change', applyFilter);
-      document.getElementById('usr-filter-month')?.addEventListener('change', applyFilter);
-      document.getElementById('usr-filter-day')?.addEventListener('change', applyFilter);
-      document.getElementById('usr-filter-year')?.addEventListener('change', applyFilter);
-      applyFilter(); // initial render with "All Time"
-    }, 0);
+setTimeout(() => {
+      const periodEl = document.getElementById('usr-filter-period');
+      const monthEl  = document.getElementById('usr-filter-month');
+      const dayEl    = document.getElementById('usr-filter-day');
+      const yearEl   = document.getElementById('usr-filter-year');
+
+      if (!periodEl) {
+        console.error('[openUserSessions] Filter elements not found in DOM');
+        return;
+      }
+
+      periodEl.addEventListener('change', applyFilter);
+      monthEl?.addEventListener('change', applyFilter);
+      dayEl?.addEventListener('change', applyFilter);
+      yearEl?.addEventListener('change', applyFilter);
+
+      applyFilter();
+    }, 50);
 
   } catch (e) {
     console.error('openUserSessions error:', e);
@@ -8245,12 +8994,12 @@ function fmtDate(v) {
 }
 function fmtTime(v) {
   if (!v) return '—';
-  try { return toUtc(v).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true,timeZone:'Asia/Kolkata'}); }
+  try { return toUtc(v).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true,timeZone:'Asia/Kolkata'}); }
   catch { return String(v); }
 }
 function fmtDateTime(v) {
   if (!v) return '—';
-  try { return toUtc(v).toLocaleString('en-IN',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true,timeZone:'Asia/Kolkata'}); }
+  try { return toUtc(v).toLocaleString('en-IN',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:true,timeZone:'Asia/Kolkata'}); }
   catch { return String(v); }
 }
 function pad(n)  { return String(n).padStart(2,'0'); }
@@ -8510,7 +9259,7 @@ window.API = {
 ====================================
 FILE: ./Desktop_App_electron/src/main/main.ts
 ====================================
-import { app, BrowserWindow, dialog } from 'electron';
+import { app, BrowserWindow, dialog, Tray, Menu, nativeImage } from 'electron';
 import * as path from 'path';
 import { createLoginWindow, createDashboardWindow, getMainWindow, setMainWindow } from './window';
 import { registerIpcHandlers } from './ipc';
@@ -8529,25 +9278,111 @@ app.on('second-instance', () => {
   if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
 });
 
-// ── Auto Updater Setup ────────────────────────────────────
+// ── State ─────────────────────────────────────────────────
+let _clockOutDone    = false;
+let _updateDownloaded = false;
+let _tray: Tray | null = null;
+let _forceQuit       = false;
+let _exiting         = false;
+
+export function isForceQuit(): boolean        { return _forceQuit; }
+export function isUpdateDownloaded(): boolean { return _updateDownloaded; }
+
+// ── Auto Launch ───────────────────────────────────────────
+function setupAutoLaunch(): void {
+  if (process.platform === 'linux') {
+    const fs   = require('fs');
+    const os   = require('os');
+    const autostartDir = path.join(os.homedir(), '.config', 'autostart');
+    const desktopFile  = path.join(autostartDir, 'av-devs-collab.desktop');
+    const execPath     = app.getPath('exe');
+    const desktopEntry = `[Desktop Entry]\nType=Application\nName=AV DEVS Collab\nExec=${execPath} --hidden\nHidden=false\nNoDisplay=false\nX-GNOME-Autostart-enabled=true\n`;
+    try {
+      if (!fs.existsSync(autostartDir)) fs.mkdirSync(autostartDir, { recursive: true });
+      fs.writeFileSync(desktopFile, desktopEntry, 'utf8');
+    } catch (e) {
+      console.error('[AutoLaunch] Failed to create autostart entry:', e);
+    }
+  } else {
+    app.setLoginItemSettings({
+      openAtLogin: true,
+      openAsHidden: true,
+      name: 'AV DEVS Collab',
+    });
+  }
+}
+
+// ── System Tray ───────────────────────────────────────────
+function setupTray(): void {
+  const iconPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'app', 'assets', 'icon.png')
+    : path.join(app.getAppPath(), 'assets', 'icon.png');
+
+  let trayIcon = nativeImage.createFromPath(iconPath);
+  trayIcon = trayIcon.resize({ width: 16, height: 16 });
+
+  _tray = new Tray(trayIcon);
+  _tray.setToolTip('AV DEVS Collab — Running');
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Open AV DEVS Collab',
+      click: () => {
+        const win = getMainWindow();
+        if (win) { win.show(); win.focus(); }
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit (Admin Only)',
+      click: async () => {
+        const win = getMainWindow();
+        const { response } = await dialog.showMessageBox(win!, {
+          type: 'warning',
+          title: 'Quit AV DEVS Collab',
+          message: 'Are you sure you want to quit?',
+          detail: 'Tracking will stop and your session will be clocked out.',
+          buttons: ['Cancel', 'Quit'],
+          defaultId: 0,
+          cancelId: 0,
+        });
+        if (response === 1) {
+          _forceQuit = true;
+          await forceClockOut();
+          app.quit();
+        }
+      },
+    },
+  ]);
+
+  _tray.setContextMenu(contextMenu);
+
+  _tray.on('click', () => {
+    const win = getMainWindow();
+    if (win) { win.show(); win.focus(); }
+  });
+
+  _tray.on('double-click', () => {
+    const win = getMainWindow();
+    if (win) { win.show(); win.focus(); }
+  });
+}
+
+// ── Auto Updater ──────────────────────────────────────────
 function setupAutoUpdater(): void {
-  // Disable auto download — we'll control when to install
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
-  // Set your GitHub repo
   autoUpdater.setFeedURL({
     provider: 'github',
     owner: 'CaptainArmandoSalazar',
     repo: 'employee-monitor-releases',
   });
 
-  // ── Update available ───────────────────────────────────
   autoUpdater.on('update-available', (info) => {
     console.log('[Updater] Update available:', info.version);
     const win = getMainWindow();
     if (!win) return;
-
     dialog.showMessageBox(win, {
       type: 'info',
       title: 'Update Available',
@@ -8557,18 +9392,14 @@ function setupAutoUpdater(): void {
       defaultId: 0,
       cancelId: 1,
     }).then(({ response }) => {
-      if (response === 0) {
-        autoUpdater.downloadUpdate();
-      }
+      if (response === 0) autoUpdater.downloadUpdate();
     });
   });
 
-  // ── No update ──────────────────────────────────────────
   autoUpdater.on('update-not-available', () => {
     console.log('[Updater] App is up to date.');
   });
 
-  // ── Download progress ──────────────────────────────────
   autoUpdater.on('download-progress', (progress) => {
     const win = getMainWindow();
     if (win) {
@@ -8578,17 +9409,14 @@ function setupAutoUpdater(): void {
     console.log(`[Updater] Download progress: ${Math.round(progress.percent)}%`);
   });
 
-  // ── Downloaded — ready to install ─────────────────────
   autoUpdater.on('update-downloaded', (info) => {
+    _updateDownloaded = true;
     console.log('[Updater] Update downloaded:', info.version);
     const win = getMainWindow();
-
-    // Reset progress bar and title
     if (win) {
       win.setProgressBar(-1);
       win.setTitle('AV DEVS Collab');
     }
-
     dialog.showMessageBox(win!, {
       type: 'info',
       title: 'Update Ready',
@@ -8599,7 +9427,6 @@ function setupAutoUpdater(): void {
       cancelId: 1,
     }).then(({ response }) => {
       if (response === 0) {
-        // Clock out before restarting
         forceClockOut().then(() => {
           autoUpdater.quitAndInstall(false, true);
         });
@@ -8607,20 +9434,16 @@ function setupAutoUpdater(): void {
     });
   });
 
-  // ── Error ──────────────────────────────────────────────
   autoUpdater.on('error', (err) => {
     console.error('[Updater] Error:', err?.message || err);
-    // Don't show dialog for update errors — just log silently
   });
 
-  // ── Check on startup (delay 10s to let app fully load) ─
   setTimeout(() => {
     autoUpdater.checkForUpdates().catch(err => {
       console.error('[Updater] Check failed:', err?.message);
     });
   }, 10_000);
 
-  // ── Check every 30 minutes while app is running ────────
   setInterval(() => {
     autoUpdater.checkForUpdates().catch(err => {
       console.error('[Updater] Periodic check failed:', err?.message);
@@ -8629,8 +9452,6 @@ function setupAutoUpdater(): void {
 }
 
 // ── Force clock-out ───────────────────────────────────────
-let _clockOutDone = false;
-
 async function forceClockOut(): Promise<void> {
   if (_clockOutDone) return;
   if (!sessionService.isClocked()) return;
@@ -8700,8 +9521,6 @@ async function forceClockOut(): Promise<void> {
 }
 
 // ── Exit handler ──────────────────────────────────────────
-let _exiting = false;
-
 async function handleExit(code: number = 0): Promise<void> {
   if (_exiting) return;
   _exiting = true;
@@ -8711,11 +9530,12 @@ async function handleExit(code: number = 0): Promise<void> {
 
 // ── App lifecycle ─────────────────────────────────────────
 app.whenReady().then(() => {
+  setupAutoLaunch();
   registerIpcHandlers();
   const win = createLoginWindow();
   setMainWindow(win);
+  setupTray();
 
-  // Start auto updater (only in production builds)
   if (app.isPackaged) {
     setupAutoUpdater();
   } else {
@@ -8723,7 +9543,9 @@ app.whenReady().then(() => {
   }
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    const win = getMainWindow();
+    if (win) { win.show(); win.focus(); }
+    else {
       const w = createLoginWindow();
       setMainWindow(w);
     }
@@ -8732,6 +9554,10 @@ app.whenReady().then(() => {
 
 // ── X button / app.quit() ────────────────────────────────
 app.on('before-quit', (event) => {
+  if (!_forceQuit) {
+    event.preventDefault();
+    return;
+  }
   if (_exiting || _clockOutDone || !sessionService.isClocked()) return;
   event.preventDefault();
   handleExit(0);
@@ -8739,13 +9565,7 @@ app.on('before-quit', (event) => {
 
 // ── All windows closed ────────────────────────────────────
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    if (sessionService.isClocked() && !_clockOutDone) {
-      handleExit(0);
-    } else {
-      app.quit();
-    }
-  }
+  // Do NOT quit — keep running in tray
 });
 
 // ── Ctrl+C in terminal ────────────────────────────────────
@@ -9563,6 +10383,7 @@ FILE: ./Desktop_App_electron/src/main/window.ts
 ====================================
 import { BrowserWindow } from 'electron';
 import * as path from 'path';
+import { isForceQuit } from './main';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -9573,13 +10394,10 @@ export function getMainWindow(): BrowserWindow | null {
 export function setMainWindow(win: BrowserWindow): void {
   mainWindow = win;
 
-  // ── Handle window close (X button) ───────────────────
-  // The 'close' event fires before before-quit.
-  // We let before-quit in main.ts handle the actual clock-out.
-  // This just ensures the window closing triggers app quit properly.
   win.on('close', (event) => {
-    // Let the app-level before-quit handler take care of clock-out
-    // Don't prevent default here — just let it propagate to before-quit
+    if (isForceQuit()) return; // allow real quit
+    event.preventDefault();
+    win.hide(); // hide to tray instead
   });
 }
 
@@ -9638,7 +10456,8 @@ export function closeAllWindows(): void {
 ====================================
 FILE: ./Desktop_App_electron/src/main/ipc.ts
 ====================================
-import { ipcMain, BrowserWindow } from 'electron';
+import { ipcMain, BrowserWindow, app } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import { authService } from './services/auth.service';
 import { sessionService } from './services/session.service';
 import { trackingService } from './services/tracking.service';
@@ -9646,6 +10465,7 @@ import { activityTracker } from './system/activity';
 import { getDeviceInfo } from './system/metrics';
 import { getNetworkInfo, getGeoInfo, getNetworkSpeed } from './system/network';
 import { createLoginWindow, createDashboardWindow, closeAllWindows, setMainWindow } from './window';
+import { isUpdateDownloaded } from './main';
 import { apiService } from './services/api.service';
 
 // ── Helper: wrap any API call and handle 401 gracefully ──
@@ -9731,9 +10551,10 @@ ipcMain.handle('auth:changeMyPassword', async (_event, currentPassword: string, 
     BrowserWindow.fromWebContents(event.sender)?.minimize();
   });
 
-  ipcMain.handle('nav:close', (event) => {
-    BrowserWindow.fromWebContents(event.sender)?.close();
-  });
+ipcMain.handle('nav:close', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win) win.hide(); // hide to tray, don't close
+});
 
   // ── Session ───────────────────────────────────────────
   ipcMain.handle('session:clockIn', async () => {
@@ -10055,6 +10876,57 @@ ipcMain.handle('admin:getSessions', async (_event, params: Record<string, string
   // ── System info ───────────────────────────────────────
   ipcMain.handle('system:getDeviceInfo',  () => getDeviceInfo());
   ipcMain.handle('system:getNetworkInfo', () => getNetworkInfo());
+ipcMain.handle('system:getAppVersion', () => {
+  const { app } = require('electron');
+  const fs   = require('fs');
+  const path = require('path');
+
+  const changelogPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'changelog.json')
+    : path.join(app.getAppPath(), 'changelog.json');
+
+  let history = [];
+  try {
+    const raw = fs.readFileSync(changelogPath, 'utf8');
+    history = JSON.parse(raw).history || [];
+  } catch (e) {
+    console.error('[Version] Could not read changelog.json:', e);
+  }
+
+  return {
+    current:           app.getVersion(),
+    history,
+    updateDownloaded:  isUpdateDownloaded(),
+    isPackaged:        app.isPackaged,
+  };
+});
+ipcMain.handle('system:downloadUpdate', async () => {
+  if (!app.isPackaged) {
+    return { ok: false, error: 'Auto-update only works in production builds' };
+  }
+  try {
+    await autoUpdater.downloadUpdate();
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || 'Download failed' };
+  }
+});
+
+ipcMain.handle('system:installUpdate', () => {
+  autoUpdater.quitAndInstall(false, true);
+});
+
+ipcMain.handle('system:checkForUpdates', async () => {
+  if (!app.isPackaged) {
+    return { ok: false, error: 'Dev mode' };
+  }
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    return { ok: true, hasUpdate: !!result?.updateInfo };
+  } catch (e: any) {
+    return { ok: false, error: e?.message };
+  }
+});
 }
 
 
@@ -10395,8 +11267,11 @@ globalKeyboard.start(async (count: number, raw?: string) => {
 });
 
     // ── Metrics 5s after start, then every 5 min ──────────
-    setTimeout(() => this.sendPeriodicMetrics(), 5_000);
-    _metricsInterval = setInterval(() => this.sendPeriodicMetrics(), 5 * 60_000);
+    setTimeout(() => this.sendCpuMemMetrics(), 5_000);
+    _metricsInterval = setInterval(() => this.sendCpuMemMetrics(), 5 * 60_000);
+
+    // Speed: first check at 5s (captures clock-in speed in logs), then every 1 hour
+    setInterval(() => this.sendSpeedMetrics(), 60 * 60_000);
 
     console.log('[Tracking] Started.');
   },
@@ -10446,20 +11321,26 @@ globalKeyboard.start(async (count: number, raw?: string) => {
     return Promise.resolve();
   },
 
-  async sendPeriodicMetrics(): Promise<void> {
+async sendCpuMemMetrics(): Promise<void> {
     const session = sessionService.getActiveSession();
     const token   = authService.getToken();
     if (!session || !token) return;
 
     const { getCpuUsage, getMemoryUsage } = await import('../system/metrics');
-    const { getNetworkSpeed }              = await import('../system/network');
-
     const [cpu, mem] = await Promise.all([getCpuUsage(), getMemoryUsage()]);
+
     await apiService.post('/tracking/system-metrics', {
       session_id: session.session_id, cpu_usage: cpu,
       memory_usage: mem, timestamp: nowIST(),
     }, token).catch(() => {});
+  },
 
+  async sendSpeedMetrics(): Promise<void> {
+    const session = sessionService.getActiveSession();
+    const token   = authService.getToken();
+    if (!session || !token) return;
+
+    const { getNetworkSpeed } = await import('../system/network');
     const speed = await getNetworkSpeed();
     _lastSpeed = speed;
 
@@ -10472,7 +11353,6 @@ globalKeyboard.start(async (count: number, raw?: string) => {
       upload_speed: speed.upload, ping: speed.ping, timestamp: nowIST(),
     }, t2).catch(() => {});
   },
-
   async flushBuffers(): Promise<void> {
     await Promise.allSettled([this.flushActivity(), this.flushWebsite()]);
   },

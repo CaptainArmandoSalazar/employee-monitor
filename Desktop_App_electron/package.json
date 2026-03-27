@@ -1,7 +1,7 @@
 {
-  "name": "employee-monitor-desktop",
-  "version": "1.0.14",
-  "description": "Employee Monitoring Desktop App",
+  "name": "av-devs-collab",
+  "version": "1.0.15",
+  "description": "AV Devs Collab",
   "main": "dist/main/main.js",
   "homepage": "https://avdevs.com",
   "author": {
@@ -37,8 +37,8 @@
     "uuid": "^9.0.0"
   },
   "build": {
-    "appId": "com.avdevs.employeemonitor",
-    "productName": "Employee-Monitor",
+    "appId": "com.avdevs.collab",
+    "productName": "AV Devs Collab",
     "directories": {
       "output": "release"
     },
@@ -54,7 +54,9 @@
       "dist/**/*",
       "src/renderer/**/*",
       "assets/**/*",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "changelog.json"
+
     ],
     "extraFiles": [
       {
@@ -85,8 +87,8 @@
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "extendInfo": {
-        "NSAccessibilityUsageDescription": "Employee Monitor needs accessibility access to track keystrokes for productivity monitoring.",
-        "NSScreenCaptureUsageDescription": "Employee Monitor needs screen recording access to track active windows."
+        "NSAccessibilityUsageDescription": "AV Devs Collab needs accessibility access to track keystrokes for productivity monitoring.",
+        "NSScreenCaptureUsageDescription": "AV Devs Collab needs screen recording access to track active windows."
       }
     },
     "linux": {
@@ -96,7 +98,7 @@
       ],
       "icon": "assets/icon.png",
       "category": "Utility",
-      "executableName": "employee-monitor",
+      "executableName": "av-devs-collab",
       "maintainer": "AvDevs <admin@avdevs.com>"
     },
     "nsis": {

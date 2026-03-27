@@ -51,6 +51,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── System ───────────────────────────────────────────
   getDeviceInfo:  () => ipcRenderer.invoke('system:getDeviceInfo'),
   getNetworkInfo: () => ipcRenderer.invoke('system:getNetworkInfo'),
+  getAppVersion:    () => ipcRenderer.invoke('system:getAppVersion'),
+  downloadUpdate:   () => ipcRenderer.invoke('system:downloadUpdate'),
+  installUpdate:    () => ipcRenderer.invoke('system:installUpdate'),
+  checkForUpdates:  () => ipcRenderer.invoke('system:checkForUpdates'),
 
   // ── Admin: Assign manager ─────────────────────────────────
   assignManager: (empId: string, managerId: string) => ipcRenderer.invoke('admin:assignManager', empId, managerId),

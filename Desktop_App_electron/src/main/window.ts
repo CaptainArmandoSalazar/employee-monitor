@@ -1,5 +1,6 @@
 import { BrowserWindow } from 'electron';
 import * as path from 'path';
+import { isForceQuit } from './main';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -10,13 +11,10 @@ export function getMainWindow(): BrowserWindow | null {
 export function setMainWindow(win: BrowserWindow): void {
   mainWindow = win;
 
-  // ── Handle window close (X button) ───────────────────
-  // The 'close' event fires before before-quit.
-  // We let before-quit in main.ts handle the actual clock-out.
-  // This just ensures the window closing triggers app quit properly.
   win.on('close', (event) => {
-    // Let the app-level before-quit handler take care of clock-out
-    // Don't prevent default here — just let it propagate to before-quit
+    if (isForceQuit() || (win as any)._allowClose) return; // allow real quit or logout
+    event.preventDefault();
+    win.hide(); // hide to tray instead
   });
 }
 
@@ -68,5 +66,8 @@ export function createDashboardWindow(): BrowserWindow {
 }
 
 export function closeAllWindows(): void {
-  BrowserWindow.getAllWindows().forEach(w => w.close());
+  BrowserWindow.getAllWindows().forEach(w => {
+    (w as any)._allowClose = true;
+    w.close();
+  });
 }

@@ -1,4 +1,5 @@
-import { ipcMain, BrowserWindow } from 'electron';
+import { ipcMain, BrowserWindow, app } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import { authService } from './services/auth.service';
 import { sessionService } from './services/session.service';
 import { trackingService } from './services/tracking.service';
@@ -6,6 +7,7 @@ import { activityTracker } from './system/activity';
 import { getDeviceInfo } from './system/metrics';
 import { getNetworkInfo, getGeoInfo, getNetworkSpeed } from './system/network';
 import { createLoginWindow, createDashboardWindow, closeAllWindows, setMainWindow } from './window';
+import { isUpdateDownloaded } from './main';
 import { apiService } from './services/api.service';
 
 // ── Helper: wrap any API call and handle 401 gracefully ──
@@ -58,12 +60,18 @@ ipcMain.handle('auth:changeMyPassword', async (_event, currentPassword: string, 
     return { success: true };
   });
 
-  ipcMain.handle('nav:showLogin', () => {
+ipcMain.handle('nav:showLogin', () => {
     activityTracker.stop();
     trackingService.stop();
     authService.logout();
     sessionService.clearState();
-    closeAllWindows();
+
+    // Mark all windows as allowed to close (bypass tray-hide)
+    BrowserWindow.getAllWindows().forEach(w => {
+      (w as any)._allowClose = true;
+      w.close();
+    });
+
     const win = createLoginWindow();
     setMainWindow(win);
     return { success: true };
@@ -91,9 +99,10 @@ ipcMain.handle('auth:changeMyPassword', async (_event, currentPassword: string, 
     BrowserWindow.fromWebContents(event.sender)?.minimize();
   });
 
-  ipcMain.handle('nav:close', (event) => {
-    BrowserWindow.fromWebContents(event.sender)?.close();
-  });
+ipcMain.handle('nav:close', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win) win.hide(); // hide to tray, don't close
+});
 
   // ── Session ───────────────────────────────────────────
   ipcMain.handle('session:clockIn', async () => {
@@ -415,4 +424,55 @@ ipcMain.handle('admin:getSessions', async (_event, params: Record<string, string
   // ── System info ───────────────────────────────────────
   ipcMain.handle('system:getDeviceInfo',  () => getDeviceInfo());
   ipcMain.handle('system:getNetworkInfo', () => getNetworkInfo());
+ipcMain.handle('system:getAppVersion', () => {
+  const { app } = require('electron');
+  const fs   = require('fs');
+  const path = require('path');
+
+  const changelogPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'changelog.json')
+    : path.join(app.getAppPath(), 'changelog.json');
+
+  let history = [];
+  try {
+    const raw = fs.readFileSync(changelogPath, 'utf8');
+    history = JSON.parse(raw).history || [];
+  } catch (e) {
+    console.error('[Version] Could not read changelog.json:', e);
+  }
+
+  return {
+    current:           app.getVersion(),
+    history,
+    updateDownloaded:  isUpdateDownloaded(),
+    isPackaged:        app.isPackaged,
+  };
+});
+ipcMain.handle('system:downloadUpdate', async () => {
+  if (!app.isPackaged) {
+    return { ok: false, error: 'Auto-update only works in production builds' };
+  }
+  try {
+    await autoUpdater.downloadUpdate();
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || 'Download failed' };
+  }
+});
+
+ipcMain.handle('system:installUpdate', () => {
+  autoUpdater.quitAndInstall(false, true);
+});
+
+ipcMain.handle('system:checkForUpdates', async () => {
+  if (!app.isPackaged) {
+    return { ok: false, error: 'Dev mode' };
+  }
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    return { ok: true, hasUpdate: !!result?.updateInfo };
+  } catch (e: any) {
+    return { ok: false, error: e?.message };
+  }
+});
 }
