@@ -67,11 +67,38 @@ jobs:
           # Upload mac files
           for file in release/*; do
             if [ -f "$file" ]; then
-              echo "Uploading $file"
+              FILENAME=$(basename "$file")
+
+              echo "Checking if $FILENAME exists..."
+
+              # Get existing assets
+              ASSETS=$(curl -s \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets")
+
+              # Find asset ID
+              ASSET_ID=$(echo $ASSETS | python3 -c "
+          import sys, json
+          data=json.load(sys.stdin)
+          for a in data:
+              if a['name']=='$FILENAME':
+                  print(a['id'])
+          ")
+
+              # Delete if exists
+              if [ ! -z "$ASSET_ID" ]; then
+                echo "Deleting existing asset $FILENAME"
+                curl -s -X DELETE \
+                  -H "Authorization: Bearer $GH_TOKEN" \
+                  "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/assets/$ASSET_ID"
+              fi
+
+              # Upload fresh file
+              echo "Uploading $FILENAME"
               curl -s -X POST \
                 -H "Authorization: Bearer $GH_TOKEN" \
                 -H "Content-Type: application/octet-stream" \
-                "https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?name=$(basename $file)" \
+                "https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?name=$FILENAME" \
                 --data-binary @"$file"
             fi
           done

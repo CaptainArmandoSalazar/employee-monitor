@@ -1,5 +1,12 @@
 {
   "history": [
+        {
+      "version": "v1.0.17",
+      "date": "2026-03-27",
+      "changes": [
+            "Version Issue solved"
+      ]
+    },
     {
       "version": "v1.0.16",
       "date": "2026-03-27",
