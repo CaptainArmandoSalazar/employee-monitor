@@ -99,10 +99,9 @@ ipcMain.handle('nav:showLogin', () => {
     BrowserWindow.fromWebContents(event.sender)?.minimize();
   });
 
-ipcMain.handle('nav:close', (event) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (win) win.hide(); // hide to tray, don't close
-});
+  ipcMain.handle('nav:close', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.close();
+  });
 
   // ── Session ───────────────────────────────────────────
   ipcMain.handle('session:clockIn', async () => {

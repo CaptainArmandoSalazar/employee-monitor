@@ -236,8 +236,10 @@ function showSub(pageId, subId) {
 // ══════════════════════════════════════════════════════════
 function bindWindowControls() {
   g('btn-minimize').addEventListener('click', () => api.minimize());
-  g('btn-close').addEventListener('click', () => {
-    // Just hide to tray — don't clock out
+  g('btn-close').addEventListener('click', async () => {
+    if (await api.isClocked()) {
+      if (confirm('You are clocked in. Clock out before closing?')) await doClockOut();
+    }
     api.closeWindow();
   });
 }

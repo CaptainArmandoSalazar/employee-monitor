@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, Tray, Menu, nativeImage } from 'electron';
+import { app, BrowserWindow, dialog } from 'electron';
 import * as path from 'path';
 import { createLoginWindow, createDashboardWindow, getMainWindow, setMainWindow } from './window';
 import { registerIpcHandlers } from './ipc';
@@ -17,111 +17,25 @@ app.on('second-instance', () => {
   if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
 });
 
-// ── State ─────────────────────────────────────────────────
-let _clockOutDone    = false;
-let _updateDownloaded = false;
-let _tray: Tray | null = null;
-let _forceQuit       = false;
-let _exiting         = false;
-
-export function isForceQuit(): boolean        { return _forceQuit; }
-export function isUpdateDownloaded(): boolean { return _updateDownloaded; }
-
-// ── Auto Launch ───────────────────────────────────────────
-function setupAutoLaunch(): void {
-  if (process.platform === 'linux') {
-    const fs   = require('fs');
-    const os   = require('os');
-    const autostartDir = path.join(os.homedir(), '.config', 'autostart');
-    const desktopFile  = path.join(autostartDir, 'av-devs-collab.desktop');
-    const execPath     = app.getPath('exe');
-    const desktopEntry = `[Desktop Entry]\nType=Application\nName=AV DEVS Collab\nExec=${execPath} --hidden\nHidden=false\nNoDisplay=false\nX-GNOME-Autostart-enabled=true\n`;
-    try {
-      if (!fs.existsSync(autostartDir)) fs.mkdirSync(autostartDir, { recursive: true });
-      fs.writeFileSync(desktopFile, desktopEntry, 'utf8');
-    } catch (e) {
-      console.error('[AutoLaunch] Failed to create autostart entry:', e);
-    }
-  } else {
-    app.setLoginItemSettings({
-      openAtLogin: true,
-      openAsHidden: true,
-      name: 'AV DEVS Collab',
-    });
-  }
-}
-
-// ── System Tray ───────────────────────────────────────────
-function setupTray(): void {
-  const iconPath = app.isPackaged
-    ? path.join(process.resourcesPath, 'app', 'assets', 'icon.png')
-    : path.join(app.getAppPath(), 'assets', 'icon.png');
-
-  let trayIcon = nativeImage.createFromPath(iconPath);
-  trayIcon = trayIcon.resize({ width: 16, height: 16 });
-
-  _tray = new Tray(trayIcon);
-  _tray.setToolTip('AV DEVS Collab — Running');
-
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: 'Open AV DEVS Collab',
-      click: () => {
-        const win = getMainWindow();
-        if (win) { win.show(); win.focus(); }
-      },
-    },
-    { type: 'separator' },
-    {
-      label: 'Quit (Admin Only)',
-      click: async () => {
-        const win = getMainWindow();
-        const { response } = await dialog.showMessageBox(win!, {
-          type: 'warning',
-          title: 'Quit AV DEVS Collab',
-          message: 'Are you sure you want to quit?',
-          detail: 'Tracking will stop and your session will be clocked out.',
-          buttons: ['Cancel', 'Quit'],
-          defaultId: 0,
-          cancelId: 0,
-        });
-        if (response === 1) {
-          _forceQuit = true;
-          await forceClockOut();
-          app.quit();
-        }
-      },
-    },
-  ]);
-
-  _tray.setContextMenu(contextMenu);
-
-  _tray.on('click', () => {
-    const win = getMainWindow();
-    if (win) { win.show(); win.focus(); }
-  });
-
-  _tray.on('double-click', () => {
-    const win = getMainWindow();
-    if (win) { win.show(); win.focus(); }
-  });
-}
-
-// ── Auto Updater ──────────────────────────────────────────
+// ── Auto Updater Setup ────────────────────────────────────
 function setupAutoUpdater(): void {
+  // Disable auto download — we'll control when to install
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
+  // Set your GitHub repo
   autoUpdater.setFeedURL({
     provider: 'github',
     owner: 'CaptainArmandoSalazar',
     repo: 'employee-monitor-releases',
   });
 
+  // ── Update available ───────────────────────────────────
   autoUpdater.on('update-available', (info) => {
     console.log('[Updater] Update available:', info.version);
     const win = getMainWindow();
     if (!win) return;
+
     dialog.showMessageBox(win, {
       type: 'info',
       title: 'Update Available',
@@ -131,14 +45,18 @@ function setupAutoUpdater(): void {
       defaultId: 0,
       cancelId: 1,
     }).then(({ response }) => {
-      if (response === 0) autoUpdater.downloadUpdate();
+      if (response === 0) {
+        autoUpdater.downloadUpdate();
+      }
     });
   });
 
+  // ── No update ──────────────────────────────────────────
   autoUpdater.on('update-not-available', () => {
     console.log('[Updater] App is up to date.');
   });
 
+  // ── Download progress ──────────────────────────────────
   autoUpdater.on('download-progress', (progress) => {
     const win = getMainWindow();
     if (win) {
@@ -148,14 +66,18 @@ function setupAutoUpdater(): void {
     console.log(`[Updater] Download progress: ${Math.round(progress.percent)}%`);
   });
 
+  // ── Downloaded — ready to install ─────────────────────
   autoUpdater.on('update-downloaded', (info) => {
-    _updateDownloaded = true;
+    _updateDownloaded = true;  // ← ADD THIS
     console.log('[Updater] Update downloaded:', info.version);
     const win = getMainWindow();
+
+    // Reset progress bar and title
     if (win) {
       win.setProgressBar(-1);
       win.setTitle('AV DEVS Collab');
     }
+
     dialog.showMessageBox(win!, {
       type: 'info',
       title: 'Update Ready',
@@ -166,6 +88,7 @@ function setupAutoUpdater(): void {
       cancelId: 1,
     }).then(({ response }) => {
       if (response === 0) {
+        // Clock out before restarting
         forceClockOut().then(() => {
           autoUpdater.quitAndInstall(false, true);
         });
@@ -173,16 +96,20 @@ function setupAutoUpdater(): void {
     });
   });
 
+  // ── Error ──────────────────────────────────────────────
   autoUpdater.on('error', (err) => {
     console.error('[Updater] Error:', err?.message || err);
+    // Don't show dialog for update errors — just log silently
   });
 
+  // ── Check on startup (delay 10s to let app fully load) ─
   setTimeout(() => {
     autoUpdater.checkForUpdates().catch(err => {
       console.error('[Updater] Check failed:', err?.message);
     });
   }, 10_000);
 
+  // ── Check every 30 minutes while app is running ────────
   setInterval(() => {
     autoUpdater.checkForUpdates().catch(err => {
       console.error('[Updater] Periodic check failed:', err?.message);
@@ -191,6 +118,11 @@ function setupAutoUpdater(): void {
 }
 
 // ── Force clock-out ───────────────────────────────────────
+let _clockOutDone = false;
+let _updateDownloaded = false;
+
+// Export so ipc.ts can check it
+export function isUpdateDownloaded(): boolean { return _updateDownloaded; }
 async function forceClockOut(): Promise<void> {
   if (_clockOutDone) return;
   if (!sessionService.isClocked()) return;
@@ -260,6 +192,8 @@ async function forceClockOut(): Promise<void> {
 }
 
 // ── Exit handler ──────────────────────────────────────────
+let _exiting = false;
+
 async function handleExit(code: number = 0): Promise<void> {
   if (_exiting) return;
   _exiting = true;
@@ -269,12 +203,11 @@ async function handleExit(code: number = 0): Promise<void> {
 
 // ── App lifecycle ─────────────────────────────────────────
 app.whenReady().then(() => {
-  setupAutoLaunch();
   registerIpcHandlers();
   const win = createLoginWindow();
   setMainWindow(win);
-  setupTray();
 
+  // Start auto updater (only in production builds)
   if (app.isPackaged) {
     setupAutoUpdater();
   } else {
@@ -282,9 +215,7 @@ app.whenReady().then(() => {
   }
 
   app.on('activate', () => {
-    const win = getMainWindow();
-    if (win) { win.show(); win.focus(); }
-    else {
+    if (BrowserWindow.getAllWindows().length === 0) {
       const w = createLoginWindow();
       setMainWindow(w);
     }
@@ -293,10 +224,6 @@ app.whenReady().then(() => {
 
 // ── X button / app.quit() ────────────────────────────────
 app.on('before-quit', (event) => {
-  if (!_forceQuit) {
-    event.preventDefault();
-    return;
-  }
   if (_exiting || _clockOutDone || !sessionService.isClocked()) return;
   event.preventDefault();
   handleExit(0);
@@ -304,7 +231,13 @@ app.on('before-quit', (event) => {
 
 // ── All windows closed ────────────────────────────────────
 app.on('window-all-closed', () => {
-  // Do NOT quit — keep running in tray
+  if (process.platform !== 'darwin') {
+    if (sessionService.isClocked() && !_clockOutDone) {
+      handleExit(0);
+    } else {
+      app.quit();
+    }
+  }
 });
 
 // ── Ctrl+C in terminal ────────────────────────────────────

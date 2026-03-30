@@ -1,6 +1,16 @@
 {
   "history": [
     {
+      "version": "v1.0.25",
+      "date": "2026-04-05",
+      "changes": [
+        "Added real-time active window tracking",
+        "Improved screenshot compression to reduce upload size",
+        "Fixed crash on app minimize in Linux",
+        "Optimized background sync performance"
+      ]
+    },
+    {
       "version": "v1.0.24",
       "date": "2026-04-05",
       "changes": [
