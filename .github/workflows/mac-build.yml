@@ -219,7 +219,7 @@ jobs:
             if [ -f "$file" ]; then
               FILENAME=$(basename "$file")
               case "$FILENAME" in
-                *.AppImage|*.deb)
+                *.AppImage|*.deb|latest-linux.yml)
                   delete_and_upload "$RELEASE_ID" "$file"
                   ;;
                 *)
@@ -323,7 +323,7 @@ jobs:
             if [ -f "$file" ]; then
               FILENAME=$(basename "$file")
               case "$FILENAME" in
-                *.exe|*.exe.blockmap)
+                *.exe|*.exe.blockmap|latest.yml)
                   delete_and_upload "$RELEASE_ID" "$file"
                   ;;
                 *)
