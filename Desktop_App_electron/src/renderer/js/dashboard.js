@@ -749,7 +749,7 @@ async function loadSettings() {
 
     // ── Click card → show full changelog ──────────────────
     g('version-summary-card').addEventListener('click', () => {
-      showFullChangelog(current, history, info.updateDownloaded);
+      showFullChangelog(current, history, info.updateDownloaded, info.updateAvailableVersion);
     });
     // Wire download/install buttons on card view
     const dlCardBtn = g('btn-download-card');
@@ -770,11 +770,13 @@ async function loadSettings() {
 }
 
 // ── Full Changelog View ───────────────────────────────────
-function showFullChangelog(current, history, updateDownloaded = false) {
+function showFullChangelog(current, history, updateDownloaded = false, updateAvailableVersion = null) {
   const container = g('settings-version-content');
   const latest = history[0] || {};
   const older = history.slice(1);
-  const latestClean = (latest.version || '').replace('v', '');
+  const latestClean = updateAvailableVersion 
+    ? updateAvailableVersion 
+    : (latest.version || '').replace('v', '');
   const isOutdated = latestClean && current !== latestClean;
 
   container.innerHTML = `
