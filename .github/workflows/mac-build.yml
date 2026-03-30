@@ -26,7 +26,8 @@ jobs:
       - run: npm run build
         working-directory: Desktop_App_electron
 
-      - run: npx electron-builder --mac dmg --x64 --publish never
+      # ✅ FIX: Use ZIP instead of DMG (DMG fails on mac runners)
+      - run: npx electron-builder --mac zip --x64 --publish never
         working-directory: Desktop_App_electron
 
       - name: Create Release + Upload Mac
@@ -34,6 +35,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
+          set -e
+
           delete_and_upload() {
             local RELEASE_ID=$1
             local file=$2
@@ -43,34 +46,17 @@ jobs:
             echo "---"
             echo "📁 Processing: $FILENAME"
 
-            # Fetch ALL assets (per_page=100 avoids pagination issues)
             ASSETS_JSON=$(curl -s \
               -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?per_page=100")
 
-            echo "Assets on release: $(echo "$ASSETS_JSON" | jq -r '.[].name' 2>/dev/null || echo 'none')"
-
-            # Use for loop instead of | while (avoids subshell exit code leak)
             for ASSET_ID in $(echo "$ASSETS_JSON" | jq -r ".[] | select(.name == \"$FILENAME\") | .id"); do
-              echo "🗑️ Deleting asset ID: $ASSET_ID"
               curl -s -o /dev/null -X DELETE \
                 -H "Authorization: Bearer $GH_TOKEN" \
                 "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/assets/$ASSET_ID"
             done
 
-            echo "⏳ Waiting 8s for GitHub to process deletions..."
-            sleep 8
-
-            # Verify deletion
-            STILL_EXISTS=$(curl -s \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?per_page=100" \
-              | jq -r ".[] | select(.name == \"$FILENAME\") | .id")
-
-            if [ -n "$STILL_EXISTS" ]; then
-              echo "⚠️ Asset still exists, waiting 10 more seconds..."
-              sleep 10
-            fi
+            sleep 5
 
             echo "⬆️ Uploading $FILENAME..."
             HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
@@ -79,42 +65,29 @@ jobs:
               "https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?name=$ENCODED_NAME" \
               --data-binary @"$file")
 
-            echo "Upload HTTP status: $HTTP_STATUS"
-
-            if [ "$HTTP_STATUS" = "201" ]; then
-              echo "✅ Uploaded $FILENAME"
-            else
-              echo "❌ Upload failed for $FILENAME with status $HTTP_STATUS"
+            if [ "$HTTP_STATUS" != "201" ]; then
+              echo "❌ Upload failed"
               exit 1
             fi
           }
 
           VERSION=$(node -p "require('./package.json').version")
-          echo "📦 Version: $VERSION"
 
-          RELEASE_RESPONSE=$(curl -s \
+          RELEASE_ID=$(curl -s \
             -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/tags/v$VERSION")
-
-          RELEASE_ID=$(echo "$RELEASE_RESPONSE" | jq -r '.id // empty')
+            "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/tags/v$VERSION" \
+            | jq -r '.id // empty')
 
           if [ -z "$RELEASE_ID" ]; then
-            echo "Creating new release v$VERSION..."
-            CREATE_RESPONSE=$(curl -s -X POST \
+            RELEASE_ID=$(curl -s -X POST \
               -H "Authorization: Bearer $GH_TOKEN" \
               -H "Content-Type: application/json" \
               "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases" \
-              -d "{\"tag_name\":\"v$VERSION\",\"name\":\"v$VERSION\",\"draft\":false,\"prerelease\":false}")
-            echo "Create response: $CREATE_RESPONSE"
-            RELEASE_ID=$(echo "$CREATE_RESPONSE" | jq -r '.id // empty')
-          else
-            echo "✅ Release already exists: $RELEASE_ID"
+              -d "{\"tag_name\":\"v$VERSION\",\"name\":\"v$VERSION\"}" \
+              | jq -r '.id')
           fi
 
-          if [ -z "$RELEASE_ID" ]; then
-            echo "❌ Failed to get or create release ID."
-            exit 1
-          fi
+          ls release
 
           for file in release/*; do
             [ -f "$file" ] && delete_and_upload "$RELEASE_ID" "$file"
@@ -123,7 +96,6 @@ jobs:
 
   build-linux:
     runs-on: ubuntu-latest
-    needs: build-mac
 
     steps:
       - uses: actions/checkout@v5
@@ -151,81 +123,29 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          delete_and_upload() {
-            local RELEASE_ID=$1
-            local file=$2
-            local FILENAME=$(basename "$file")
-            local ENCODED_NAME=$(python3 -c "import urllib.parse; print(urllib.parse.quote('''$FILENAME'''))")
-
-            echo "---"
-            echo "📁 Processing: $FILENAME"
-
-            ASSETS_JSON=$(curl -s \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?per_page=100")
-
-            echo "Assets on release: $(echo "$ASSETS_JSON" | jq -r '.[].name' 2>/dev/null || echo 'none')"
-
-            for ASSET_ID in $(echo "$ASSETS_JSON" | jq -r ".[] | select(.name == \"$FILENAME\") | .id"); do
-              echo "🗑️ Deleting asset ID: $ASSET_ID"
-              curl -s -o /dev/null -X DELETE \
-                -H "Authorization: Bearer $GH_TOKEN" \
-                "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/assets/$ASSET_ID"
-            done
-
-            echo "⏳ Waiting 8s for GitHub to process deletions..."
-            sleep 8
-
-            STILL_EXISTS=$(curl -s \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?per_page=100" \
-              | jq -r ".[] | select(.name == \"$FILENAME\") | .id")
-
-            if [ -n "$STILL_EXISTS" ]; then
-              echo "⚠️ Asset still exists, waiting 10 more seconds..."
-              sleep 10
-            fi
-
-            echo "⬆️ Uploading $FILENAME..."
-            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Content-Type: application/octet-stream" \
-              "https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?name=$ENCODED_NAME" \
-              --data-binary @"$file")
-
-            echo "Upload HTTP status: $HTTP_STATUS"
-
-            if [ "$HTTP_STATUS" = "201" ]; then
-              echo "✅ Uploaded $FILENAME"
-            else
-              echo "❌ Upload failed for $FILENAME with status $HTTP_STATUS"
-              exit 1
-            fi
-          }
+          set -e
 
           VERSION=$(node -p "require('./package.json').version")
-          echo "📦 Version: $VERSION"
 
           RELEASE_ID=$(curl -s \
             -H "Authorization: Bearer $GH_TOKEN" \
             "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/tags/v$VERSION" \
-            | jq -r '.id // empty')
+            | jq -r '.id')
 
-          if [ -z "$RELEASE_ID" ]; then
-            echo "❌ Release not found for v$VERSION"
-            exit 1
-          fi
-
-          echo "✅ Found release: $RELEASE_ID"
+          ls release
 
           for file in release/*; do
-            [ -f "$file" ] && delete_and_upload "$RELEASE_ID" "$file"
+            [ -f "$file" ] && \
+            curl -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              "https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?name=$(basename $file)" \
+              --data-binary @"$file"
           done
 
 
   build-windows:
     runs-on: windows-latest
-    needs: build-mac
 
     steps:
       - uses: actions/checkout@v5
@@ -251,73 +171,22 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          delete_and_upload() {
-            local RELEASE_ID=$1
-            local file=$2
-            local FILENAME=$(basename "$file")
-            local ENCODED_NAME=$(python3 -c "import urllib.parse; print(urllib.parse.quote('''$FILENAME'''))")
-
-            echo "---"
-            echo "📁 Processing: $FILENAME"
-
-            ASSETS_JSON=$(curl -s \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?per_page=100")
-
-            echo "Assets on release: $(echo "$ASSETS_JSON" | jq -r '.[].name' 2>/dev/null || echo 'none')"
-
-            for ASSET_ID in $(echo "$ASSETS_JSON" | jq -r ".[] | select(.name == \"$FILENAME\") | .id"); do
-              echo "🗑️ Deleting asset ID: $ASSET_ID"
-              curl -s -o /dev/null -X DELETE \
-                -H "Authorization: Bearer $GH_TOKEN" \
-                "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/assets/$ASSET_ID"
-            done
-
-            echo "⏳ Waiting 8s for GitHub to process deletions..."
-            sleep 8
-
-            STILL_EXISTS=$(curl -s \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?per_page=100" \
-              | jq -r ".[] | select(.name == \"$FILENAME\") | .id")
-
-            if [ -n "$STILL_EXISTS" ]; then
-              echo "⚠️ Asset still exists, waiting 10 more seconds..."
-              sleep 10
-            fi
-
-            echo "⬆️ Uploading $FILENAME..."
-            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Content-Type: application/octet-stream" \
-              "https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?name=$ENCODED_NAME" \
-              --data-binary @"$file")
-
-            echo "Upload HTTP status: $HTTP_STATUS"
-
-            if [ "$HTTP_STATUS" = "201" ]; then
-              echo "✅ Uploaded $FILENAME"
-            else
-              echo "❌ Upload failed for $FILENAME with status $HTTP_STATUS"
-              exit 1
-            fi
-          }
+          set -e
 
           VERSION=$(node -p "require('./package.json').version")
-          echo "📦 Version: $VERSION"
 
           RELEASE_ID=$(curl -s \
             -H "Authorization: Bearer $GH_TOKEN" \
             "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/tags/v$VERSION" \
-            | jq -r '.id // empty')
+            | jq -r '.id')
 
-          if [ -z "$RELEASE_ID" ]; then
-            echo "❌ Release not found for v$VERSION"
-            exit 1
-          fi
-
-          echo "✅ Found release: $RELEASE_ID"
+          ls release
 
           for file in release/*; do
-            [ -f "$file" ] && delete_and_upload "$RELEASE_ID" "$file"
+            [ -f "$file" ] && \
+            curl -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              "https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?name=$(basename $file)" \
+              --data-binary @"$file"
           done
