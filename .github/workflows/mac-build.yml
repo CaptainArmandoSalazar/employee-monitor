@@ -44,37 +44,34 @@ jobs:
             echo "📁 Processing: $FILENAME"
 
             # Fetch ALL assets (per_page=100 avoids pagination issues)
-            ASSETS_RESPONSE=$(curl -s \
+            ASSETS_JSON=$(curl -s \
               -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?per_page=100")
 
-            echo "Assets found: $(echo "$ASSETS_RESPONSE" | jq -r '.[].name' 2>/dev/null || echo 'none')"
+            echo "Assets on release: $(echo "$ASSETS_JSON" | jq -r '.[].name' 2>/dev/null || echo 'none')"
 
-            # Delete ALL assets matching this filename (handles duplicates)
-            echo "$ASSETS_RESPONSE" | jq -r ".[] | select(.name == \"$FILENAME\") | .id" | while read ASSET_ID; do
-              if [ -n "$ASSET_ID" ]; then
-                echo "🗑️ Deleting asset ID: $ASSET_ID"
-                curl -s -o /dev/null -X DELETE \
-                  -H "Authorization: Bearer $GH_TOKEN" \
-                  "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/assets/$ASSET_ID"
-              fi
+            # Use for loop instead of | while (avoids subshell exit code leak)
+            for ASSET_ID in $(echo "$ASSETS_JSON" | jq -r ".[] | select(.name == \"$FILENAME\") | .id"); do
+              echo "🗑️ Deleting asset ID: $ASSET_ID"
+              curl -s -o /dev/null -X DELETE \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/assets/$ASSET_ID"
             done
 
             echo "⏳ Waiting 8s for GitHub to process deletions..."
             sleep 8
 
             # Verify deletion
-            VERIFY=$(curl -s \
+            STILL_EXISTS=$(curl -s \
               -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?per_page=100" \
               | jq -r ".[] | select(.name == \"$FILENAME\") | .id")
 
-            if [ -n "$VERIFY" ]; then
-              echo "⚠️ Asset still exists after delete (ID: $VERIFY), waiting more..."
+            if [ -n "$STILL_EXISTS" ]; then
+              echo "⚠️ Asset still exists, waiting 10 more seconds..."
               sleep 10
             fi
 
-            # Upload
             echo "⬆️ Uploading $FILENAME..."
             HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
               -H "Authorization: Bearer $GH_TOKEN" \
@@ -163,31 +160,29 @@ jobs:
             echo "---"
             echo "📁 Processing: $FILENAME"
 
-            ASSETS_RESPONSE=$(curl -s \
+            ASSETS_JSON=$(curl -s \
               -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?per_page=100")
 
-            echo "Assets found: $(echo "$ASSETS_RESPONSE" | jq -r '.[].name' 2>/dev/null || echo 'none')"
+            echo "Assets on release: $(echo "$ASSETS_JSON" | jq -r '.[].name' 2>/dev/null || echo 'none')"
 
-            echo "$ASSETS_RESPONSE" | jq -r ".[] | select(.name == \"$FILENAME\") | .id" | while read ASSET_ID; do
-              if [ -n "$ASSET_ID" ]; then
-                echo "🗑️ Deleting asset ID: $ASSET_ID"
-                curl -s -o /dev/null -X DELETE \
-                  -H "Authorization: Bearer $GH_TOKEN" \
-                  "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/assets/$ASSET_ID"
-              fi
+            for ASSET_ID in $(echo "$ASSETS_JSON" | jq -r ".[] | select(.name == \"$FILENAME\") | .id"); do
+              echo "🗑️ Deleting asset ID: $ASSET_ID"
+              curl -s -o /dev/null -X DELETE \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/assets/$ASSET_ID"
             done
 
             echo "⏳ Waiting 8s for GitHub to process deletions..."
             sleep 8
 
-            VERIFY=$(curl -s \
+            STILL_EXISTS=$(curl -s \
               -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?per_page=100" \
               | jq -r ".[] | select(.name == \"$FILENAME\") | .id")
 
-            if [ -n "$VERIFY" ]; then
-              echo "⚠️ Asset still exists after delete, waiting more..."
+            if [ -n "$STILL_EXISTS" ]; then
+              echo "⚠️ Asset still exists, waiting 10 more seconds..."
               sleep 10
             fi
 
@@ -265,31 +260,29 @@ jobs:
             echo "---"
             echo "📁 Processing: $FILENAME"
 
-            ASSETS_RESPONSE=$(curl -s \
+            ASSETS_JSON=$(curl -s \
               -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?per_page=100")
 
-            echo "Assets found: $(echo "$ASSETS_RESPONSE" | jq -r '.[].name' 2>/dev/null || echo 'none')"
+            echo "Assets on release: $(echo "$ASSETS_JSON" | jq -r '.[].name' 2>/dev/null || echo 'none')"
 
-            echo "$ASSETS_RESPONSE" | jq -r ".[] | select(.name == \"$FILENAME\") | .id" | while read ASSET_ID; do
-              if [ -n "$ASSET_ID" ]; then
-                echo "🗑️ Deleting asset ID: $ASSET_ID"
-                curl -s -o /dev/null -X DELETE \
-                  -H "Authorization: Bearer $GH_TOKEN" \
-                  "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/assets/$ASSET_ID"
-              fi
+            for ASSET_ID in $(echo "$ASSETS_JSON" | jq -r ".[] | select(.name == \"$FILENAME\") | .id"); do
+              echo "🗑️ Deleting asset ID: $ASSET_ID"
+              curl -s -o /dev/null -X DELETE \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/assets/$ASSET_ID"
             done
 
             echo "⏳ Waiting 8s for GitHub to process deletions..."
             sleep 8
 
-            VERIFY=$(curl -s \
+            STILL_EXISTS=$(curl -s \
               -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?per_page=100" \
               | jq -r ".[] | select(.name == \"$FILENAME\") | .id")
 
-            if [ -n "$VERIFY" ]; then
-              echo "⚠️ Asset still exists after delete, waiting more..."
+            if [ -n "$STILL_EXISTS" ]; then
+              echo "⚠️ Asset still exists, waiting 10 more seconds..."
               sleep 10
             fi
 
