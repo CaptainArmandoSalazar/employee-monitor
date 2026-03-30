@@ -4,6 +4,13 @@
       "version": "v1.0.28",
       "date": "2026-04-09",
       "changes": [
+        "Added Updates Log"
+      ]
+    },
+    {
+      "version": "v1.0.28",
+      "date": "2026-04-09",
+      "changes": [
         "Added real-time active window tracking"
       ]
     },
