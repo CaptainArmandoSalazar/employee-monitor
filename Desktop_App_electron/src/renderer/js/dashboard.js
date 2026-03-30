@@ -4,12 +4,12 @@
 const api = window.electronAPI;
 
 // ── State ─────────────────────────────────────────────────
-let currentEmployee   = null;
-let isAdmin           = false;
-let isHR              = false;
-let isManager         = false;
-let timerInterval     = null;
-let clockInTime       = null;
+let currentEmployee = null;
+let isAdmin = false;
+let isHR = false;
+let isManager = false;
+let timerInterval = null;
+let clockInTime = null;
 let editingEmployeeId = null;
 let resetPwEmployeeId = null;
 
@@ -25,70 +25,70 @@ async function boot() {
     if (!currentEmployee) { await api.showLogin(); return; }
 
     const role = currentEmployee.role;
-    isAdmin   = role === 'super_admin';
-    isHR      = role === 'hr';
+    isAdmin = role === 'super_admin';
+    isHR = role === 'hr';
     isManager = role === 'manager';
     const name = currentEmployee.employee_name || 'User';
     document.querySelectorAll(`.role-only.role-${role}`).forEach(el => el.classList.remove('hidden'));
-    g('sidebar-name').textContent   = name;
-    g('sidebar-role').textContent   = currentEmployee.role;
+    g('sidebar-name').textContent = name;
+    g('sidebar-role').textContent = currentEmployee.role;
     g('sidebar-avatar').textContent = name.charAt(0).toUpperCase();
 
     if (isAdmin) {
       document.querySelectorAll('.admin-only').forEach(el => el.classList.remove('hidden'));
     }
 
-    const hour  = new Date().getHours();
+    const hour = new Date().getHours();
     const greet = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
-    g('greeting').textContent      = `${greet}, ${name.split(' ')[0]}`;
+    g('greeting').textContent = `${greet}, ${name.split(' ')[0]}`;
     g('overview-date').textContent = new Date().toLocaleDateString('en-US', {
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
     });
 
     // Restore active session if any
-// REPLACE WITH:
-const active = await api.getActiveSession();
-if (active) {
-  // Restore clock-in time from actual session timestamp (survives app restart)
-  if (active.clock_in) {
-    const clockInStr = String(active.clock_in);
-    const clockInISO = clockInStr.endsWith('Z') || clockInStr.includes('+')
-      ? clockInStr
-      : clockInStr + 'Z';
-    clockInTime = new Date(clockInISO).getTime();
-  } else {
-    clockInTime = await api.getClockInTime() || Date.now();
-  }
+    // REPLACE WITH:
+    const active = await api.getActiveSession();
+    if (active) {
+      // Restore clock-in time from actual session timestamp (survives app restart)
+      if (active.clock_in) {
+        const clockInStr = String(active.clock_in);
+        const clockInISO = clockInStr.endsWith('Z') || clockInStr.includes('+')
+          ? clockInStr
+          : clockInStr + 'Z';
+        clockInTime = new Date(clockInISO).getTime();
+      } else {
+        clockInTime = await api.getClockInTime() || Date.now();
+      }
 
-  setClocked(true);
-  startTimer();
+      setClocked(true);
+      startTimer();
 
 
-  // Try sessionStorage first (same session, app didn't fully restart)
-  const saved = sessionStorage.getItem('clockin_data');
-  if (saved) {
-    try {
-      const r = JSON.parse(saved);
-      fillClockInPanel(r.deviceInfo||{}, r.netInfo||{}, r.geo||{}, r.netSpeed||{}, r.session||{});
-      g('clockin-details').classList.remove('hidden');
-    } catch { /* ignore */ }
-  } else {
-    // App restarted — fetch device/network info from DB to repopulate panel
-    try {
-      const [devR, netR] = await Promise.all([
-        api.getAdminDeviceInfo({ session_id: active.session_id, limit: '1' }),
-        api.getAdminNetworkInfo({ session_id: active.session_id, limit: '1' }),
-      ]);
-      const d = (devR && devR.ok && Array.isArray(devR.data) && devR.data[0]) ? devR.data[0] : {};
-      const n = (netR && netR.ok && Array.isArray(netR.data) && netR.data[0]) ? netR.data[0] : {};
-      fillClockInPanel(d, n, active, {}, active);
-      g('clockin-details').classList.remove('hidden');
-    } catch { /* ignore */ }
-  }
+      // Try sessionStorage first (same session, app didn't fully restart)
+      const saved = sessionStorage.getItem('clockin_data');
+      if (saved) {
+        try {
+          const r = JSON.parse(saved);
+          fillClockInPanel(r.deviceInfo || {}, r.netInfo || {}, r.geo || {}, r.netSpeed || {}, r.session || {});
+          g('clockin-details').classList.remove('hidden');
+        } catch { /* ignore */ }
+      } else {
+        // App restarted — fetch device/network info from DB to repopulate panel
+        try {
+          const [devR, netR] = await Promise.all([
+            api.getAdminDeviceInfo({ session_id: active.session_id, limit: '1' }),
+            api.getAdminNetworkInfo({ session_id: active.session_id, limit: '1' }),
+          ]);
+          const d = (devR && devR.ok && Array.isArray(devR.data) && devR.data[0]) ? devR.data[0] : {};
+          const n = (netR && netR.ok && Array.isArray(netR.data) && netR.data[0]) ? netR.data[0] : {};
+          fillClockInPanel(d, n, active, {}, active);
+          g('clockin-details').classList.remove('hidden');
+        } catch { /* ignore */ }
+      }
 
-  // Refresh keystrokes from DB for this resumed session
-  setTimeout(refreshKeystrokesFromDB, 2000);
-}
+      // Refresh keystrokes from DB for this resumed session
+      setTimeout(refreshKeystrokesFromDB, 2000);
+    }
 
     await loadOverview();
     bindNav();
@@ -109,12 +109,12 @@ function bindNav() {
   document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
     btn.addEventListener('click', () => switchPage(btn.dataset.page));
   });
-g('btn-logout').addEventListener('click', async () => {
+  g('btn-logout').addEventListener('click', async () => {
     try {
       stopTimer();
       await api.logout();
       await api.showLogin();
-    } catch(e) {
+    } catch (e) {
       console.error('Logout error:', e);
       // Force navigation anyway
       await api.showLogin();
@@ -123,28 +123,28 @@ g('btn-logout').addEventListener('click', async () => {
   const btnViewAll = g('btn-view-all-sessions');
   if (btnViewAll) btnViewAll.addEventListener('click', () => switchPage('my-sessions'));
   const btnChangePw = g('btn-change-password');
-if (btnChangePw) btnChangePw.addEventListener('click', openChangePasswordModal);
+  if (btnChangePw) btnChangePw.addEventListener('click', openChangePasswordModal);
 }
 
 function switchPage(pageId) {
   document.querySelectorAll('.page-view').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  const page   = g('page-' + pageId);
+  const page = g('page-' + pageId);
   const navBtn = document.querySelector(`.nav-item[data-page="${pageId}"]`);
-  if (page)   page.classList.add('active');
+  if (page) page.classList.add('active');
   if (navBtn) navBtn.classList.add('active');
 
   const role = currentEmployee?.role;
-  if (pageId === 'overview')        loadOverview();
-  if (pageId === 'my-sessions')     { showSub('my-sessions', 'my-sessions-list'); loadMySessions(); }
-  if (pageId === 'super-admins')    { showSub('super-admins', 'super-admins-list'); loadRolePage('super_admin', 'super-admins-body', 'super-admins'); }
-  if (pageId === 'hrs')             { showSub('hrs', 'hrs-list'); loadRolePage('hr', 'hrs-body', 'hrs'); }
-  if (pageId === 'managers')        { showSub('managers', 'managers-list'); loadRolePage('manager', 'managers-body', 'managers'); }
-  if (pageId === 'employees')       { showSub('employees', 'employees-list'); loadRolePage('employee', 'employees-body', 'employees'); }
-  if (pageId === 'my-employees')    { showSub('my-employees', 'my-employees-list'); loadRolePage('employee', 'my-employees-body', 'my-employees'); }
-  if (pageId === 'settings')        { loadSettings(); }
+  if (pageId === 'overview') loadOverview();
+  if (pageId === 'my-sessions') { showSub('my-sessions', 'my-sessions-list'); loadMySessions(); }
+  if (pageId === 'super-admins') { showSub('super-admins', 'super-admins-list'); loadRolePage('super_admin', 'super-admins-body', 'super-admins'); }
+  if (pageId === 'hrs') { showSub('hrs', 'hrs-list'); loadRolePage('hr', 'hrs-body', 'hrs'); }
+  if (pageId === 'managers') { showSub('managers', 'managers-list'); loadRolePage('manager', 'managers-body', 'managers'); }
+  if (pageId === 'employees') { showSub('employees', 'employees-list'); loadRolePage('employee', 'employees-body', 'employees'); }
+  if (pageId === 'my-employees') { showSub('my-employees', 'my-employees-list'); loadRolePage('employee', 'my-employees-body', 'my-employees'); }
+  if (pageId === 'settings') { loadSettings(); }
   // legacy
-  if (pageId === 'admins')          { showSub('admins', 'admins-list'); loadAdmins(); }
+  if (pageId === 'admins') { showSub('admins', 'admins-list'); loadAdmins(); }
 }
 
 async function loadRolePage(role, tbodyId, pageKey) {
@@ -160,28 +160,28 @@ async function loadRolePage(role, tbodyId, pageKey) {
     // Map pageKey → subpage prefix for drill-down
     const pageMap = {
       'super-admins': 'super-admins',
-      'hrs':          'hrs',
-      'managers':     'managers',
-      'employees':    'employees',
+      'hrs': 'hrs',
+      'managers': 'managers',
+      'employees': 'employees',
       'my-employees': 'my-employees',
     };
     const pfx = pageMap[pageKey] || pageKey;
-let managerMap = {};
-if (tbodyId === 'employees-body') {
-  try {
-    const mr = await api.listEmployees({ role: 'manager', active_only: 'false' });
-    const managers = (mr && mr.ok && Array.isArray(mr.data)) ? mr.data : [];
-    managers.forEach(m => { managerMap[m.employee_id] = m.employee_name; });
-  } catch { /* ignore, show — as fallback */ }
-}
-tbody.innerHTML = list.map(e => `
+    let managerMap = {};
+    if (tbodyId === 'employees-body') {
+      try {
+        const mr = await api.listEmployees({ role: 'manager', active_only: 'false' });
+        const managers = (mr && mr.ok && Array.isArray(mr.data)) ? mr.data : [];
+        managers.forEach(m => { managerMap[m.employee_id] = m.employee_name; });
+      } catch { /* ignore, show — as fallback */ }
+    }
+    tbody.innerHTML = list.map(e => `
   <tr>
     <td><div style="display:flex;align-items:center;gap:8px;">
       <div class="avatar" style="width:28px;height:28px;font-size:11px;">${e.employee_name.charAt(0).toUpperCase()}</div>
       <strong>${esc(e.employee_name)}</strong>
     </div></td>
     <td class="td-muted">${esc(e.email)}</td>
-    <td>${esc(e.department||'—')}</td>
+    <td>${esc(e.department || '—')}</td>
     ${tbodyId === 'employees-body' ? `<td class="td-muted">${esc(managerMap[e.manager_id] || '—')}</td>` : ''}
     <td class="td-muted">${e.date_of_joining ? fmtDate(e.date_of_joining) : '—'}</td>
     <td>${e.status ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-danger">Inactive</span>'}</td>
@@ -193,9 +193,9 @@ ${(isAdmin || isHR) ? `
             data-emp-id="${esc(String(e.employee_id))}"
             data-emp-name="${esc(e.employee_name)}"
             data-emp-email="${esc(e.email)}"
-            data-emp-dept="${esc(e.department||'')}"
+            data-emp-dept="${esc(e.department || '')}"
             data-emp-role="${esc(e.role)}"
-            data-emp-manager="${esc(e.manager_id||'')}">
+            data-emp-manager="${esc(e.manager_id || '')}">
       Edit
     </button>` : ''}
     <button class="btn btn-ghost btn-sm"
@@ -262,11 +262,11 @@ async function doClockIn() {
       clockInTime = Date.now();
       setClocked(true); startTimer();
       g('session-meta').textContent = `Clocked in at ${fmtTime(r.session.clock_in)}`;
-      fillClockInPanel(r.deviceInfo||{}, r.netInfo||{}, r.geo||{}, r.netSpeed||{}, r.session||{});
+      fillClockInPanel(r.deviceInfo || {}, r.netInfo || {}, r.geo || {}, r.netSpeed || {}, r.session || {});
       g('clockin-details').classList.remove('hidden');
       sessionStorage.setItem('clockin_data', JSON.stringify({
-        deviceInfo: r.deviceInfo||{}, netInfo: r.netInfo||{},
-        geo: r.geo||{}, netSpeed: r.netSpeed||{}, session: r.session||{},
+        deviceInfo: r.deviceInfo || {}, netInfo: r.netInfo || {},
+        geo: r.geo || {}, netSpeed: r.netSpeed || {}, session: r.session || {},
       }));
       // Reset keystrokes display on new clock-in
     } else {
@@ -307,53 +307,53 @@ async function doClockOut() {
 function formatRawKeystrokes(raw) {
   if (!raw) return '';
   return esc(raw)
-    .replace(/\[SPACE\]/g,     '<span style="background:var(--bg-hover);border-radius:3px;padding:0 4px;font-size:10px;color:var(--text-muted);">␣</span>')
-    .replace(/\[ENTER\]/g,     '<span style="background:var(--accent-dim);border-radius:3px;padding:0 4px;font-size:10px;color:var(--accent);">↵</span>')
+    .replace(/\[SPACE\]/g, '<span style="background:var(--bg-hover);border-radius:3px;padding:0 4px;font-size:10px;color:var(--text-muted);">␣</span>')
+    .replace(/\[ENTER\]/g, '<span style="background:var(--accent-dim);border-radius:3px;padding:0 4px;font-size:10px;color:var(--accent);">↵</span>')
     .replace(/\[BACKSPACE\]/g, '<span style="background:var(--danger-dim);border-radius:3px;padding:0 4px;font-size:10px;color:var(--danger);">⌫</span>')
-    .replace(/\[TAB\]/g,       '<span style="background:var(--bg-hover);border-radius:3px;padding:0 4px;font-size:10px;color:var(--text-muted);">⇥</span>')
-    .replace(/\[UP\]/g,        '<span style="background:var(--bg-hover);border-radius:3px;padding:0 4px;font-size:10px;color:var(--text-muted);">↑</span>')
-    .replace(/\[DOWN\]/g,      '<span style="background:var(--bg-hover);border-radius:3px;padding:0 4px;font-size:10px;color:var(--text-muted);">↓</span>')
-    .replace(/\[LEFT\]/g,      '<span style="background:var(--bg-hover);border-radius:3px;padding:0 4px;font-size:10px;color:var(--text-muted);">←</span>')
-    .replace(/\[RIGHT\]/g,     '<span style="background:var(--bg-hover);border-radius:3px;padding:0 4px;font-size:10px;color:var(--text-muted);">→</span>')
-    .replace(/\[DEL\]/g,       '<span style="background:var(--danger-dim);border-radius:3px;padding:0 4px;font-size:10px;color:var(--danger);">⌦</span>')
-    .replace(/\[F(\d+)\]/g,    '<span style="background:var(--bg-hover);border-radius:3px;padding:0 4px;font-size:10px;color:var(--text-muted);">F$1</span>')
+    .replace(/\[TAB\]/g, '<span style="background:var(--bg-hover);border-radius:3px;padding:0 4px;font-size:10px;color:var(--text-muted);">⇥</span>')
+    .replace(/\[UP\]/g, '<span style="background:var(--bg-hover);border-radius:3px;padding:0 4px;font-size:10px;color:var(--text-muted);">↑</span>')
+    .replace(/\[DOWN\]/g, '<span style="background:var(--bg-hover);border-radius:3px;padding:0 4px;font-size:10px;color:var(--text-muted);">↓</span>')
+    .replace(/\[LEFT\]/g, '<span style="background:var(--bg-hover);border-radius:3px;padding:0 4px;font-size:10px;color:var(--text-muted);">←</span>')
+    .replace(/\[RIGHT\]/g, '<span style="background:var(--bg-hover);border-radius:3px;padding:0 4px;font-size:10px;color:var(--text-muted);">→</span>')
+    .replace(/\[DEL\]/g, '<span style="background:var(--danger-dim);border-radius:3px;padding:0 4px;font-size:10px;color:var(--danger);">⌦</span>')
+    .replace(/\[F(\d+)\]/g, '<span style="background:var(--bg-hover);border-radius:3px;padding:0 4px;font-size:10px;color:var(--text-muted);">F$1</span>')
     .replace(/\[([A-Z_]+)\]/g, '<span style="background:var(--bg-hover);border-radius:3px;padding:0 4px;font-size:10px;color:var(--text-muted);">$1</span>');
 }
 function fillClockInPanel(d, n, geo, sp, s) {
   const loc = geo.location || ((s.city && s.country) ? `${s.city}, ${s.country}` : s.city || s.country || '—');
   const pairs = [
-    ['di-location',    loc],
-    ['di-latlon',      (geo.latitude && geo.longitude) ? `${(+geo.latitude).toFixed(4)}, ${(+geo.longitude).toFixed(4)}` : '—'],
-    ['di-ip',          geo.ip || n.ip_address || '—'],
-    ['di-connection',  n.connection_type || '—'],
-    ['di-ssid',        n.ssid || 'Not detected'],
-    ['di-mac',         n.mac_address || '—'],
+    ['di-location', loc],
+    ['di-latlon', (geo.latitude && geo.longitude) ? `${(+geo.latitude).toFixed(4)}, ${(+geo.longitude).toFixed(4)}` : '—'],
+    ['di-ip', geo.ip || n.ip_address || '—'],
+    ['di-connection', n.connection_type || '—'],
+    ['di-ssid', n.ssid || 'Not detected'],
+    ['di-mac', n.mac_address || '—'],
     ['di-device-name', d.device_name || '—'],
-    ['di-os',          d.os || '—'],
-    ['di-cpu',         d.cpu || '—'],
-    ['di-ram',         d.ram ? `RAM: ${d.ram}` : '—'],
-    ['di-storage',     (d.storage_total && d.storage_free) ? `${d.storage_free} GB free / ${d.storage_total} GB` : '—'],
-    ['di-speed',       sp.download ? `↓ ${sp.download} Mbps  ping ${sp.ping}ms` : '—'],
+    ['di-os', d.os || '—'],
+    ['di-cpu', d.cpu || '—'],
+    ['di-ram', d.ram ? `RAM: ${d.ram}` : '—'],
+    ['di-storage', (d.storage_total && d.storage_free) ? `${d.storage_free} GB free / ${d.storage_total} GB` : '—'],
+    ['di-speed', sp.download ? `↓ ${sp.download} Mbps  ping ${sp.ping}ms` : '—'],
   ];
   pairs.forEach(([id, val]) => { const el = g(id); if (el) el.textContent = val; });
 }
 
 function setClocked(on) {
   g('session-dot').classList.toggle('active', on);
-  g('status-dot').style.background     = on ? 'var(--success)' : 'var(--text-muted)';
+  g('status-dot').style.background = on ? 'var(--success)' : 'var(--text-muted)';
   g('session-status-text').textContent = on ? 'Session active' : 'Not clocked in';
   g('session-timer').classList.toggle('active', on);
   g('btn-clock-in').classList.toggle('hidden', on);
   g('btn-clock-out').classList.toggle('hidden', !on);
   if (!on) {
     g('session-timer').textContent = '00:00:00';
-    g('session-meta').textContent  = 'Clock in to start tracking';
+    g('session-meta').textContent = 'Clock in to start tracking';
   }
 }
 
 // ── Timer ─────────────────────────────────────────────────
 function startTimer() { stopTimer(); timerInterval = setInterval(tick, 1000); tick(); }
-function stopTimer()  { if (timerInterval) { clearInterval(timerInterval); timerInterval = null; } }
+function stopTimer() { if (timerInterval) { clearInterval(timerInterval); timerInterval = null; } }
 function tick() {
   if (!clockInTime) return;
   const el = g('session-timer');
@@ -368,7 +368,7 @@ async function refreshStats() {
     // Active = total elapsed − idle time
     if (clockInTime) {
       const totalElapsed = Math.floor((Date.now() - clockInTime) / 1000);
-      const activeSecs   = Math.max(0, totalElapsed - idleSecs);
+      const activeSecs = Math.max(0, totalElapsed - idleSecs);
       const elActive = g('stat-active');
       if (elActive) elActive.textContent = sToHm(activeSecs);
     }
@@ -384,8 +384,8 @@ async function refreshStats() {
 async function loadOverview() {
   try {
     const sessions = await api.getMySessions(10);
-    const arr      = Array.isArray(sessions) ? sessions : [];
-    const tbody    = g('recent-sessions-body');
+    const arr = Array.isArray(sessions) ? sessions : [];
+    const tbody = g('recent-sessions-body');
     tbody.innerHTML = arr.length
       ? arr.slice(0, 5).map(s => `
           <tr>
@@ -398,7 +398,7 @@ async function loadOverview() {
       : emptyRow(5, 'No sessions yet');
 
     const today = new Date().toDateString();
-    const el    = g('stat-sessions');
+    const el = g('stat-sessions');
     if (el) el.textContent = String(arr.filter(s => {
       const d = s.clock_in ? new Date(s.clock_in) : (s.date ? new Date(s.date) : null);
       return d && d.toDateString() === today;
@@ -415,10 +415,10 @@ async function loadMySessions() {
 
   try {
     const dateFilter = g('my-session-filter-date').value;
-    const sessions   = await api.getMySessions(200);
-    let   arr        = Array.isArray(sessions) ? sessions : [];
+    const sessions = await api.getMySessions(200);
+    let arr = Array.isArray(sessions) ? sessions : [];
     if (dateFilter) {
-      arr = arr.filter(s => (s.date || (s.clock_in||'').substring(0,10)) === dateFilter);
+      arr = arr.filter(s => (s.date || (s.clock_in || '').substring(0, 10)) === dateFilter);
     }
     if (!arr.length) {
       container.innerHTML = `<div class="empty-state"><span class="empty-icon">📭</span><span class="empty-title">No sessions found</span></div>`;
@@ -431,7 +431,7 @@ async function loadMySessions() {
       const kr = await api.getAdminKeystrokes({ limit: '500' });
       if (kr && kr.ok && Array.isArray(kr.data)) {
         kr.data.forEach(k => {
-          ksMap[k.session_id] = (ksMap[k.session_id]||0) + (k.keys_pressed_count||0);
+          ksMap[k.session_id] = (ksMap[k.session_id] || 0) + (k.keys_pressed_count || 0);
         });
       }
     } catch { /* optional */ }
@@ -447,15 +447,15 @@ async function loadMySessions() {
     const sortedDates = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
 
     container.innerHTML = sortedDates.map(dateKey => {
-      const daySessions  = grouped[dateKey];
-      const dayActive    = daySessions.reduce((a, s) => a + (s.total_active_time || 0), 0);
-      const dayIdle      = daySessions.reduce((a, s) => a + (s.total_idle_time   || 0), 0);
-      const dayTotal     = dayActive + dayIdle;
-      const dayKeys      = daySessions.reduce((a, s) => a + (ksMap[s.session_id] || 0), 0);
+      const daySessions = grouped[dateKey];
+      const dayActive = daySessions.reduce((a, s) => a + (s.total_active_time || 0), 0);
+      const dayIdle = daySessions.reduce((a, s) => a + (s.total_idle_time || 0), 0);
+      const dayTotal = dayActive + dayIdle;
+      const dayKeys = daySessions.reduce((a, s) => a + (ksMap[s.session_id] || 0), 0);
       const firstClockin = daySessions[daySessions.length - 1]?.clock_in;
       const lastClockout = daySessions[0]?.clock_out;
-      const hasActive    = daySessions.some(s => s.session_status === 'active');
-      const cardId       = `my-day-sessions-${dateKey.replace(/-/g, '')}`;
+      const hasActive = daySessions.some(s => s.session_status === 'active');
+      const cardId = `my-day-sessions-${dateKey.replace(/-/g, '')}`;
 
       return `
         <div style="
@@ -496,8 +496,8 @@ async function loadMySessions() {
               </div>
             </div>
             ${hasActive
-              ? `<span class="badge badge-success">🟢 Active Now</span>`
-              : `<span class="badge badge-muted">Completed</span>`}
+          ? `<span class="badge badge-success">🟢 Active Now</span>`
+          : `<span class="badge badge-muted">Completed</span>`}
           </div>
 
           <!-- Card Body -->
@@ -596,8 +596,8 @@ async function loadMySessions() {
                         <td class="td-mono">${fmtTime(s.clock_in)}</td>
                         <td class="td-mono">
                           ${s.clock_out
-                            ? fmtTime(s.clock_out)
-                            : '<span class="text-success">Active</span>'}
+              ? fmtTime(s.clock_out)
+              : '<span class="text-success">Active</span>'}
                         </td>
                         <td class="text-success">${sToHm(s.total_active_time)}</td>
                         <td class="text-warning">${sToHm(s.total_idle_time)}</td>
@@ -639,12 +639,14 @@ async function loadSettings() {
   container.innerHTML = `<div style="padding:40px;text-align:center;"><span class="spinner"></span></div>`;
 
   try {
-    const info    = await api.getAppVersion();
+    const info = await api.getAppVersion();
     const current = info.current || '1.0.14';
     const history = info.history || [];
-    const latest  = history[0] || {};
-    const latestClean = (latest.version || '').replace('v', '');
-    const isOutdated  = latestClean && current !== latestClean;
+    const latest = history[0] || {};
+    const latestClean = info.updateAvailableVersion
+      ? info.updateAvailableVersion
+      : (latest.version || '').replace('v', '');
+    const isOutdated = latestClean && current !== latestClean;
 
     // ── CARD VIEW (default) ────────────────────────────────
     container.innerHTML = `
@@ -701,9 +703,9 @@ async function loadSettings() {
                 <div style="font-size:15px;font-weight:700;font-family:var(--font-mono);color:var(--text-primary);margin-top:2px;">v${esc(latestClean)}</div>
                 <div style="margin-top:8px;">
                   ${info.updateDownloaded
-                    ? `<button id="btn-install-now-card" class="btn btn-success btn-sm" style="width:100%;">⚡ Install Now</button>`
-                    : `<button id="btn-download-card" class="btn btn-primary btn-sm" style="width:100%;">⬇ Download</button>`
-                  }
+          ? `<button id="btn-install-now-card" class="btn btn-success btn-sm" style="width:100%;">⚡ Install Now</button>`
+          : `<button id="btn-download-card" class="btn btn-primary btn-sm" style="width:100%;">⬇ Download</button>`
+        }
                 </div>
               </div>
               ` : `
@@ -770,10 +772,10 @@ async function loadSettings() {
 // ── Full Changelog View ───────────────────────────────────
 function showFullChangelog(current, history, updateDownloaded = false) {
   const container = g('settings-version-content');
-  const latest    = history[0] || {};
-  const older     = history.slice(1);
+  const latest = history[0] || {};
+  const older = history.slice(1);
   const latestClean = (latest.version || '').replace('v', '');
-  const isOutdated  = latestClean && current !== latestClean;
+  const isOutdated = latestClean && current !== latestClean;
 
   container.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:20px;">
@@ -835,8 +837,8 @@ function showFullChangelog(current, history, updateDownloaded = false) {
           </div>
           <div style="
             ${isOutdated
-              ? 'background:rgba(245,158,11,.15);border:1px solid var(--warning);'
-              : 'background:var(--success-dim);border:1px solid var(--success);'}
+      ? 'background:rgba(245,158,11,.15);border:1px solid var(--warning);'
+      : 'background:var(--success-dim);border:1px solid var(--success);'}
             border-radius:var(--radius);padding:10px 18px;
             display:flex;align-items:center;gap:8px;
           ">
@@ -847,9 +849,9 @@ function showFullChangelog(current, history, updateDownloaded = false) {
               ${isOutdated ? `
               <div style="margin-top:10px;">
                 ${updateDownloaded
-                  ? `<button id="btn-install-now" class="btn btn-success btn-sm">⚡ Install & Restart</button>`
-                  : `<button id="btn-download-update" class="btn btn-primary btn-sm">⬇ Download Update</button>`
-                }
+        ? `<button id="btn-install-now" class="btn btn-success btn-sm">⚡ Install & Restart</button>`
+        : `<button id="btn-download-update" class="btn btn-primary btn-sm">⬇ Download Update</button>`
+      }
               </div>` : ''}
             </div>
           </div>
@@ -890,7 +892,7 @@ function showFullChangelog(current, history, updateDownloaded = false) {
               <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:${v.changes && v.changes.length ? '14px' : '0'};">
                 <div style="display:flex;align-items:center;gap:12px;">
                   <div style="font-size:18px;font-weight:700;font-family:var(--font-mono);color:var(--text-secondary);">
-                    v${esc(v.version.replace('v',''))}
+                    v${esc(v.version.replace('v', ''))}
                   </div>
                   <span style="
                     font-size:10px;font-weight:600;
@@ -968,23 +970,23 @@ g('btn-refresh-my-sessions').addEventListener('click', loadMySessions);
 g('my-session-filter-date').addEventListener('change', loadMySessions);
 
 // ── Single delegated click handler for ALL view buttons ──
-document.addEventListener('click', async function(e) {
+document.addEventListener('click', async function (e) {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
 
-  const action  = btn.dataset.action;
-  const sid     = btn.dataset.sid;
-  const pageId  = btn.dataset.page;
+  const action = btn.dataset.action;
+  const sid = btn.dataset.sid;
+  const pageId = btn.dataset.page;
   const backSub = btn.dataset.back;
-  const empId   = btn.dataset.empId;
+  const empId = btn.dataset.empId;
   const empName = btn.dataset.empName;
 
   if (action === 'view-session' && sid && pageId && backSub) {
     openSessionDetail(sid, pageId, backSub);
   }
   if (action === 'edit-user' && empId) {
-  openEditUserModal(empId, btn.dataset.empName, btn.dataset.empEmail, btn.dataset.empDept, btn.dataset.empRole, btn.dataset.empManager);
-}
+    openEditUserModal(empId, btn.dataset.empName, btn.dataset.empEmail, btn.dataset.empDept, btn.dataset.empRole, btn.dataset.empManager);
+  }
   if (action === 'view-user' && empId && empName && pageId) {
     openUserSessions(empId, empName, pageId);
   }
@@ -992,14 +994,14 @@ document.addEventListener('click', async function(e) {
     openSessionDetail(sid, pageId, backSub);
   }
   if (action === 'remove-user') {
-    const empId     = btn.dataset.empId;
-    const empName   = btn.dataset.empName;
-    const isActive  = btn.dataset.empStatus === 'true';
+    const empId = btn.dataset.empId;
+    const empName = btn.dataset.empName;
+    const isActive = btn.dataset.empStatus === 'true';
     const actionStr = isActive ? 'deactivate' : 'reactivate';
 
     if (!confirm(`Are you sure you want to ${actionStr} ${empName}?`)) return;
 
-    btn.disabled    = true;
+    btn.disabled = true;
     btn.textContent = isActive ? 'Deactivating…' : 'Activating…';
 
     try {
@@ -1016,17 +1018,17 @@ document.addEventListener('click', async function(e) {
         }
       } else {
         alert('Action failed. Please try again.');
-        btn.disabled    = false;
+        btn.disabled = false;
         btn.textContent = isActive ? 'Deactivate' : 'Activate';
       }
     } catch (e) {
       alert('Error: ' + e.message);
-      btn.disabled    = false;
+      btn.disabled = false;
       btn.textContent = isActive ? 'Deactivate' : 'Activate';
     }
   }
   if (action === 'toggle-day-sessions') {
-    const cardId  = btn.dataset.cardId;
+    const cardId = btn.dataset.cardId;
     const section = document.getElementById(cardId);
     if (!section) return;
     const isHidden = section.classList.contains('hidden');
@@ -1035,7 +1037,7 @@ document.addEventListener('click', async function(e) {
   }
   if (action === 'back-to-sub') {
     const targetPage = btn.dataset.targetPage;
-    const targetSub  = btn.dataset.targetSub;
+    const targetSub = btn.dataset.targetSub;
     if (targetPage && targetSub) showSub(targetPage, targetSub);
   }
   if (action === 'open-keystrokes') {
@@ -1045,18 +1047,18 @@ document.addEventListener('click', async function(e) {
     openNetSpeedPage(sid, pageId, backSub);
   }
   if (action === 'open-activity') {
-  openActivityPage(sid, pageId, backSub);
-}
+    openActivityPage(sid, pageId, backSub);
+  }
 });
 
 async function openEditUserModal(id, name, email, dept, role, currentManagerId) {
   editingEmployeeId = id;
-  g('modal-emp-title').textContent      = 'Edit Employee';
-  g('emp-name').value                   = name;
-  g('emp-email').value                  = email;
-  g('emp-email').disabled               = true;
-  g('emp-department').value             = dept || '';
-  g('emp-role').value                   = role;
+  g('modal-emp-title').textContent = 'Edit Employee';
+  g('emp-name').value = name;
+  g('emp-email').value = email;
+  g('emp-email').disabled = true;
+  g('emp-department').value = dept || '';
+  g('emp-role').value = role;
   g('emp-password-group').style.display = 'none';
   g('modal-emp-alert').classList.add('hidden');
 
@@ -1075,8 +1077,8 @@ async function openEditUserModal(id, name, email, dept, role, currentManagerId) 
   if (roleEl) {
     const allowed = {
       super_admin: ['super_admin', 'hr', 'manager', 'employee'],
-      hr:          ['hr', 'manager', 'employee'],
-      manager:     ['employee'],
+      hr: ['hr', 'manager', 'employee'],
+      manager: ['employee'],
     }[currentEmployee?.role] || [];
     Array.from(roleEl.options).forEach(opt => {
       opt.disabled = !allowed.includes(opt.value);
@@ -1088,43 +1090,43 @@ async function openEditUserModal(id, name, email, dept, role, currentManagerId) 
 
 async function handleDownloadUpdate(btn) {
   if (!btn) return;
-  btn.disabled    = true;
-  btn.innerHTML   = '<span class="spinner"></span> Downloading…';
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Downloading…';
   btn.style.cursor = 'not-allowed';
 
   try {
     const r = await api.downloadUpdate();
     if (r && r.ok) {
-      btn.innerHTML          = '⚡ Install & Restart';
-      btn.disabled           = false;
-      btn.style.cursor       = 'pointer';
-      btn.className          = 'btn btn-success btn-sm';
-      btn.style.width        = '100%';
-      btn.onclick            = () => api.installUpdate();
+      btn.innerHTML = '⚡ Install & Restart';
+      btn.disabled = false;
+      btn.style.cursor = 'pointer';
+      btn.className = 'btn btn-success btn-sm';
+      btn.style.width = '100%';
+      btn.onclick = () => api.installUpdate();
     } else {
-      btn.innerHTML  = '❌ ' + (r?.error || 'Failed');
-      btn.disabled   = false;
+      btn.innerHTML = '❌ ' + (r?.error || 'Failed');
+      btn.disabled = false;
       btn.style.cursor = 'pointer';
       setTimeout(() => {
-        btn.innerHTML  = '⬇ Retry Download';
-        btn.className  = 'btn btn-primary btn-sm';
+        btn.innerHTML = '⬇ Retry Download';
+        btn.className = 'btn btn-primary btn-sm';
       }, 3000);
     }
   } catch (e) {
-    btn.innerHTML  = '❌ Error';
-    btn.disabled   = false;
+    btn.innerHTML = '❌ Error';
+    btn.disabled = false;
     btn.style.cursor = 'pointer';
   }
 }
 
 async function openActivityPage(sessionId, pageId, backDetailSubId) {
-const actSubId =
-  pageId === 'my-sessions'   ? 'my-session-activity'
-: pageId === 'super-admins'  ? 'super-admin-session-activity'
-: pageId === 'hrs'           ? 'hr-session-activity'
-: pageId === 'managers'      ? 'manager-session-activity'
-: pageId === 'my-employees'  ? 'my-emp-session-activity'
-:                              'emp-session-activity';
+  const actSubId =
+    pageId === 'my-sessions' ? 'my-session-activity'
+      : pageId === 'super-admins' ? 'super-admin-session-activity'
+        : pageId === 'hrs' ? 'hr-session-activity'
+          : pageId === 'managers' ? 'manager-session-activity'
+            : pageId === 'my-employees' ? 'my-emp-session-activity'
+              : 'emp-session-activity';
   const container = g(actSubId);
   if (!container) return;
   container.innerHTML = spinHtml();
@@ -1134,16 +1136,16 @@ const actSubId =
     // Fetch both activity logs and website logs in parallel
     const [actR, webR] = await Promise.all([
       api.getAdminActivity({ session_id: sessionId, limit: '500' }),
-      api.getAdminWebsite({  session_id: sessionId, limit: '500' }),
+      api.getAdminWebsite({ session_id: sessionId, limit: '500' }),
     ]);
 
     const actRows = (actR && actR.ok && Array.isArray(actR.data)) ? actR.data : [];
     const webRows = (webR && webR.ok && Array.isArray(webR.data)) ? webR.data : [];
 
     // ── Stats ──────────────────────────────────────────────
-    const totalAppTime  = actRows.reduce((a, r) => a + (r.duration || 0), 0);
-    const totalWebTime  = webRows.reduce((a, r) => a + (r.duration || 0), 0);
-    const uniqueApps    = new Set(actRows.map(r => r.app_name)).size;
+    const totalAppTime = actRows.reduce((a, r) => a + (r.duration || 0), 0);
+    const totalWebTime = webRows.reduce((a, r) => a + (r.duration || 0), 0);
+    const uniqueApps = new Set(actRows.map(r => r.app_name)).size;
     const uniqueDomains = new Set(webRows.map(r => r.domain)).size;
 
     // ── Top apps aggregation ───────────────────────────────
@@ -1170,7 +1172,7 @@ const actSubId =
       .sort((a, b) => b.duration - a.duration)
       .slice(0, 10);
 
-    const maxAppDur    = topApps.length    ? Math.max(...topApps.map(a => a.duration))    : 1;
+    const maxAppDur = topApps.length ? Math.max(...topApps.map(a => a.duration)) : 1;
     const maxDomainDur = topDomains.length ? Math.max(...topDomains.map(d => d.duration)) : 1;
 
     container.innerHTML = `
@@ -1240,7 +1242,7 @@ const actSubId =
                 <div style="flex:1;">
                   <div class="progress-bar">
                     <div class="progress-fill accent"
-                         style="width:${Math.round((app.duration/maxAppDur)*100)}%;">
+                         style="width:${Math.round((app.duration / maxAppDur) * 100)}%;">
                     </div>
                   </div>
                 </div>
@@ -1279,7 +1281,7 @@ const actSubId =
                 <div style="flex:1;">
                   <div class="progress-bar">
                     <div class="progress-fill success"
-                         style="width:${Math.round((d.duration/maxDomainDur)*100)}%;">
+                         style="width:${Math.round((d.duration / maxDomainDur) * 100)}%;">
                     </div>
                   </div>
                 </div>
@@ -1312,9 +1314,9 @@ const actSubId =
               </tr></thead>
               <tbody>
                 ${actRows.length
-                  ? actRows.map((r, i) => `
+        ? actRows.map((r, i) => `
                     <tr>
-                      <td class="td-muted">${i+1}</td>
+                      <td class="td-muted">${i + 1}</td>
                       <td><strong>${esc(r.app_name || '—')}</strong></td>
                       <td class="td-muted" style="max-width:250px;">
                         <div class="truncate">${esc(r.window_title || '—')}</div>
@@ -1323,7 +1325,7 @@ const actSubId =
                       <td class="td-mono td-muted">${fmtDateTime(r.start_time)}</td>
                       <td class="td-mono td-muted">${fmtDateTime(r.end_time)}</td>
                     </tr>`).join('')
-                  : emptyRow(6, 'No app activity recorded for this session')}
+        : emptyRow(6, 'No app activity recorded for this session')}
               </tbody>
             </table>
           </div>
@@ -1346,9 +1348,9 @@ const actSubId =
               </tr></thead>
               <tbody>
                 ${webRows.length
-                  ? webRows.map((r, i) => `
+        ? webRows.map((r, i) => `
                     <tr>
-                      <td class="td-muted">${i+1}</td>
+                      <td class="td-muted">${i + 1}</td>
                       <td>
                         <span style="color:var(--accent);font-weight:600;">
                           ${esc(r.domain || '—')}
@@ -1360,7 +1362,7 @@ const actSubId =
                       <td class="text-success">${sToHm(r.duration || 0)}</td>
                       <td class="td-mono td-muted">${fmtDateTime(r.timestamp)}</td>
                     </tr>`).join('')
-                  : emptyRow(5, 'No website activity recorded for this session')}
+        : emptyRow(5, 'No website activity recorded for this session')}
               </tbody>
             </table>
           </div>
@@ -1385,13 +1387,13 @@ const actSubId =
 // SESSION DETAIL
 // ══════════════════════════════════════════════════════════
 async function openSessionDetail(sessionId, pageId, backSubId) {
-const detailSubId =
-  pageId === 'my-sessions'   ? 'my-session-detail'
-: pageId === 'super-admins'  ? 'super-admin-session-detail'
-: pageId === 'hrs'           ? 'hr-session-detail'
-: pageId === 'managers'      ? 'manager-session-detail'
-: pageId === 'my-employees'  ? 'my-emp-session-detail'
-:                              'emp-session-detail';
+  const detailSubId =
+    pageId === 'my-sessions' ? 'my-session-detail'
+      : pageId === 'super-admins' ? 'super-admin-session-detail'
+        : pageId === 'hrs' ? 'hr-session-detail'
+          : pageId === 'managers' ? 'manager-session-detail'
+            : pageId === 'my-employees' ? 'my-emp-session-detail'
+              : 'emp-session-detail';
 
   const container = g(detailSubId);
   if (!container) {
@@ -1430,24 +1432,24 @@ const detailSubId =
     try {
       const kr = await api.getAdminKeystrokes({ session_id: sessionId, limit: '500' });
       if (kr && kr.ok && Array.isArray(kr.data)) {
-        totalKeys = kr.data.reduce((a, k) => a + (k.keys_pressed_count||0), 0);
+        totalKeys = kr.data.reduce((a, k) => a + (k.keys_pressed_count || 0), 0);
       }
     } catch { /* optional */ }
 
     // ── 3. Render ──────────────────────────────────────
-    const ci  = session ? fmtTime(session.clock_in) : '—';
-    const co  = session
+    const ci = session ? fmtTime(session.clock_in) : '—';
+    const co = session
       ? (session.clock_out ? fmtTime(session.clock_out) : '<span class="text-success">Active</span>')
       : '—';
-    const at  = session ? sToHm(session.total_active_time) : '—';
-    const it  = session ? sToHm(session.total_idle_time)   : '—';
-    const dt  = session ? fmtDate(session.date || session.clock_in) : '—';
-    const lo  = session ? esc(locStr(session)) : '—';
-    const ip  = session ? esc(session.ip_address || '—') : '—';
-    const lat = session && session.latitude  ? (+session.latitude).toFixed(6)  : null;
+    const at = session ? sToHm(session.total_active_time) : '—';
+    const it = session ? sToHm(session.total_idle_time) : '—';
+    const dt = session ? fmtDate(session.date || session.clock_in) : '—';
+    const lo = session ? esc(locStr(session)) : '—';
+    const ip = session ? esc(session.ip_address || '—') : '—';
+    const lat = session && session.latitude ? (+session.latitude).toFixed(6) : null;
     const lon = session && session.longitude ? (+session.longitude).toFixed(6) : null;
     const cds = (lat && lon) ? `${lat}, ${lon}` : '—';
-    const city    = session ? esc(session.city    || '—') : '—';
+    const city = session ? esc(session.city || '—') : '—';
     const country = session ? esc(session.country || '—') : '—';
     const netSpeedStart = session && session.network_speed_start
       ? `${session.network_speed_start} Mbps` : '—';
@@ -1615,19 +1617,19 @@ async function loadDeviceSec(sessionId) {
       <div class="detail-grid">
         <div class="detail-tile">
           <div class="detail-tile-label">Device Name</div>
-          <div class="detail-tile-value">${esc(d.device_name||'—')}</div>
+          <div class="detail-tile-value">${esc(d.device_name || '—')}</div>
         </div>
         <div class="detail-tile">
           <div class="detail-tile-label">Operating System</div>
-          <div class="detail-tile-value">${esc(d.os||'—')}</div>
+          <div class="detail-tile-value">${esc(d.os || '—')}</div>
         </div>
         <div class="detail-tile">
           <div class="detail-tile-label">CPU</div>
-          <div class="detail-tile-value" style="font-size:12px;">${esc(d.cpu||'—')}</div>
+          <div class="detail-tile-value" style="font-size:12px;">${esc(d.cpu || '—')}</div>
         </div>
         <div class="detail-tile">
           <div class="detail-tile-label">RAM</div>
-          <div class="detail-tile-value">${esc(d.ram||'—')}</div>
+          <div class="detail-tile-value">${esc(d.ram || '—')}</div>
         </div>
         <div class="detail-tile">
           <div class="detail-tile-label">Storage</div>
@@ -1636,18 +1638,18 @@ async function loadDeviceSec(sessionId) {
           </div>
           ${d.storage_total ? `<div class="detail-tile-sub" style="margin-top:6px;">
             <div class="progress-bar">
-              <div class="progress-fill ${cpuCls(Math.round(((d.storage_total - d.storage_free)/d.storage_total)*100))}"
-                   style="width:${Math.min(Math.round(((d.storage_total-d.storage_free)/d.storage_total)*100),100)}%"></div>
+              <div class="progress-fill ${cpuCls(Math.round(((d.storage_total - d.storage_free) / d.storage_total) * 100))}"
+                   style="width:${Math.min(Math.round(((d.storage_total - d.storage_free) / d.storage_total) * 100), 100)}%"></div>
             </div>
             <span style="font-size:10px;color:var(--text-muted);margin-top:2px;display:block;">
-              ${Math.round(((d.storage_total-d.storage_free)/d.storage_total)*100)}% used
+              ${Math.round(((d.storage_total - d.storage_free) / d.storage_total) * 100)}% used
             </span>
           </div>` : ''}
         </div>
         <div class="detail-tile">
           <div class="detail-tile-label">Device ID</div>
           <div class="detail-tile-value" style="font-family:var(--font-mono);font-size:11px;word-break:break-all;">
-            ${esc(d.device_id||'—')}
+            ${esc(d.device_id || '—')}
           </div>
         </div>
       </div>`;
@@ -1675,19 +1677,19 @@ async function loadNetworkSec(sessionId) {
       <div class="detail-grid">
         <div class="detail-tile">
           <div class="detail-tile-label">IP Address</div>
-          <div class="detail-tile-value" style="font-family:var(--font-mono);">${esc(n.ip_address||'—')}</div>
+          <div class="detail-tile-value" style="font-family:var(--font-mono);">${esc(n.ip_address || '—')}</div>
         </div>
         <div class="detail-tile">
           <div class="detail-tile-label">Connection Type</div>
-          <div class="detail-tile-value">${esc(n.connection_type||'—')}</div>
+          <div class="detail-tile-value">${esc(n.connection_type || '—')}</div>
         </div>
         <div class="detail-tile">
           <div class="detail-tile-label">WiFi Network (SSID)</div>
-          <div class="detail-tile-value">${esc(n.ssid||'Not detected')}</div>
+          <div class="detail-tile-value">${esc(n.ssid || 'Not detected')}</div>
         </div>
         <div class="detail-tile">
           <div class="detail-tile-label">MAC Address</div>
-          <div class="detail-tile-value" style="font-family:var(--font-mono);">${esc(n.mac_address||'—')}</div>
+          <div class="detail-tile-value" style="font-family:var(--font-mono);">${esc(n.mac_address || '—')}</div>
         </div>
       </div>`;
   } catch {
@@ -1701,21 +1703,21 @@ async function loadNetworkSec(sessionId) {
 // KEYSTROKES PAGE
 // ══════════════════════════════════════════════════════════
 async function openKeystrokesPage(sessionId, pageId, backDetailSubId) {
-const ksSubId =
-  pageId === 'my-sessions'   ? 'my-session-keystrokes'
-: pageId === 'super-admins'  ? 'super-admin-session-keystrokes'
-: pageId === 'hrs'           ? 'hr-session-keystrokes'
-: pageId === 'managers'      ? 'manager-session-keystrokes'
-: pageId === 'my-employees'  ? 'my-emp-session-keystrokes'
-:                              'emp-session-keystrokes';
+  const ksSubId =
+    pageId === 'my-sessions' ? 'my-session-keystrokes'
+      : pageId === 'super-admins' ? 'super-admin-session-keystrokes'
+        : pageId === 'hrs' ? 'hr-session-keystrokes'
+          : pageId === 'managers' ? 'manager-session-keystrokes'
+            : pageId === 'my-employees' ? 'my-emp-session-keystrokes'
+              : 'emp-session-keystrokes';
   const container = g(ksSubId);
   if (!container) return;
   container.innerHTML = spinHtml();
   showSub(pageId, ksSubId);
   try {
-    const kr    = await api.getAdminKeystrokes({ session_id: sessionId, limit: '500' });
-    const rows  = (kr && kr.ok && Array.isArray(kr.data)) ? kr.data : [];
-    const total = rows.reduce((a, k) => a + (k.keys_pressed_count||0), 0);
+    const kr = await api.getAdminKeystrokes({ session_id: sessionId, limit: '500' });
+    const rows = (kr && kr.ok && Array.isArray(kr.data)) ? kr.data : [];
+    const total = rows.reduce((a, k) => a + (k.keys_pressed_count || 0), 0);
 
     // Combined raw string — reverse rows to get chronological order
     const combinedRaw = [...rows].reverse().map(k => k.raw_keystrokes || '').join('');
@@ -1752,11 +1754,11 @@ const ksSubId =
           </div>
           <div class="stat-card">
             <div class="stat-label">Avg per Entry</div>
-            <div class="stat-value">${rows.length ? Math.round(total/rows.length) : 0}</div>
+            <div class="stat-value">${rows.length ? Math.round(total / rows.length) : 0}</div>
           </div>
           ${rows.length >= 2 ? `<div class="stat-card warning">
             <div class="stat-label">Peak Entry</div>
-            <div class="stat-value">${Math.max(...rows.map(k=>k.keys_pressed_count||0)).toLocaleString()}</div>
+            <div class="stat-value">${Math.max(...rows.map(k => k.keys_pressed_count || 0)).toLocaleString()}</div>
           </div>` : ''}
         </div>` : ''}
 
@@ -1799,14 +1801,14 @@ const ksSubId =
             </thead>
             <tbody>
               ${rows.length
-                ? (() => {
-                    const maxK = Math.max(...rows.map(k=>k.keys_pressed_count||0), 1);
-                    return rows.map((k, i) => {
-                      const pct = Math.round(((k.keys_pressed_count||0)/maxK)*100);
-                      const raw = k.raw_keystrokes || '';
-                      return `<tr>
-                        <td class="td-muted">${i+1}</td>
-                        <td><strong>${(k.keys_pressed_count||0).toLocaleString()}</strong> keys</td>
+        ? (() => {
+          const maxK = Math.max(...rows.map(k => k.keys_pressed_count || 0), 1);
+          return rows.map((k, i) => {
+            const pct = Math.round(((k.keys_pressed_count || 0) / maxK) * 100);
+            const raw = k.raw_keystrokes || '';
+            return `<tr>
+                        <td class="td-muted">${i + 1}</td>
+                        <td><strong>${(k.keys_pressed_count || 0).toLocaleString()}</strong> keys</td>
                         <td style="min-width:120px;">
                           <div class="progress-bar" style="width:100%;max-width:160px;">
                             <div class="progress-fill success" style="width:${pct}%;"></div>
@@ -1832,9 +1834,9 @@ const ksSubId =
                         </td>
                         <td class="td-mono td-muted">${fmtDateTime(k.timestamp)}</td>
                       </tr>`;
-                    }).join('');
-                  })()
-                : emptyRow(5, 'No keystroke logs for this session')}
+          }).join('');
+        })()
+        : emptyRow(5, 'No keystroke logs for this session')}
             </tbody>
           </table>
         </div>
@@ -1859,13 +1861,13 @@ const ksSubId =
 // NETWORK SPEED PAGE
 // ══════════════════════════════════════════════════════════
 async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
-const nsSubId =
-  pageId === 'my-sessions'   ? 'my-session-netspeed'
-: pageId === 'super-admins'  ? 'super-admin-session-netspeed'
-: pageId === 'hrs'           ? 'hr-session-netspeed'
-: pageId === 'managers'      ? 'manager-session-netspeed'
-: pageId === 'my-employees'  ? 'my-emp-session-netspeed'
-:                              'emp-session-netspeed';
+  const nsSubId =
+    pageId === 'my-sessions' ? 'my-session-netspeed'
+      : pageId === 'super-admins' ? 'super-admin-session-netspeed'
+        : pageId === 'hrs' ? 'hr-session-netspeed'
+          : pageId === 'managers' ? 'manager-session-netspeed'
+            : pageId === 'my-employees' ? 'my-emp-session-netspeed'
+              : 'emp-session-netspeed';
   const container = g(nsSubId);
   if (!container) return;
   container.innerHTML = spinHtml();
@@ -1877,17 +1879,17 @@ const nsSubId =
     ]);
     const nsRows = (nsR && nsR.ok && Array.isArray(nsR.data)) ? nsR.data : [];
     const smRows = (smR && smR.ok && Array.isArray(smR.data)) ? smR.data : [];
-    const len    = Math.max(nsRows.length, smRows.length);
-    const rows   = Array.from({ length: len }, (_, i) => ({ ns: nsRows[i]||null, sm: smRows[i]||null }));
+    const len = Math.max(nsRows.length, smRows.length);
+    const rows = Array.from({ length: len }, (_, i) => ({ ns: nsRows[i] || null, sm: smRows[i] || null }));
 
     // Compute averages
-    const validNs   = nsRows.filter(r => r.download_speed != null);
-    const avgDown   = validNs.length ? (validNs.reduce((a,r)=>a+(r.download_speed||0),0)/validNs.length).toFixed(1) : '—';
-    const avgUp     = validNs.length ? (validNs.reduce((a,r)=>a+(r.upload_speed||0),0)/validNs.length).toFixed(1) : '—';
-    const avgPing   = validNs.length ? Math.round(validNs.reduce((a,r)=>a+(r.ping||0),0)/validNs.length) : '—';
-    const validSm   = smRows.filter(r => r.cpu_usage != null);
-    const avgCpu    = validSm.length ? (validSm.reduce((a,r)=>a+(r.cpu_usage||0),0)/validSm.length).toFixed(1) : '—';
-    const avgMem    = validSm.length ? (validSm.reduce((a,r)=>a+(r.memory_usage||0),0)/validSm.length).toFixed(1) : '—';
+    const validNs = nsRows.filter(r => r.download_speed != null);
+    const avgDown = validNs.length ? (validNs.reduce((a, r) => a + (r.download_speed || 0), 0) / validNs.length).toFixed(1) : '—';
+    const avgUp = validNs.length ? (validNs.reduce((a, r) => a + (r.upload_speed || 0), 0) / validNs.length).toFixed(1) : '—';
+    const avgPing = validNs.length ? Math.round(validNs.reduce((a, r) => a + (r.ping || 0), 0) / validNs.length) : '—';
+    const validSm = smRows.filter(r => r.cpu_usage != null);
+    const avgCpu = validSm.length ? (validSm.reduce((a, r) => a + (r.cpu_usage || 0), 0) / validSm.length).toFixed(1) : '—';
+    const avgMem = validSm.length ? (validSm.reduce((a, r) => a + (r.memory_usage || 0), 0) / validSm.length).toFixed(1) : '—';
 
     container.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:20px;">
@@ -1950,53 +1952,53 @@ const nsSubId =
             </thead>
             <tbody>
               ${rows.length
-                ? rows.map((row, i) => {
-                    const ns = row.ns, sm = row.sm;
-                    const cpuPct = sm ? Math.min(sm.cpu_usage, 100) : 0;
-                    const memPct = sm ? Math.min(sm.memory_usage, 100) : 0;
-                    return `<tr>
-                      <td class="td-muted">${i+1}</td>
+        ? rows.map((row, i) => {
+          const ns = row.ns, sm = row.sm;
+          const cpuPct = sm ? Math.min(sm.cpu_usage, 100) : 0;
+          const memPct = sm ? Math.min(sm.memory_usage, 100) : 0;
+          return `<tr>
+                      <td class="td-muted">${i + 1}</td>
                       <td>
                         ${ns && ns.download_speed != null
-                          ? `<span class="text-success">↓ ${ns.download_speed} Mbps</span>`
-                          : '<span class="td-muted">—</span>'}
+              ? `<span class="text-success">↓ ${ns.download_speed} Mbps</span>`
+              : '<span class="td-muted">—</span>'}
                       </td>
                       <td>
                         ${ns && ns.upload_speed != null
-                          ? `<span class="text-accent">↑ ${ns.upload_speed} Mbps</span>`
-                          : '<span class="td-muted">—</span>'}
+              ? `<span class="text-accent">↑ ${ns.upload_speed} Mbps</span>`
+              : '<span class="td-muted">—</span>'}
                       </td>
                       <td>
                         ${ns && ns.ping != null
-                          ? `<span class="${ns.ping < 50 ? 'text-success' : ns.ping < 100 ? 'text-warning' : 'text-danger'}">${ns.ping}ms</span>`
-                          : '<span class="td-muted">—</span>'}
+              ? `<span class="${ns.ping < 50 ? 'text-success' : ns.ping < 100 ? 'text-warning' : 'text-danger'}">${ns.ping}ms</span>`
+              : '<span class="td-muted">—</span>'}
                       </td>
                       <td>
                         ${sm && sm.cpu_usage != null
-                          ? `<div style="display:flex;align-items:center;gap:6px;">
+              ? `<div style="display:flex;align-items:center;gap:6px;">
                                <span class="${cpuCls(sm.cpu_usage) === 'danger' ? 'text-danger' : cpuCls(sm.cpu_usage) === 'warning' ? 'text-warning' : 'text-success'}">${sm.cpu_usage.toFixed(1)}%</span>
                                <div class="progress-bar" style="width:60px;">
                                  <div class="progress-fill ${cpuCls(sm.cpu_usage)}" style="width:${cpuPct}%;"></div>
                                </div>
                              </div>`
-                          : '<span class="td-muted">—</span>'}
+              : '<span class="td-muted">—</span>'}
                       </td>
                       <td>
                         ${sm && sm.memory_usage != null
-                          ? `<div style="display:flex;align-items:center;gap:6px;">
+              ? `<div style="display:flex;align-items:center;gap:6px;">
                                <span class="${cpuCls(sm.memory_usage) === 'danger' ? 'text-danger' : cpuCls(sm.memory_usage) === 'warning' ? 'text-warning' : 'text-success'}">${sm.memory_usage.toFixed(1)}%</span>
                                <div class="progress-bar" style="width:60px;">
                                  <div class="progress-fill ${cpuCls(sm.memory_usage)}" style="width:${memPct}%;"></div>
                                </div>
                              </div>`
-                          : '<span class="td-muted">—</span>'}
+              : '<span class="td-muted">—</span>'}
                       </td>
                       <td class="td-mono td-muted">
                         ${fmtDateTime((ns || sm)?.timestamp)}
                       </td>
                     </tr>`;
-                  }).join('')
-                : emptyRow(7, 'No network/system snapshots for this session')}
+        }).join('')
+        : emptyRow(7, 'No network/system snapshots for this session')}
             </tbody>
           </table>
         </div>
@@ -2022,7 +2024,7 @@ async function loadAdmins() {
   const tbody = g('admins-body');
   tbody.innerHTML = loadingRow(6);
   try {
-    const r    = await api.listEmployees({ role: 'admin', active_only: 'false' });
+    const r = await api.listEmployees({ role: 'admin', active_only: 'false' });
     const list = (r && r.ok && Array.isArray(r.data)) ? r.data : [];
     if (!list.length) { tbody.innerHTML = emptyRow(6, 'No admins found'); return; }
     tbody.innerHTML = list.map(e => `
@@ -2036,12 +2038,12 @@ async function loadAdmins() {
           </div>
         </td>
         <td class="td-muted">${esc(e.email)}</td>
-        <td>${esc(e.department||'—')}</td>
+        <td>${esc(e.department || '—')}</td>
         <td class="td-muted">${e.date_of_joining ? fmtDate(e.date_of_joining) : '—'}</td>
         <td>
           ${e.status
-            ? '<span class="badge badge-success">Active</span>'
-            : '<span class="badge badge-danger">Inactive</span>'}
+        ? '<span class="badge badge-success">Active</span>'
+        : '<span class="badge badge-danger">Inactive</span>'}
         </td>
         <td>
           <button class="btn btn-ghost btn-sm"
@@ -2063,7 +2065,7 @@ async function loadEmployees() {
   const tbody = g('employees-body');
   tbody.innerHTML = loadingRow(tbodyId === 'employees-body' ? 7 : 6);
   try {
-    const r    = await api.listEmployees({ role: 'employee', active_only: 'false' });
+    const r = await api.listEmployees({ role: 'employee', active_only: 'false' });
     const list = (r && r.ok && Array.isArray(r.data)) ? r.data : [];
     if (!list.length) { tbody.innerHTML = emptyRow(6, 'No employees found'); return; }
     tbody.innerHTML = list.map(e => `
@@ -2077,12 +2079,12 @@ async function loadEmployees() {
           </div>
         </td>
         <td class="td-muted">${esc(e.email)}</td>
-        <td>${esc(e.department||'—')}</td>
+        <td>${esc(e.department || '—')}</td>
         <td class="td-muted">${e.date_of_joining ? fmtDate(e.date_of_joining) : '—'}</td>
         <td>
           ${e.status
-            ? '<span class="badge badge-success">Active</span>'
-            : '<span class="badge badge-danger">Inactive</span>'}
+        ? '<span class="badge badge-success">Active</span>'
+        : '<span class="badge badge-danger">Inactive</span>'}
         </td>
         <td>
           <button class="btn btn-ghost btn-sm"
@@ -2102,20 +2104,20 @@ async function loadEmployees() {
 // ══════════════════════════════════════════════════════════
 async function openUserSessions(empId, empName, pageId) {
   const sessSubId =
-  pageId === 'super-admins'  ? 'super-admin-sessions-list'
-: pageId === 'hrs'           ? 'hr-sessions-list'
-: pageId === 'managers'      ? 'manager-sessions-list'
-: pageId === 'my-employees'  ? 'my-emp-sessions-list'
-: pageId === 'admins'        ? 'admin-sessions-list'
-:                              'emp-sessions-list';
+    pageId === 'super-admins' ? 'super-admin-sessions-list'
+      : pageId === 'hrs' ? 'hr-sessions-list'
+        : pageId === 'managers' ? 'manager-sessions-list'
+          : pageId === 'my-employees' ? 'my-emp-sessions-list'
+            : pageId === 'admins' ? 'admin-sessions-list'
+              : 'emp-sessions-list';
 
   const listSubId =
-  pageId === 'super-admins'  ? 'super-admins-list'
-: pageId === 'hrs'           ? 'hrs-list'
-: pageId === 'managers'      ? 'managers-list'
-: pageId === 'my-employees'  ? 'my-employees-list'
-: pageId === 'admins'        ? 'admins-list'
-:                              'employees-list';
+    pageId === 'super-admins' ? 'super-admins-list'
+      : pageId === 'hrs' ? 'hrs-list'
+        : pageId === 'managers' ? 'managers-list'
+          : pageId === 'my-employees' ? 'my-employees-list'
+            : pageId === 'admins' ? 'admins-list'
+              : 'employees-list';
 
   const container = g(sessSubId);
   if (!container) return;
@@ -2225,11 +2227,11 @@ async function openUserSessions(empId, empName, pageId) {
 
       </div>`;
 
-function applyFilter() {
+    function applyFilter() {
       const periodEl = document.getElementById('usr-filter-period');
-      const monthEl  = document.getElementById('usr-filter-month');
-      const dayEl    = document.getElementById('usr-filter-day');
-      const yearEl   = document.getElementById('usr-filter-year');
+      const monthEl = document.getElementById('usr-filter-month');
+      const dayEl = document.getElementById('usr-filter-day');
+      const yearEl = document.getElementById('usr-filter-year');
 
       if (!periodEl || !monthEl || !dayEl || !yearEl) {
         console.error('[applyFilter] DOM elements not ready');
@@ -2239,34 +2241,34 @@ function applyFilter() {
       const period = periodEl.value || 'all';
 
       // Show/hide sub-filters
-      yearEl.style.display  = period === 'year'  ? '' : 'none';
+      yearEl.style.display = period === 'year' ? '' : 'none';
       monthEl.style.display = period === 'month' ? '' : 'none';
-      dayEl.style.display   = period === 'day'   ? '' : 'none';
+      dayEl.style.display = period === 'day' ? '' : 'none';
 
-      const now       = new Date();
-      const todayStr  = now.toISOString().slice(0, 10);
+      const now = new Date();
+      const todayStr = now.toISOString().slice(0, 10);
       const thisMonth = now.toISOString().slice(0, 7);
-      const thisYear  = String(now.getFullYear());
+      const thisYear = String(now.getFullYear());
 
       if (period === 'month' && !monthEl.value) monthEl.value = thisMonth;
-      if (period === 'day'   && !dayEl.value)   dayEl.value   = todayStr;
+      if (period === 'day' && !dayEl.value) dayEl.value = todayStr;
 
       const filtered = sessions.filter(s => {
         const raw = s.date || (s.clock_in || '').slice(0, 10);
         if (!raw) return false;
         const dateStr = raw.slice(0, 10);
-        if (period === 'day')   return dateStr === (dayEl.value || todayStr);
+        if (period === 'day') return dateStr === (dayEl.value || todayStr);
         if (period === 'month') return dateStr.slice(0, 7) === (monthEl.value || thisMonth);
-        if (period === 'year')  return dateStr.slice(0, 4) === (yearEl.value || thisYear);
+        if (period === 'year') return dateStr.slice(0, 4) === (yearEl.value || thisYear);
         return true;
       });
 
       // Update subtitle
       const subtitleMap = {
-        all:   'All Sessions',
-        year:  `Year ${yearEl.value || thisYear}`,
+        all: 'All Sessions',
+        year: `Year ${yearEl.value || thisYear}`,
         month: `Month: ${monthEl.value || thisMonth}`,
-        day:   `Date: ${dayEl.value || todayStr}`,
+        day: `Date: ${dayEl.value || todayStr}`,
       };
       const subtitleEl = document.getElementById('usr-subtitle');
       if (subtitleEl) subtitleEl.textContent = `${subtitleMap[period] || 'All Sessions'} (${filtered.length})`;
@@ -2303,14 +2305,14 @@ function applyFilter() {
         const daySessions = grouped[dateKey];
 
         // Day-level aggregates
-        const dayActive   = daySessions.reduce((a, s) => a + (s.total_active_time || 0), 0);
-        const dayIdle     = daySessions.reduce((a, s) => a + (s.total_idle_time   || 0), 0);
-        const dayTotal    = dayActive + dayIdle;
-        const dayKeys     = daySessions.reduce((a, s) => a + (ksMap[s.session_id] || 0), 0);
-        const firstClockin  = daySessions[daySessions.length - 1]?.clock_in;
-        const lastClockout  = daySessions[0]?.clock_out;
-        const hasActive     = daySessions.some(s => s.session_status === 'active');
-        const cardId        = `day-sessions-${dateKey.replace(/-/g, '')}`;
+        const dayActive = daySessions.reduce((a, s) => a + (s.total_active_time || 0), 0);
+        const dayIdle = daySessions.reduce((a, s) => a + (s.total_idle_time || 0), 0);
+        const dayTotal = dayActive + dayIdle;
+        const dayKeys = daySessions.reduce((a, s) => a + (ksMap[s.session_id] || 0), 0);
+        const firstClockin = daySessions[daySessions.length - 1]?.clock_in;
+        const lastClockout = daySessions[0]?.clock_out;
+        const hasActive = daySessions.some(s => s.session_status === 'active');
+        const cardId = `day-sessions-${dateKey.replace(/-/g, '')}`;
 
         return `
           <!-- Date Card -->
@@ -2352,8 +2354,8 @@ function applyFilter() {
                 </div>
               </div>
               ${hasActive
-                ? `<span class="badge badge-success">🟢 Active Now</span>`
-                : `<span class="badge badge-muted">Completed</span>`}
+            ? `<span class="badge badge-success">🟢 Active Now</span>`
+            : `<span class="badge badge-muted">Completed</span>`}
             </div>
 
             <!-- Card Body — Info Grid -->
@@ -2452,8 +2454,8 @@ function applyFilter() {
                           <td class="td-mono">${fmtTime(s.clock_in)}</td>
                           <td class="td-mono">
                             ${s.clock_out
-                              ? fmtTime(s.clock_out)
-                              : '<span class="text-success">Active</span>'}
+                ? fmtTime(s.clock_out)
+                : '<span class="text-success">Active</span>'}
                           </td>
                           <td class="text-success">${sToHm(s.total_active_time)}</td>
                           <td class="text-warning">${sToHm(s.total_idle_time)}</td>
@@ -2482,11 +2484,11 @@ function applyFilter() {
 
 
     // Wire up filter events after DOM is ready
-setTimeout(() => {
+    setTimeout(() => {
       const periodEl = document.getElementById('usr-filter-period');
-      const monthEl  = document.getElementById('usr-filter-month');
-      const dayEl    = document.getElementById('usr-filter-day');
-      const yearEl   = document.getElementById('usr-filter-year');
+      const monthEl = document.getElementById('usr-filter-month');
+      const dayEl = document.getElementById('usr-filter-day');
+      const yearEl = document.getElementById('usr-filter-year');
 
       if (!periodEl) {
         console.error('[openUserSessions] Filter elements not found in DOM');
@@ -2567,8 +2569,8 @@ function bindModalButtons() {
   // ── Reset-password modal ────────────────────────────
   const pwOverlay = g('modal-reset-pw');
   if (pwOverlay) {
-    const pwClose  = pwOverlay.querySelector('.modal-close');
-    if (pwClose)  pwClose.addEventListener('click',  () => closeModal('modal-reset-pw'));
+    const pwClose = pwOverlay.querySelector('.modal-close');
+    if (pwClose) pwClose.addEventListener('click', () => closeModal('modal-reset-pw'));
     const pwCancel = pwOverlay.querySelector('.btn-ghost');
     if (pwCancel) pwCancel.addEventListener('click', () => closeModal('modal-reset-pw'));
     pwOverlay.addEventListener('click', e => {
@@ -2576,19 +2578,19 @@ function bindModalButtons() {
     });
   }
   // ── Change My Password modal ────────────────────────────
-const changePwOverlay = g('modal-change-pw');
-if (changePwOverlay) {
-  const cpClose  = changePwOverlay.querySelector('.modal-close');
-  if (cpClose)  cpClose.addEventListener('click',  () => closeModal('modal-change-pw'));
-  const cpCancel = changePwOverlay.querySelector('.btn-ghost');
-  if (cpCancel) cpCancel.addEventListener('click', () => closeModal('modal-change-pw'));
-  changePwOverlay.addEventListener('click', e => {
-    if (e.target === changePwOverlay) closeModal('modal-change-pw');
-  });
-  // add to ESC handler array too — handled already since we loop ['modal-employee','modal-reset-pw']
-}
-const btnConfirmChangePw = g('btn-confirm-change-pw');
-if (btnConfirmChangePw) btnConfirmChangePw.addEventListener('click', confirmChangePassword);
+  const changePwOverlay = g('modal-change-pw');
+  if (changePwOverlay) {
+    const cpClose = changePwOverlay.querySelector('.modal-close');
+    if (cpClose) cpClose.addEventListener('click', () => closeModal('modal-change-pw'));
+    const cpCancel = changePwOverlay.querySelector('.btn-ghost');
+    if (cpCancel) cpCancel.addEventListener('click', () => closeModal('modal-change-pw'));
+    changePwOverlay.addEventListener('click', e => {
+      if (e.target === changePwOverlay) closeModal('modal-change-pw');
+    });
+    // add to ESC handler array too — handled already since we loop ['modal-employee','modal-reset-pw']
+  }
+  const btnConfirmChangePw = g('btn-confirm-change-pw');
+  if (btnConfirmChangePw) btnConfirmChangePw.addEventListener('click', confirmChangePassword);
 
   // ── ESC key closes any open modal ──────────────────
   document.addEventListener('keydown', e => {
@@ -2603,13 +2605,13 @@ if (btnConfirmChangePw) btnConfirmChangePw.addEventListener('click', confirmChan
 
 async function openEmpModal(defaultRole) {
   editingEmployeeId = null;
-  g('modal-emp-title').textContent      = `Add ${roleName(defaultRole)}`;
-  g('emp-name').value                   = '';
-  g('emp-email').value                  = '';
-  g('emp-email').disabled               = false;
-  g('emp-password').value               = '';
-  g('emp-department').value             = '';
-  g('emp-role').value                   = defaultRole;
+  g('modal-emp-title').textContent = `Add ${roleName(defaultRole)}`;
+  g('emp-name').value = '';
+  g('emp-email').value = '';
+  g('emp-email').disabled = false;
+  g('emp-password').value = '';
+  g('emp-department').value = '';
+  g('emp-role').value = defaultRole;
   g('emp-password-group').style.display = 'block';
   g('modal-emp-alert').classList.add('hidden');
 
@@ -2628,9 +2630,9 @@ async function openEmpModal(defaultRole) {
   const roleEl = g('emp-role');
   if (roleEl) {
     const allowed = {
-      super_admin: ['super_admin','hr','manager','employee'],
-      hr:          ['hr','manager','employee'],
-      manager:     ['employee'],
+      super_admin: ['super_admin', 'hr', 'manager', 'employee'],
+      hr: ['hr', 'manager', 'employee'],
+      manager: ['employee'],
     }[currentEmployee?.role] || [];
     Array.from(roleEl.options).forEach(opt => {
       opt.disabled = !allowed.includes(opt.value);
@@ -2656,51 +2658,51 @@ async function populateManagerDropdown() {
     });
     // If current user is manager, pre-select and lock
     if (currentEmployee?.role === 'manager') {
-      sel.value    = currentEmployee.employee_id;
+      sel.value = currentEmployee.employee_id;
       sel.disabled = true;
     }
   } catch { /* ignore */ }
 }
 
 function roleName(r) {
-  return { super_admin:'Super Admin', hr:'HR', manager:'Manager', employee:'Employee' }[r] || r;
+  return { super_admin: 'Super Admin', hr: 'HR', manager: 'Manager', employee: 'Employee' }[r] || r;
 }
 function openEditEmployeeModal(id, name, email, dept, role) {
   editingEmployeeId = id;
-  g('modal-emp-title').textContent      = 'Edit ' + (role === 'admin' ? 'Admin' : 'Employee');
-  g('emp-name').value                   = name;
-  g('emp-email').value                  = email;
-  g('emp-email').disabled               = true;
-  g('emp-department').value             = dept;
-  g('emp-role').value                   = role;
+  g('modal-emp-title').textContent = 'Edit ' + (role === 'admin' ? 'Admin' : 'Employee');
+  g('emp-name').value = name;
+  g('emp-email').value = email;
+  g('emp-email').disabled = true;
+  g('emp-department').value = dept;
+  g('emp-role').value = role;
   g('emp-password-group').style.display = 'none';
   g('modal-emp-alert').classList.add('hidden');
   g('modal-employee').classList.remove('hidden');
 }
 
 async function saveEmployee() {
-  const btn      = g('btn-save-employee');
-  const name     = g('emp-name').value.trim();
-  const email    = g('emp-email').value.trim();
+  const btn = g('btn-save-employee');
+  const name = g('emp-name').value.trim();
+  const email = g('emp-email').value.trim();
   const password = g('emp-password').value;
-  const dept     = g('emp-department').value.trim();
-  const role     = g('emp-role').value;
+  const dept = g('emp-department').value.trim();
+  const role = g('emp-role').value;
   const managerId = g('emp-manager-id') ? g('emp-manager-id').value : '';
   g('modal-emp-alert').classList.add('hidden');
 
-  if (!name)                           { showModalAlert('modal-emp-alert', 'Name is required'); return; }
-  if (!editingEmployeeId && !email)    { showModalAlert('modal-emp-alert', 'Email is required'); return; }
+  if (!name) { showModalAlert('modal-emp-alert', 'Name is required'); return; }
+  if (!editingEmployeeId && !email) { showModalAlert('modal-emp-alert', 'Email is required'); return; }
   if (!editingEmployeeId && !password) { showModalAlert('modal-emp-alert', 'Password is required'); return; }
 
   btn.disabled = true; btn.textContent = 'Saving…';
   try {
-   const payload = { employee_name: name, department: dept, role };
-// Always include manager_id on edit (even if empty, to allow removing a manager)
-if (editingEmployeeId) {
-  payload.manager_id = managerId || null;
-} else {
-  if (managerId) payload.manager_id = managerId;
-}
+    const payload = { employee_name: name, department: dept, role };
+    // Always include manager_id on edit (even if empty, to allow removing a manager)
+    if (editingEmployeeId) {
+      payload.manager_id = managerId || null;
+    } else {
+      if (managerId) payload.manager_id = managerId;
+    }
 
     const r = editingEmployeeId
       ? await api.updateEmployee(editingEmployeeId, payload)
@@ -2710,19 +2712,19 @@ if (editingEmployeeId) {
       closeModal('modal-employee');
       const pageMap = {
         super_admin: { key: 'super-admins', bodyId: 'super-admins-body' },
-        hr:          { key: 'hrs',          bodyId: 'hrs-body' },
-        manager:     { key: 'managers',     bodyId: 'managers-body' },
-        employee:    { key: 'employees',    bodyId: 'employees-body' },
+        hr: { key: 'hrs', bodyId: 'hrs-body' },
+        manager: { key: 'managers', bodyId: 'managers-body' },
+        employee: { key: 'employees', bodyId: 'employees-body' },
       };
       // If manager is adding, refresh their own "my-employees" page instead
-if (editingEmployeeId) {
-  loadRolePage('employee', 'employees-body', 'employees');
-} else {
-  const target = (isManager && role === 'employee')
-    ? { key: 'my-employees', bodyId: 'my-employees-body' }
-    : (pageMap[role] || { key: 'employees', bodyId: 'employees-body' });
-  loadRolePage(role, target.bodyId, target.key);
-}
+      if (editingEmployeeId) {
+        loadRolePage('employee', 'employees-body', 'employees');
+      } else {
+        const target = (isManager && role === 'employee')
+          ? { key: 'my-employees', bodyId: 'my-employees-body' }
+          : (pageMap[role] || { key: 'employees', bodyId: 'employees-body' });
+        loadRolePage(role, target.bodyId, target.key);
+      }
     } else {
       showModalAlert('modal-emp-alert', (r && r.data && r.data.detail) ? r.data.detail : 'Save failed');
     }
@@ -2739,7 +2741,7 @@ function openResetPasswordModal(id) {
 
 async function confirmReset() {
   const btn = g('btn-confirm-reset');
-  const pw  = g('new-password').value;
+  const pw = g('new-password').value;
   if (!pw || pw.length < 6) {
     showModalAlert('modal-pw-alert', 'Password must be at least 6 characters');
     return;
@@ -2753,16 +2755,16 @@ async function confirmReset() {
 }
 function openChangePasswordModal() {
   g('change-pw-current').value = '';
-  g('change-pw-new').value     = '';
+  g('change-pw-new').value = '';
   g('change-pw-confirm').value = '';
   g('modal-change-pw-alert').classList.add('hidden');
   g('modal-change-pw').classList.remove('hidden');
 }
 
 async function confirmChangePassword() {
-  const btn     = g('btn-confirm-change-pw');
+  const btn = g('btn-confirm-change-pw');
   const current = g('change-pw-current').value;
-  const newPw   = g('change-pw-new').value;
+  const newPw = g('change-pw-new').value;
   const confirm = g('change-pw-confirm').value;
 
   g('modal-change-pw-alert').classList.add('hidden');
@@ -2783,7 +2785,7 @@ async function confirmChangePassword() {
       const detail = r?.data?.detail || 'Failed to update password';
       showModalAlert('modal-change-pw-alert', detail);
     }
-  } catch(e) {
+  } catch (e) {
     showModalAlert('modal-change-pw-alert', 'Error: ' + e.message);
   } finally {
     btn.disabled = false; btn.textContent = 'Update Password';
@@ -2797,9 +2799,9 @@ async function refreshKeystrokesFromDB() {
       if (el) el.textContent = '0';
       return;
     }
-    const kr = await api.getAdminKeystrokes({ 
-      session_id: session.session_id, 
-      limit: '500' 
+    const kr = await api.getAdminKeystrokes({
+      session_id: session.session_id,
+      limit: '500'
     });
     if (kr && kr.ok && Array.isArray(kr.data)) {
       const total = kr.data.reduce((a, k) => a + (k.keys_pressed_count || 0), 0);
@@ -2814,29 +2816,29 @@ function showModalAlert(id, msg) {
   const el = g(id);
   if (!el) return;
   el.textContent = '⚠ ' + msg;
-  el.className   = 'alert alert-error';
+  el.className = 'alert alert-error';
 }
 // Modal close/cancel bindings are in bindModalButtons()
 
 // ══════════════════════════════════════════════════════════
 // GLOBALS (for inline HTML onclick on modals)
 // ══════════════════════════════════════════════════════════
-window.switchPage             = switchPage;
-window.showSub                = showSub;
-window.closeModal             = closeModal;
-window.openEditEmployeeModal  = openEditEmployeeModal;
+window.switchPage = switchPage;
+window.showSub = showSub;
+window.closeModal = closeModal;
+window.openEditEmployeeModal = openEditEmployeeModal;
 window.openResetPasswordModal = openResetPasswordModal;
 
 // ══════════════════════════════════════════════════════════
 // FORMATTING
 // ══════════════════════════════════════════════════════════
 function fmtDuration(s) {
-  const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=s%60;
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
   return `${pad(h)}:${pad(m)}:${pad(sec)}`;
 }
 function sToHm(s) {
   if (!s) return '0m';
-  const h=Math.floor(s/3600), m=Math.floor((s%3600)/60);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
   return h ? `${h}h ${m}m` : `${m}m`;
 }
 // AFTER
@@ -2849,34 +2851,34 @@ function toUtc(v) {
 }
 function fmtDate(v) {
   if (!v) return '—';
-  try { return toUtc(v).toLocaleDateString('en-IN',{month:'short',day:'numeric',year:'numeric',timeZone:'Asia/Kolkata'}); }
+  try { return toUtc(v).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Asia/Kolkata' }); }
   catch { return String(v); }
 }
 function fmtTime(v) {
   if (!v) return '—';
-  try { return toUtc(v).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true,timeZone:'Asia/Kolkata'}); }
+  try { return toUtc(v).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }); }
   catch { return String(v); }
 }
 function fmtDateTime(v) {
   if (!v) return '—';
-  try { return toUtc(v).toLocaleString('en-IN',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:true,timeZone:'Asia/Kolkata'}); }
+  try { return toUtc(v).toLocaleString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }); }
   catch { return String(v); }
 }
-function pad(n)  { return String(n).padStart(2,'0'); }
-function esc(s)  { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function pad(n) { return String(n).padStart(2, '0'); }
+function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function locStr(s) {
-  const c=s.city||'', co=s.country||'';
+  const c = s.city || '', co = s.country || '';
   return (c && co) ? `${c}, ${co}` : (c || co || '');
 }
 function statusBadge(s) {
   const m = {
-    active:    '<span class="badge badge-success">Active</span>',
+    active: '<span class="badge badge-success">Active</span>',
     completed: '<span class="badge badge-accent">Done</span>',
-    stale:     '<span class="badge badge-warning">Stale</span>',
+    stale: '<span class="badge badge-warning">Stale</span>',
   };
-  return m[s] || `<span class="badge badge-muted">${esc(s||'—')}</span>`;
+  return m[s] || `<span class="badge badge-muted">${esc(s || '—')}</span>`;
 }
-function cpuCls(p) { return !p ? '' : p>80 ? 'danger' : p>60 ? 'warning' : 'success'; }
+function cpuCls(p) { return !p ? '' : p > 80 ? 'danger' : p > 60 ? 'warning' : 'success'; }
 function loadingRow(c) {
   return `<tr><td colspan="${c}"><div class="empty-state"><span class="spinner"></span></div></td></tr>`;
 }
@@ -2899,10 +2901,10 @@ function spinHtml() {
 (function () {
   let count = 0, display = 0;
   window.addEventListener('keydown', e => {
-    if (['Shift','Control','Alt','Meta','CapsLock','Tab'].includes(e.key)) return;
+    if (['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'Tab'].includes(e.key)) return;
     count++; display++;
     const el = g('stat-keys');
-    
+
   }, true);
 
   // Send to main process every 10s (used only as fallback when global hook is off)

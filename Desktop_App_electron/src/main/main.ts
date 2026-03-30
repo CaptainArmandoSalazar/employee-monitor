@@ -33,6 +33,7 @@ function setupAutoUpdater(): void {
   // ── Update available ───────────────────────────────────
   autoUpdater.on('update-available', (info) => {
     console.log('[Updater] Update available:', info.version);
+    _updateAvailableVersion = info.version;
     const win = getMainWindow();
     if (!win) return;
 
@@ -120,9 +121,12 @@ function setupAutoUpdater(): void {
 // ── Force clock-out ───────────────────────────────────────
 let _clockOutDone = false;
 let _updateDownloaded = false;
+let _updateAvailableVersion: string | null = null;
 
 // Export so ipc.ts can check it
 export function isUpdateDownloaded(): boolean { return _updateDownloaded; }
+export function getUpdateAvailableVersion(): string | null { return _updateAvailableVersion; }
+
 async function forceClockOut(): Promise<void> {
   if (_clockOutDone) return;
   if (!sessionService.isClocked()) return;

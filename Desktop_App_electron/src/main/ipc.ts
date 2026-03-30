@@ -7,7 +7,7 @@ import { activityTracker } from './system/activity';
 import { getDeviceInfo } from './system/metrics';
 import { getNetworkInfo, getGeoInfo, getNetworkSpeed } from './system/network';
 import { createLoginWindow, createDashboardWindow, closeAllWindows, setMainWindow } from './window';
-import { isUpdateDownloaded } from './main';
+import { isUpdateDownloaded, getUpdateAvailableVersion } from './main';
 import { apiService } from './services/api.service';
 
 // ── Helper: wrap any API call and handle 401 gracefully ──
@@ -36,17 +36,17 @@ export function registerIpcHandlers(): void {
     sessionService.clearState();
     return { success: true };
   });
-ipcMain.handle('auth:changeMyPassword', async (_event, currentPassword: string, newPassword: string) => {
-  const token = authService.getToken();
-  if (!token) return { ok: false, status: 401, data: { detail: 'Not authenticated' } };
-  return safeApi(
-    () => apiService.post('/employees/me/change-password', {
-      current_password: currentPassword,
-      new_password: newPassword,
-    }, token),
-    { ok: false, status: 0, data: { detail: 'Request failed' } }
-  );
-});
+  ipcMain.handle('auth:changeMyPassword', async (_event, currentPassword: string, newPassword: string) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false, status: 401, data: { detail: 'Not authenticated' } };
+    return safeApi(
+      () => apiService.post('/employees/me/change-password', {
+        current_password: currentPassword,
+        new_password: newPassword,
+      }, token),
+      { ok: false, status: 0, data: { detail: 'Request failed' } }
+    );
+  });
   ipcMain.handle('auth:getEmployee', () => {
     return authService.getEmployee();
   });
@@ -54,13 +54,13 @@ ipcMain.handle('auth:changeMyPassword', async (_event, currentPassword: string, 
   // ── Window navigation ─────────────────────────────────
   ipcMain.handle('nav:showDashboard', (event) => {
     const loginWin = BrowserWindow.fromWebContents(event.sender);
-    const dashWin  = createDashboardWindow();
+    const dashWin = createDashboardWindow();
     setMainWindow(dashWin);
     if (loginWin) loginWin.close();
     return { success: true };
   });
 
-ipcMain.handle('nav:showLogin', () => {
+  ipcMain.handle('nav:showLogin', () => {
     activityTracker.stop();
     trackingService.stop();
     authService.logout();
@@ -86,7 +86,7 @@ ipcMain.handle('nav:showLogin', () => {
     );
   });
 
-  ipcMain.handle('admin:listByRole', async (_event, role: string, params: Record<string,string> = {}) => {
+  ipcMain.handle('admin:listByRole', async (_event, role: string, params: Record<string, string> = {}) => {
     const token = authService.getToken();
     if (!token) return { ok: false, data: [] };
     return safeApi(
@@ -113,14 +113,14 @@ ipcMain.handle('nav:showLogin', () => {
     ]);
 
     const clockInResult = await sessionService.clockIn({
-      ip_address:          geo.ip || netInfo.ip_address,
-      latitude:            geo.latitude,
-      longitude:           geo.longitude,
-      city:                geo.city,
-      country:             geo.country,
-      location:            geo.location,
+      ip_address: geo.ip || netInfo.ip_address,
+      latitude: geo.latitude,
+      longitude: geo.longitude,
+      city: geo.city,
+      country: geo.country,
+      location: geo.location,
       network_speed_start: netSpeed.download,
-      device_id:           deviceInfo.device_id,
+      device_id: deviceInfo.device_id,
     });
 
     if (!clockInResult.success || !clockInResult.session) return clockInResult;
@@ -136,7 +136,7 @@ ipcMain.handle('nav:showLogin', () => {
         ip_address: netInfo.ip_address, connection_type: netInfo.connection_type,
         ssid: netInfo.ssid, mac_address: netInfo.mac_address,
       }),
-    ]).catch(() => {});
+    ]).catch(() => { });
 
     activityTracker.start();
     trackingService.start();
@@ -152,7 +152,7 @@ ipcMain.handle('nav:showLogin', () => {
           upload_speed: netSpeed.upload,
           ping: netSpeed.ping,
           timestamp: new Date().toISOString(),
-        }, token).catch(() => {});
+        }, token).catch(() => { });
       }
     }
 
@@ -166,95 +166,95 @@ ipcMain.handle('nav:showLogin', () => {
     return sessionService.clockOut(totals.active, totals.idle);
   });
 
-// REPLACE the session:getActive handler entirely:
-ipcMain.handle('session:getActive', async () => {
-  const session = await sessionService.fetchActiveSession();
+  // REPLACE the session:getActive handler entirely:
+  ipcMain.handle('session:getActive', async () => {
+    const session = await sessionService.fetchActiveSession();
 
-  if (session) {
-    const existingClockInTime = sessionService.getClockInTime();
+    if (session) {
+      const existingClockInTime = sessionService.getClockInTime();
 
-    if (!existingClockInTime) {
-      console.log('[IPC] Orphan session found on restart — clocking out:', session.session_id);
-      try {
-        activityTracker.stop();
-        trackingService.stop();
-
-        let activeTime = 0;
-        let idleTime   = 0;
-
-        if (session.clock_in) {
-          const clockInStr = String(session.clock_in);
-          const clockInISO = clockInStr.endsWith('Z') || clockInStr.includes('+')
-            ? clockInStr : clockInStr + 'Z';
-          const clockInMs = new Date(clockInISO).getTime();
-          const nowMs     = Date.now();
-
-          // ── Use last_heartbeat to find how long app was running ──
-          let lastActiveMs = nowMs;
-          if ((session as any).last_heartbeat) {
-            const hbStr = String((session as any).last_heartbeat);
-            const hbISO = hbStr.endsWith('Z') || hbStr.includes('+')
-              ? hbStr : hbStr + 'Z';
-            lastActiveMs = new Date(hbISO).getTime();
-          }
-
-          // Time since last heartbeat = additional idle (app was dead)
-          const timeSinceHeartbeat = Math.max(0, Math.floor((nowMs - lastActiveMs) / 1000));
-
-          // ── KEY FIX: use already-saved active/idle from DB + add the gap ──
-          // session.total_active_time and total_idle_time were saved periodically
-          // during the session by clock-out calls or activity tracking
-          const savedActive = (session as any).total_active_time || 0;
-          const savedIdle   = (session as any).total_idle_time   || 0;
-
-          if (savedActive > 0 || savedIdle > 0) {
-            // Session had saved data — add gap since last heartbeat as idle
-            activeTime = savedActive;
-            idleTime   = savedIdle + timeSinceHeartbeat;
-            console.log(`[IPC] Using saved data — active: ${activeTime}s, idle: ${idleTime}s, gap: ${timeSinceHeartbeat}s`);
-          } else {
-            // No saved data — calculate from timestamps
-            activeTime = Math.max(0, Math.floor((lastActiveMs - clockInMs) / 1000));
-            idleTime   = timeSinceHeartbeat;
-            console.log(`[IPC] Using timestamps — active: ${activeTime}s, idle: ${idleTime}s`);
-          }
-        }
-
-        await sessionService.clockOut(activeTime, idleTime);
-        console.log('[IPC] Orphan session clocked out — active:', activeTime, 'idle:', idleTime);
-      } catch (err) {
-        console.error('[IPC] Failed to clock out orphan session:', err);
+      if (!existingClockInTime) {
+        console.log('[IPC] Orphan session found on restart — clocking out:', session.session_id);
         try {
-          const token = authService.getToken();
-          if (token && session) {
-            await apiService.post('/sessions/clock-out', {
-              session_id:        session.session_id,
-              total_active_time: (session as any).total_active_time || 0,
-              total_idle_time:   (session as any).total_idle_time   || 0,
-            }, token);
-          }
-        } catch { /* ignore */ }
-      }
-      return null;
-    }
-  }
+          activityTracker.stop();
+          trackingService.stop();
 
-  return session;
-});
+          let activeTime = 0;
+          let idleTime = 0;
+
+          if (session.clock_in) {
+            const clockInStr = String(session.clock_in);
+            const clockInISO = clockInStr.endsWith('Z') || clockInStr.includes('+')
+              ? clockInStr : clockInStr + 'Z';
+            const clockInMs = new Date(clockInISO).getTime();
+            const nowMs = Date.now();
+
+            // ── Use last_heartbeat to find how long app was running ──
+            let lastActiveMs = nowMs;
+            if ((session as any).last_heartbeat) {
+              const hbStr = String((session as any).last_heartbeat);
+              const hbISO = hbStr.endsWith('Z') || hbStr.includes('+')
+                ? hbStr : hbStr + 'Z';
+              lastActiveMs = new Date(hbISO).getTime();
+            }
+
+            // Time since last heartbeat = additional idle (app was dead)
+            const timeSinceHeartbeat = Math.max(0, Math.floor((nowMs - lastActiveMs) / 1000));
+
+            // ── KEY FIX: use already-saved active/idle from DB + add the gap ──
+            // session.total_active_time and total_idle_time were saved periodically
+            // during the session by clock-out calls or activity tracking
+            const savedActive = (session as any).total_active_time || 0;
+            const savedIdle = (session as any).total_idle_time || 0;
+
+            if (savedActive > 0 || savedIdle > 0) {
+              // Session had saved data — add gap since last heartbeat as idle
+              activeTime = savedActive;
+              idleTime = savedIdle + timeSinceHeartbeat;
+              console.log(`[IPC] Using saved data — active: ${activeTime}s, idle: ${idleTime}s, gap: ${timeSinceHeartbeat}s`);
+            } else {
+              // No saved data — calculate from timestamps
+              activeTime = Math.max(0, Math.floor((lastActiveMs - clockInMs) / 1000));
+              idleTime = timeSinceHeartbeat;
+              console.log(`[IPC] Using timestamps — active: ${activeTime}s, idle: ${idleTime}s`);
+            }
+          }
+
+          await sessionService.clockOut(activeTime, idleTime);
+          console.log('[IPC] Orphan session clocked out — active:', activeTime, 'idle:', idleTime);
+        } catch (err) {
+          console.error('[IPC] Failed to clock out orphan session:', err);
+          try {
+            const token = authService.getToken();
+            if (token && session) {
+              await apiService.post('/sessions/clock-out', {
+                session_id: session.session_id,
+                total_active_time: (session as any).total_active_time || 0,
+                total_idle_time: (session as any).total_idle_time || 0,
+              }, token);
+            }
+          } catch { /* ignore */ }
+        }
+        return null;
+      }
+    }
+
+    return session;
+  });
   ipcMain.handle('session:getMySessions', async (_e, limit = 200) => {
     return sessionService.fetchMySessions(limit);
   });
 
   ipcMain.handle('session:getClockInTime', () => sessionService.getClockInTime());
-  ipcMain.handle('session:isClocked',      () => sessionService.isClocked());
-// ADD this handler:
-ipcMain.handle('session:heartbeat', async () => {
-  const token = authService.getToken();
-  if (!token || !sessionService.isClocked()) return;
-  try {
-    await apiService.post('/sessions/heartbeat', {}, token);
-  } catch { /* ignore */ }
-});
+  ipcMain.handle('session:isClocked', () => sessionService.isClocked());
+  // ADD this handler:
+  ipcMain.handle('session:heartbeat', async () => {
+    const token = authService.getToken();
+    if (!token || !sessionService.isClocked()) return;
+    try {
+      await apiService.post('/sessions/heartbeat', {}, token);
+    } catch { /* ignore */ }
+  });
   // ── Admin: Employees ──────────────────────────────────
   ipcMain.handle('admin:listEmployees', async (_event, params: Record<string, string> = {}) => {
     const token = authService.getToken();
@@ -301,8 +301,8 @@ ipcMain.handle('session:heartbeat', async () => {
   // FIX: Always use /admin/sessions for admin users.
   // The old logic checked authService.getEmployee()?.role which could be null
   // after a session restore, causing it to fall back to /sessions/my incorrectly.
-ipcMain.handle('admin:getSessions', async (_event, params: Record<string, string> = {}) => {
-    const token    = authService.getToken();
+  ipcMain.handle('admin:getSessions', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken();
     const employee = authService.getEmployee();
     if (!token) return { ok: false, data: [] };
 
@@ -329,7 +329,7 @@ ipcMain.handle('admin:getSessions', async (_event, params: Record<string, string
 
   // ── Admin: Device Info ────────────────────────────────
   ipcMain.handle('admin:getDeviceInfo', async (_event, params: Record<string, string> = {}) => {
-    const token    = authService.getToken();
+    const token = authService.getToken();
     const employee = authService.getEmployee();
     if (!token) return { ok: false, data: [] };
     if (employee?.role && ['super_admin', 'hr', 'manager', 'admin'].includes(employee.role)) {
@@ -343,7 +343,7 @@ ipcMain.handle('admin:getSessions', async (_event, params: Record<string, string
 
   // ── Admin: Network Info ───────────────────────────────
   ipcMain.handle('admin:getNetworkInfo', async (_event, params: Record<string, string> = {}) => {
-    const token    = authService.getToken();
+    const token = authService.getToken();
     const employee = authService.getEmployee();
     if (!token) return { ok: false, data: [] };
     if (employee?.role && ['super_admin', 'hr', 'manager', 'admin'].includes(employee.role)) {
@@ -421,57 +421,58 @@ ipcMain.handle('admin:getSessions', async (_event, params: Record<string, string
   });
 
   // ── System info ───────────────────────────────────────
-  ipcMain.handle('system:getDeviceInfo',  () => getDeviceInfo());
+  ipcMain.handle('system:getDeviceInfo', () => getDeviceInfo());
   ipcMain.handle('system:getNetworkInfo', () => getNetworkInfo());
-ipcMain.handle('system:getAppVersion', () => {
-  const { app } = require('electron');
-  const fs   = require('fs');
-  const path = require('path');
+  ipcMain.handle('system:getAppVersion', () => {
+    const { app } = require('electron');
+    const fs = require('fs');
+    const path = require('path');
 
-  const changelogPath = app.isPackaged
-    ? path.join(process.resourcesPath, 'changelog.json')
-    : path.join(app.getAppPath(), 'changelog.json');
+    const changelogPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'changelog.json')
+      : path.join(app.getAppPath(), 'changelog.json');
 
-  let history = [];
-  try {
-    const raw = fs.readFileSync(changelogPath, 'utf8');
-    history = JSON.parse(raw).history || [];
-  } catch (e) {
-    console.error('[Version] Could not read changelog.json:', e);
-  }
+    let history = [];
+    try {
+      const raw = fs.readFileSync(changelogPath, 'utf8');
+      history = JSON.parse(raw).history || [];
+    } catch (e) {
+      console.error('[Version] Could not read changelog.json:', e);
+    }
 
-  return {
-    current:           app.getVersion(),
-    history,
-    updateDownloaded:  isUpdateDownloaded(),
-    isPackaged:        app.isPackaged,
-  };
-});
-ipcMain.handle('system:downloadUpdate', async () => {
-  if (!app.isPackaged) {
-    return { ok: false, error: 'Auto-update only works in production builds' };
-  }
-  try {
-    await autoUpdater.downloadUpdate();
-    return { ok: true };
-  } catch (e: any) {
-    return { ok: false, error: e?.message || 'Download failed' };
-  }
-});
+    return {
+      current: app.getVersion(),
+      history,
+      updateDownloaded: isUpdateDownloaded(),
+      updateAvailableVersion: getUpdateAvailableVersion(),
+      isPackaged: app.isPackaged,
+    };
+  });
+  ipcMain.handle('system:downloadUpdate', async () => {
+    if (!app.isPackaged) {
+      return { ok: false, error: 'Auto-update only works in production builds' };
+    }
+    try {
+      await autoUpdater.downloadUpdate();
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, error: e?.message || 'Download failed' };
+    }
+  });
 
-ipcMain.handle('system:installUpdate', () => {
-  autoUpdater.quitAndInstall(false, true);
-});
+  ipcMain.handle('system:installUpdate', () => {
+    autoUpdater.quitAndInstall(false, true);
+  });
 
-ipcMain.handle('system:checkForUpdates', async () => {
-  if (!app.isPackaged) {
-    return { ok: false, error: 'Dev mode' };
-  }
-  try {
-    const result = await autoUpdater.checkForUpdates();
-    return { ok: true, hasUpdate: !!result?.updateInfo };
-  } catch (e: any) {
-    return { ok: false, error: e?.message };
-  }
-});
+  ipcMain.handle('system:checkForUpdates', async () => {
+    if (!app.isPackaged) {
+      return { ok: false, error: 'Dev mode' };
+    }
+    try {
+      const result = await autoUpdater.checkForUpdates();
+      return { ok: true, hasUpdate: !!result?.updateInfo };
+    } catch (e: any) {
+      return { ok: false, error: e?.message };
+    }
+  });
 }
