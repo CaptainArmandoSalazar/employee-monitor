@@ -6,7 +6,7 @@ import { trackingService } from './services/tracking.service';
 import { activityTracker } from './system/activity';
 import { getDeviceInfo } from './system/metrics';
 import { getNetworkInfo, getGeoInfo, getNetworkSpeed } from './system/network';
-import { createLoginWindow, createDashboardWindow, closeAllWindows, setMainWindow } from './window';
+import { createLoginWindow, createDashboardWindow, setMainWindow } from './window';
 import { isUpdateDownloaded } from './main';
 import { apiService } from './services/api.service';
 
@@ -36,17 +36,19 @@ export function registerIpcHandlers(): void {
     sessionService.clearState();
     return { success: true };
   });
-ipcMain.handle('auth:changeMyPassword', async (_event, currentPassword: string, newPassword: string) => {
-  const token = authService.getToken();
-  if (!token) return { ok: false, status: 401, data: { detail: 'Not authenticated' } };
-  return safeApi(
-    () => apiService.post('/employees/me/change-password', {
-      current_password: currentPassword,
-      new_password: newPassword,
-    }, token),
-    { ok: false, status: 0, data: { detail: 'Request failed' } }
-  );
-});
+
+  ipcMain.handle('auth:changeMyPassword', async (_event, currentPassword: string, newPassword: string) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false, status: 401, data: { detail: 'Not authenticated' } };
+    return safeApi(
+      () => apiService.post('/employees/me/change-password', {
+        current_password: currentPassword,
+        new_password: newPassword,
+      }, token),
+      { ok: false, status: 0, data: { detail: 'Request failed' } }
+    );
+  });
+
   ipcMain.handle('auth:getEmployee', () => {
     return authService.getEmployee();
   });
@@ -56,17 +58,20 @@ ipcMain.handle('auth:changeMyPassword', async (_event, currentPassword: string, 
     const loginWin = BrowserWindow.fromWebContents(event.sender);
     const dashWin  = createDashboardWindow();
     setMainWindow(dashWin);
-    if (loginWin) loginWin.close();
+    if (loginWin) {
+      (loginWin as any)._allowClose = true;
+      loginWin.close();
+    }
     return { success: true };
   });
 
-ipcMain.handle('nav:showLogin', () => {
+  ipcMain.handle('nav:showLogin', () => {
     activityTracker.stop();
     trackingService.stop();
     authService.logout();
     sessionService.clearState();
 
-    // Mark all windows as allowed to close (bypass tray-hide)
+    // Close all existing windows (mark as allowed to close, bypassing tray-hide)
     BrowserWindow.getAllWindows().forEach(w => {
       (w as any)._allowClose = true;
       w.close();
@@ -77,6 +82,17 @@ ipcMain.handle('nav:showLogin', () => {
     return { success: true };
   });
 
+  ipcMain.handle('nav:minimize', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.minimize();
+  });
+
+  ipcMain.handle('nav:close', (event) => {
+    // Hide to tray — do NOT close/quit
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win) win.hide();
+  });
+
+  // ── Manager assign ────────────────────────────────────
   ipcMain.handle('admin:assignManager', async (_event, empId: string, managerId: string) => {
     const token = authService.getToken();
     if (!token) return { ok: false };
@@ -94,15 +110,6 @@ ipcMain.handle('nav:showLogin', () => {
       { ok: false, status: 0, data: [] }
     );
   });
-
-  ipcMain.handle('nav:minimize', (event) => {
-    BrowserWindow.fromWebContents(event.sender)?.minimize();
-  });
-
-ipcMain.handle('nav:close', (event) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (win) win.hide(); // hide to tray, don't close
-});
 
   // ── Session ───────────────────────────────────────────
   ipcMain.handle('session:clockIn', async () => {
@@ -142,8 +149,7 @@ ipcMain.handle('nav:close', (event) => {
     activityTracker.start();
     trackingService.start();
 
-    // FIX: Also save initial network speed to network_speed_logs table immediately
-    // so it shows up in the session's network speed history even for short sessions
+    // Save initial network speed to network_speed_logs immediately
     if (netSpeed.download !== undefined) {
       const token = authService.getToken();
       if (token) {
@@ -167,95 +173,117 @@ ipcMain.handle('nav:close', (event) => {
     return sessionService.clockOut(totals.active, totals.idle);
   });
 
-// REPLACE the session:getActive handler entirely:
-ipcMain.handle('session:getActive', async () => {
-  const session = await sessionService.fetchActiveSession();
+  // ── KEY FIX: session:getActive ────────────────────────
+  // This is called by the renderer on boot. Previously it was clocking out
+  // orphan sessions (from a crashed/killed app) unconditionally, which meant
+  // reopening the app always showed "not clocked in" even if the user had an
+  // active session.
+  //
+  // NEW BEHAVIOR:
+  // - If the main process already has _clockInTime set → session is live, return it
+  // - If the main process does NOT have _clockInTime (app was restarted/killed):
+  //     → The session IS orphaned from the previous process run
+  //     → Clock it out with saved active/idle from DB + gap since last heartbeat
+  //     → This correctly handles "app was killed while clocked in"
+  // - If no session at all → return null
+  ipcMain.handle('session:getActive', async () => {
+    // Step 1: Check what the server says
+    const session = await sessionService.fetchActiveSession();
 
-  if (session) {
-    const existingClockInTime = sessionService.getClockInTime();
-
-    if (!existingClockInTime) {
-      console.log('[IPC] Orphan session found on restart — clocking out:', session.session_id);
-      try {
-        activityTracker.stop();
-        trackingService.stop();
-
-        let activeTime = 0;
-        let idleTime   = 0;
-
-        if (session.clock_in) {
-          const clockInStr = String(session.clock_in);
-          const clockInISO = clockInStr.endsWith('Z') || clockInStr.includes('+')
-            ? clockInStr : clockInStr + 'Z';
-          const clockInMs = new Date(clockInISO).getTime();
-          const nowMs     = Date.now();
-
-          // ── Use last_heartbeat to find how long app was running ──
-          let lastActiveMs = nowMs;
-          if ((session as any).last_heartbeat) {
-            const hbStr = String((session as any).last_heartbeat);
-            const hbISO = hbStr.endsWith('Z') || hbStr.includes('+')
-              ? hbStr : hbStr + 'Z';
-            lastActiveMs = new Date(hbISO).getTime();
-          }
-
-          // Time since last heartbeat = additional idle (app was dead)
-          const timeSinceHeartbeat = Math.max(0, Math.floor((nowMs - lastActiveMs) / 1000));
-
-          // ── KEY FIX: use already-saved active/idle from DB + add the gap ──
-          // session.total_active_time and total_idle_time were saved periodically
-          // during the session by clock-out calls or activity tracking
-          const savedActive = (session as any).total_active_time || 0;
-          const savedIdle   = (session as any).total_idle_time   || 0;
-
-          if (savedActive > 0 || savedIdle > 0) {
-            // Session had saved data — add gap since last heartbeat as idle
-            activeTime = savedActive;
-            idleTime   = savedIdle + timeSinceHeartbeat;
-            console.log(`[IPC] Using saved data — active: ${activeTime}s, idle: ${idleTime}s, gap: ${timeSinceHeartbeat}s`);
-          } else {
-            // No saved data — calculate from timestamps
-            activeTime = Math.max(0, Math.floor((lastActiveMs - clockInMs) / 1000));
-            idleTime   = timeSinceHeartbeat;
-            console.log(`[IPC] Using timestamps — active: ${activeTime}s, idle: ${idleTime}s`);
-          }
-        }
-
-        await sessionService.clockOut(activeTime, idleTime);
-        console.log('[IPC] Orphan session clocked out — active:', activeTime, 'idle:', idleTime);
-      } catch (err) {
-        console.error('[IPC] Failed to clock out orphan session:', err);
-        try {
-          const token = authService.getToken();
-          if (token && session) {
-            await apiService.post('/sessions/clock-out', {
-              session_id:        session.session_id,
-              total_active_time: (session as any).total_active_time || 0,
-              total_idle_time:   (session as any).total_idle_time   || 0,
-            }, token);
-          }
-        } catch { /* ignore */ }
-      }
+    if (!session) {
+      // No active session on server at all
       return null;
     }
-  }
 
-  return session;
-});
+    // Step 2: Does our main process already have this session live?
+    const existingClockInTime = sessionService.getClockInTime();
+
+    if (existingClockInTime) {
+      // Session is actively being tracked in this process — all good
+      console.log('[IPC] session:getActive → live session, returning normally.');
+      return session;
+    }
+
+    // Step 3: No clock-in time in process — app was restarted or killed
+    // This is an orphan session from a previous process run.
+    // Clock it out cleanly.
+    console.log('[IPC] Orphan session detected (app restarted) — clocking out:', session.session_id);
+
+    try {
+      activityTracker.stop();
+      trackingService.stop();
+
+      let activeTime = 0;
+      let idleTime   = 0;
+
+      if (session.clock_in) {
+        const clockInStr = String(session.clock_in);
+        const clockInISO = clockInStr.endsWith('Z') || clockInStr.includes('+')
+          ? clockInStr : clockInStr + 'Z';
+        const clockInMs = new Date(clockInISO).getTime();
+        const nowMs     = Date.now();
+
+        // Use last_heartbeat to find how long the previous app instance was running
+        let lastActiveMs = nowMs;
+        if ((session as any).last_heartbeat) {
+          const hbStr = String((session as any).last_heartbeat);
+          const hbISO = hbStr.endsWith('Z') || hbStr.includes('+')
+            ? hbStr : hbStr + 'Z';
+          lastActiveMs = new Date(hbISO).getTime();
+        }
+
+        const timeSinceHeartbeat = Math.max(0, Math.floor((nowMs - lastActiveMs) / 1000));
+
+        // Use already-saved active/idle from DB + add gap as idle
+        const savedActive = (session as any).total_active_time || 0;
+        const savedIdle   = (session as any).total_idle_time   || 0;
+
+        if (savedActive > 0 || savedIdle > 0) {
+          activeTime = savedActive;
+          idleTime   = savedIdle + timeSinceHeartbeat;
+          console.log(`[IPC] Using saved DB data — active: ${activeTime}s, idle: ${idleTime}s, gap: ${timeSinceHeartbeat}s`);
+        } else {
+          activeTime = Math.max(0, Math.floor((lastActiveMs - clockInMs) / 1000));
+          idleTime   = timeSinceHeartbeat;
+          console.log(`[IPC] Using timestamps — active: ${activeTime}s, idle: ${idleTime}s`);
+        }
+      }
+
+      await sessionService.clockOut(activeTime, idleTime);
+      console.log('[IPC] ✅ Orphan session clocked out — active:', activeTime, 'idle:', idleTime);
+    } catch (err) {
+      console.error('[IPC] Failed to clock out orphan session:', err);
+      // Try direct API call as fallback
+      try {
+        const token = authService.getToken();
+        if (token && session) {
+          await apiService.post('/sessions/clock-out', {
+            session_id:        session.session_id,
+            total_active_time: (session as any).total_active_time || 0,
+            total_idle_time:   (session as any).total_idle_time   || 0,
+          }, token);
+        }
+      } catch { /* ignore */ }
+    }
+
+    return null;
+  });
+
   ipcMain.handle('session:getMySessions', async (_e, limit = 200) => {
     return sessionService.fetchMySessions(limit);
   });
 
   ipcMain.handle('session:getClockInTime', () => sessionService.getClockInTime());
   ipcMain.handle('session:isClocked',      () => sessionService.isClocked());
-// ADD this handler:
-ipcMain.handle('session:heartbeat', async () => {
-  const token = authService.getToken();
-  if (!token || !sessionService.isClocked()) return;
-  try {
-    await apiService.post('/sessions/heartbeat', {}, token);
-  } catch { /* ignore */ }
-});
+
+  ipcMain.handle('session:heartbeat', async () => {
+    const token = authService.getToken();
+    if (!token || !sessionService.isClocked()) return;
+    try {
+      await apiService.post('/sessions/heartbeat', {}, token);
+    } catch { /* ignore */ }
+  });
+
   // ── Admin: Employees ──────────────────────────────────
   ipcMain.handle('admin:listEmployees', async (_event, params: Record<string, string> = {}) => {
     const token = authService.getToken();
@@ -299,10 +327,7 @@ ipcMain.handle('session:heartbeat', async () => {
   });
 
   // ── Admin: Sessions ───────────────────────────────────
-  // FIX: Always use /admin/sessions for admin users.
-  // The old logic checked authService.getEmployee()?.role which could be null
-  // after a session restore, causing it to fall back to /sessions/my incorrectly.
-ipcMain.handle('admin:getSessions', async (_event, params: Record<string, string> = {}) => {
+  ipcMain.handle('admin:getSessions', async (_event, params: Record<string, string> = {}) => {
     const token    = authService.getToken();
     const employee = authService.getEmployee();
     if (!token) return { ok: false, data: [] };
@@ -310,7 +335,6 @@ ipcMain.handle('admin:getSessions', async (_event, params: Record<string, string
     const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
 
     if (employee?.role && ADMIN_ROLES.includes(employee.role)) {
-      // Use /admin/sessions which supports employee_id filtering
       const result = await safeApi(
         () => apiService.get('/admin/sessions', token, params),
         { ok: false, status: 0, data: [] }
@@ -321,7 +345,6 @@ ipcMain.handle('admin:getSessions', async (_event, params: Record<string, string
       }
       return result;
     } else {
-      // Plain employee: can only see own sessions
       const p: Record<string, string> = {};
       if (params.limit) p.limit = params.limit;
       return safeApi(() => apiService.get('/sessions/my', token, p), { ok: false, status: 0, data: [] });
@@ -381,7 +404,7 @@ ipcMain.handle('admin:getSessions', async (_event, params: Record<string, string
   ipcMain.handle('admin:getSystemMetrics', async (_event, params: Record<string, string> = {}) => {
     const token = authService.getToken(); if (!token) return { ok: false, data: [] };
     const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
-    const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) ? '/admin/system-matrics' : '/tracking/system-matrics';
+    const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) ? '/admin/system-metrics' : '/tracking/system-metrics';
     return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
   });
 
@@ -409,9 +432,6 @@ ipcMain.handle('admin:getSessions', async (_event, params: Record<string, string
   });
 
   ipcMain.handle('tracking:reportKeystrokes', async (_event, count: number) => {
-    // When app is focused, renderer sends keystroke counts here.
-    // globalKeyboard.addRendererCount() decides whether to use them
-    // (only as fallback if uiohook global hook is not running).
     await trackingService.incrementKeystrokes(count);
     return { ok: true };
   });
@@ -424,55 +444,56 @@ ipcMain.handle('admin:getSessions', async (_event, params: Record<string, string
   // ── System info ───────────────────────────────────────
   ipcMain.handle('system:getDeviceInfo',  () => getDeviceInfo());
   ipcMain.handle('system:getNetworkInfo', () => getNetworkInfo());
-ipcMain.handle('system:getAppVersion', () => {
-  const { app } = require('electron');
-  const fs   = require('fs');
-  const path = require('path');
 
-  const changelogPath = app.isPackaged
-    ? path.join(process.resourcesPath, 'changelog.json')
-    : path.join(app.getAppPath(), 'changelog.json');
+  ipcMain.handle('system:getAppVersion', () => {
+    const fs   = require('fs');
+    const path = require('path');
 
-  let history = [];
-  try {
-    const raw = fs.readFileSync(changelogPath, 'utf8');
-    history = JSON.parse(raw).history || [];
-  } catch (e) {
-    console.error('[Version] Could not read changelog.json:', e);
-  }
+    const changelogPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'changelog.json')
+      : path.join(app.getAppPath(), 'changelog.json');
 
-  return {
-    current:           app.getVersion(),
-    history,
-    updateDownloaded:  isUpdateDownloaded(),
-    isPackaged:        app.isPackaged,
-  };
-});
-ipcMain.handle('system:downloadUpdate', async () => {
-  if (!app.isPackaged) {
-    return { ok: false, error: 'Auto-update only works in production builds' };
-  }
-  try {
-    await autoUpdater.downloadUpdate();
-    return { ok: true };
-  } catch (e: any) {
-    return { ok: false, error: e?.message || 'Download failed' };
-  }
-});
+    let history = [];
+    try {
+      const raw = fs.readFileSync(changelogPath, 'utf8');
+      history = JSON.parse(raw).history || [];
+    } catch (e) {
+      console.error('[Version] Could not read changelog.json:', e);
+    }
 
-ipcMain.handle('system:installUpdate', () => {
-  autoUpdater.quitAndInstall(false, true);
-});
+    return {
+      current:          app.getVersion(),
+      history,
+      updateDownloaded: isUpdateDownloaded(),
+      isPackaged:       app.isPackaged,
+    };
+  });
 
-ipcMain.handle('system:checkForUpdates', async () => {
-  if (!app.isPackaged) {
-    return { ok: false, error: 'Dev mode' };
-  }
-  try {
-    const result = await autoUpdater.checkForUpdates();
-    return { ok: true, hasUpdate: !!result?.updateInfo };
-  } catch (e: any) {
-    return { ok: false, error: e?.message };
-  }
-});
+  ipcMain.handle('system:downloadUpdate', async () => {
+    if (!app.isPackaged) {
+      return { ok: false, error: 'Auto-update only works in production builds' };
+    }
+    try {
+      await autoUpdater.downloadUpdate();
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, error: e?.message || 'Download failed' };
+    }
+  });
+
+  ipcMain.handle('system:installUpdate', () => {
+    autoUpdater.quitAndInstall(false, true);
+  });
+
+  ipcMain.handle('system:checkForUpdates', async () => {
+    if (!app.isPackaged) {
+      return { ok: false, error: 'Dev mode' };
+    }
+    try {
+      const result = await autoUpdater.checkForUpdates();
+      return { ok: true, hasUpdate: !!result?.updateInfo };
+    } catch (e: any) {
+      return { ok: false, error: e?.message };
+    }
+  });
 }

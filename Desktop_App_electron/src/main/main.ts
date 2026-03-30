@@ -9,20 +9,30 @@ import { authService } from './services/auth.service';
 import { apiService } from './services/api.service';
 import { autoUpdater } from 'electron-updater';
 
+// ── Single instance lock ──────────────────────────────────
 const gotLock = app.requestSingleInstanceLock();
-if (!gotLock) { app.quit(); process.exit(0); }
+if (!gotLock) {
+  // Another instance is already running — focus it and exit
+  app.quit();
+  process.exit(0);
+}
 
 app.on('second-instance', () => {
+  // Someone tried to run a second instance — focus our window
   const win = getMainWindow();
-  if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  }
 });
 
 // ── State ─────────────────────────────────────────────────
-let _clockOutDone    = false;
+let _clockOutDone     = false;
 let _updateDownloaded = false;
 let _tray: Tray | null = null;
-let _forceQuit       = false;
-let _exiting         = false;
+let _forceQuit        = false;
+let _exiting          = false;
 
 export function isForceQuit(): boolean        { return _forceQuit; }
 export function isUpdateDownloaded(): boolean { return _updateDownloaded; }
@@ -53,58 +63,102 @@ function setupAutoLaunch(): void {
 
 // ── System Tray ───────────────────────────────────────────
 function setupTray(): void {
-  const iconPath = app.isPackaged
-    ? path.join(process.resourcesPath, 'app', 'assets', 'icon.png')
-    : path.join(app.getAppPath(), 'assets', 'icon.png');
+  try {
+    const iconPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'app', 'assets', 'icon.png')
+      : path.join(app.getAppPath(), 'assets', 'icon.png');
 
-  let trayIcon = nativeImage.createFromPath(iconPath);
-  trayIcon = trayIcon.resize({ width: 16, height: 16 });
+    let trayIcon = nativeImage.createFromPath(iconPath);
+    if (trayIcon.isEmpty()) {
+      // Fallback: create a simple 16x16 colored icon if file not found
+      console.warn('[Tray] Icon not found at:', iconPath, '— using empty icon');
+    }
+    trayIcon = trayIcon.resize({ width: 16, height: 16 });
 
-  _tray = new Tray(trayIcon);
-  _tray.setToolTip('AV DEVS Collab — Running');
+    _tray = new Tray(trayIcon);
+    _tray.setToolTip('AV DEVS Collab — Running');
 
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: 'Open AV DEVS Collab',
-      click: () => {
-        const win = getMainWindow();
-        if (win) { win.show(); win.focus(); }
-      },
-    },
-    { type: 'separator' },
-    {
-      label: 'Quit (Admin Only)',
-      click: async () => {
-        const win = getMainWindow();
-        const { response } = await dialog.showMessageBox(win!, {
-          type: 'warning',
-          title: 'Quit AV DEVS Collab',
-          message: 'Are you sure you want to quit?',
-          detail: 'Tracking will stop and your session will be clocked out.',
-          buttons: ['Cancel', 'Quit'],
-          defaultId: 0,
-          cancelId: 0,
-        });
-        if (response === 1) {
-          _forceQuit = true;
-          await forceClockOut();
-          app.quit();
-        }
-      },
-    },
-  ]);
+    const rebuildMenu = () => {
+      const isClocked = sessionService.isClocked();
+      const contextMenu = Menu.buildFromTemplate([
+        {
+          label: 'Open AV DEVS Collab',
+          click: () => {
+            const win = getMainWindow();
+            if (win) { win.show(); win.focus(); }
+          },
+        },
+        { type: 'separator' },
+        {
+          label: isClocked ? 'Currently Clocked In (tracking active)' : 'Not clocked in',
+          enabled: false,
+        },
+        { type: 'separator' },
+        {
+          label: 'Quit',
+          enabled: !isClocked, // DISABLED when clocked in
+          click: async () => {
+            if (isClocked) return; // Safety guard — should never reach here
+            const win = getMainWindow();
+            const { response } = await dialog.showMessageBox(win!, {
+              type: 'warning',
+              title: 'Quit AV DEVS Collab',
+              message: 'Are you sure you want to quit?',
+              detail: 'You are not clocked in, so no session will be affected.',
+              buttons: ['Cancel', 'Quit'],
+              defaultId: 0,
+              cancelId: 0,
+            });
+            if (response === 1) {
+              _forceQuit = true;
+              app.quit();
+            }
+          },
+        },
+        {
+          // Emergency quit for admins only — always visible but labeled clearly
+          label: 'Force Quit (Admin) — Clocks Out Session',
+          click: async () => {
+            const win = getMainWindow();
+            const { response } = await dialog.showMessageBox(win!, {
+              type: 'warning',
+              title: 'Force Quit',
+              message: 'This will clock out your active session and quit.',
+              detail: 'Only use this if instructed by your admin. Your session will be marked complete.',
+              buttons: ['Cancel', 'Force Quit & Clock Out'],
+              defaultId: 0,
+              cancelId: 0,
+            });
+            if (response === 1) {
+              _forceQuit = true;
+              await forceClockOut();
+              app.quit();
+            }
+          },
+        },
+      ]);
+      _tray!.setContextMenu(contextMenu);
+    };
 
-  _tray.setContextMenu(contextMenu);
+    rebuildMenu();
+    // Rebuild menu every 30s to reflect clock-in state changes
+    setInterval(rebuildMenu, 30_000);
 
-  _tray.on('click', () => {
-    const win = getMainWindow();
-    if (win) { win.show(); win.focus(); }
-  });
+    _tray.on('click', () => {
+      const win = getMainWindow();
+      if (win) { win.show(); win.focus(); }
+    });
 
-  _tray.on('double-click', () => {
-    const win = getMainWindow();
-    if (win) { win.show(); win.focus(); }
-  });
+    _tray.on('double-click', () => {
+      const win = getMainWindow();
+      if (win) { win.show(); win.focus(); }
+    });
+
+    console.log('[Tray] ✅ System tray initialized.');
+  } catch (err) {
+    console.error('[Tray] ❌ Failed to create tray:', err);
+    // App still works — just no tray icon
+  }
 }
 
 // ── Auto Updater ──────────────────────────────────────────
@@ -259,20 +313,51 @@ async function forceClockOut(): Promise<void> {
   }
 }
 
-// ── Exit handler ──────────────────────────────────────────
-async function handleExit(code: number = 0): Promise<void> {
-  if (_exiting) return;
-  _exiting = true;
-  await forceClockOut();
-  app.exit(code);
+// ── Smart startup: check for existing session and route accordingly ──
+async function smartStartup(): Promise<void> {
+  console.log('[App] Checking for existing session on startup...');
+
+  // If we have a saved auth token, check for an active session
+  if (authService.isLoggedIn()) {
+    try {
+      const session = await sessionService.fetchActiveSession();
+      if (session) {
+        console.log('[App] Active session found on startup — opening dashboard directly.');
+        // Resume the session: restore clock-in time so timer is correct
+        sessionService.resumeSession(session);
+        // Go straight to dashboard, start tracking
+        activityTracker.start();
+        trackingService.start();
+        const win = createDashboardWindow();
+        setMainWindow(win);
+        return;
+      } else {
+        console.log('[App] No active session — opening dashboard (logged in, no session).');
+        // Still logged in but not clocked in — show dashboard
+        const win = createDashboardWindow();
+        setMainWindow(win);
+        return;
+      }
+    } catch (err) {
+      console.error('[App] Failed to check session on startup:', err);
+      // Fall through to login
+    }
+  }
+
+  // Not logged in or token expired — show login
+  console.log('[App] Not authenticated — showing login.');
+  const win = createLoginWindow();
+  setMainWindow(win);
 }
 
 // ── App lifecycle ─────────────────────────────────────────
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   setupAutoLaunch();
   registerIpcHandlers();
-  const win = createLoginWindow();
-  setMainWindow(win);
+
+  // Smart startup: go to dashboard if session exists, login otherwise
+  await smartStartup();
+
   setupTray();
 
   if (app.isPackaged) {
@@ -282,30 +367,45 @@ app.whenReady().then(() => {
   }
 
   app.on('activate', () => {
+    // macOS: dock click — show existing window
     const win = getMainWindow();
     if (win) { win.show(); win.focus(); }
     else {
-      const w = createLoginWindow();
-      setMainWindow(w);
+      smartStartup();
     }
   });
 });
 
-// ── X button / app.quit() ────────────────────────────────
+// ── X button / window close ───────────────────────────────
+// This is handled in window.ts setMainWindow — close hides to tray
+// We intercept app-level quit here:
 app.on('before-quit', (event) => {
   if (!_forceQuit) {
+    // Prevent quit unless forced — user should use tray menu
     event.preventDefault();
     return;
   }
-  if (_exiting || _clockOutDone || !sessionService.isClocked()) return;
-  event.preventDefault();
-  handleExit(0);
+  // Forced quit: if still clocked in and haven't done clock-out yet
+  if (!_exiting && !_clockOutDone && sessionService.isClocked()) {
+    event.preventDefault();
+    handleExit(0);
+  }
 });
 
 // ── All windows closed ────────────────────────────────────
 app.on('window-all-closed', () => {
-  // Do NOT quit — keep running in tray
+  // Do NOT quit — keep running in system tray
+  // This is the key behavior: app stays alive even with no windows
+  console.log('[App] All windows closed — staying in tray.');
 });
+
+// ── Exit handler ──────────────────────────────────────────
+async function handleExit(code: number = 0): Promise<void> {
+  if (_exiting) return;
+  _exiting = true;
+  await forceClockOut();
+  app.exit(code);
+}
 
 // ── Ctrl+C in terminal ────────────────────────────────────
 process.on('SIGINT', () => {
