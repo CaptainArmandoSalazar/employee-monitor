@@ -41,28 +41,13 @@ jobs:
             local RELEASE_ID=$1
             local file=$2
             local FILENAME=$(basename "$file")
-            local ENCODED_NAME=$(python3 -c "import urllib.parse; print(urllib.parse.quote('''$FILENAME'''))")
-
-            echo "---"
-            echo "📁 Processing: $FILENAME"
-
-            ASSETS_JSON=$(curl -s \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?per_page=100")
-
-            for ASSET_ID in $(echo "$ASSETS_JSON" | jq -r ".[] | select(.name == \"$FILENAME\") | .id"); do
-              curl -s -o /dev/null -X DELETE \
-                -H "Authorization: Bearer $GH_TOKEN" \
-                "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/assets/$ASSET_ID"
-            done
-
-            sleep 5
 
             echo "⬆️ Uploading $FILENAME..."
+
             HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
               -H "Authorization: Bearer $GH_TOKEN" \
               -H "Content-Type: application/octet-stream" \
-              "https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?name=$ENCODED_NAME" \
+              "https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?name=$FILENAME" \
               --data-binary @"$file")
 
             if [ "$HTTP_STATUS" != "201" ]; then
@@ -76,22 +61,17 @@ jobs:
           RELEASE_ID=$(curl -s \
             -H "Authorization: Bearer $GH_TOKEN" \
             "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/tags/v$VERSION" \
-            | jq -r '.id // empty')
-
-          if [ -z "$RELEASE_ID" ]; then
-            RELEASE_ID=$(curl -s -X POST \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Content-Type: application/json" \
-              "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases" \
-              -d "{\"tag_name\":\"v$VERSION\",\"name\":\"v$VERSION\"}" \
-              | jq -r '.id')
-          fi
+            | jq -r '.id')
 
           ls release
 
           for file in release/*; do
-            [ -f "$file" ] && delete_and_upload "$RELEASE_ID" "$file"
+            if [ -f "$file" ]; then
+              delete_and_upload "$RELEASE_ID" "$file"
+            fi
           done
+
+          exit 0
 
 
   build-linux:
