@@ -1,7 +1,7 @@
 {
   "name": "av-devs-collab",
-  "version": "1.0.23",
-  "description": "Av devs collab App",
+  "version": "1.0.24",
+  "description": "Employee Monitoring Desktop App",
   "main": "dist/main/main.js",
   "homepage": "https://avdevs.com",
   "author": {
@@ -38,7 +38,8 @@
   },
   "build": {
     "appId": "com.avdevs.collab",
-    "productName": "AV Devs Collab",
+    "productName": "AV DEVS Collab",
+    "artifactName": "AV-DEVS-Collab-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "release"
     },
@@ -56,7 +57,6 @@
       "assets/**/*",
       "node_modules/**/*",
       "changelog.json"
-
     ],
     "extraFiles": [
       {
@@ -73,9 +73,7 @@
       "target": [
         {
           "target": "nsis",
-          "arch": [
-            "x64"
-          ]
+          "arch": ["x64"]
         }
       ],
       "icon": "assets/icon.ico"
@@ -87,15 +85,14 @@
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "extendInfo": {
-        "NSAccessibilityUsageDescription": "AV Devs Collab needs accessibility access to track keystrokes for productivity monitoring.",
-        "NSScreenCaptureUsageDescription": "AV Devs Collab needs screen recording access to track active windows."
+        "CFBundleName": "AV DEVS Collab",
+        "CFBundleDisplayName": "AV DEVS Collab",
+        "NSAccessibilityUsageDescription": "AV DEVS Collab needs accessibility access to track keystrokes for productivity monitoring.",
+        "NSScreenCaptureUsageDescription": "AV DEVS Collab needs screen recording access to track active windows."
       }
     },
     "linux": {
-      "target": [
-        "AppImage",
-        "deb"
-      ],
+      "target": ["AppImage", "deb"],
       "icon": "assets/icon.png",
       "category": "Utility",
       "executableName": "av-devs-collab",
@@ -105,7 +102,8 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "shortcutName": "AV DEVS Collab"
     },
     "deb": {
       "depends": [
