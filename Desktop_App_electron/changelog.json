@@ -1,6 +1,13 @@
 {
   "history": [
     {
+      "version": "v1.0.28",
+      "date": "2026-04-09",
+      "changes": [
+        "Added real-time active window tracking"
+      ]
+    },
+    {
       "version": "v1.0.27",
       "date": "2026-04-05",
       "changes": [
