@@ -30,7 +30,6 @@ jobs:
         working-directory: Desktop_App_electron
         run: |
           npx electron-builder --mac dmg --x64 --publish never || true
-          # Verify the DMG was actually created despite any retry warnings
           ls release/*.dmg || (echo "❌ DMG not found in release/" && exit 1)
           echo "✅ DMG build confirmed"
 
@@ -39,6 +38,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
+          set +e  # Don't exit on non-zero from subcommands; we check manually
+
           delete_and_upload() {
             local RELEASE_ID=$1
             local file=$2
@@ -52,9 +53,9 @@ jobs:
               -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?per_page=100")
 
-            echo "Assets on release: $(echo "$ASSETS_JSON" | jq -r '.[].name' 2>/dev/null || echo 'none')"
+            echo "Assets on release: $(echo "$ASSETS_JSON" | jq -r '.[].name' 2>/dev/null)"
 
-            for ASSET_ID in $(echo "$ASSETS_JSON" | jq -r ".[] | select(.name == \"$FILENAME\") | .id"); do
+            for ASSET_ID in $(echo "$ASSETS_JSON" | jq -r ".[] | select(.name == \"$FILENAME\") | .id" 2>/dev/null); do
               echo "🗑️ Deleting asset ID: $ASSET_ID"
               curl -s -o /dev/null -X DELETE \
                 -H "Authorization: Bearer $GH_TOKEN" \
@@ -64,10 +65,10 @@ jobs:
             echo "⏳ Waiting 8s for GitHub to process deletions..."
             sleep 8
 
-            STILL_EXISTS=$(curl -s \
+            STILL_EXISTS=$(echo "" | jq -r 'empty' 2>/dev/null; curl -s \
               -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?per_page=100" \
-              | jq -r ".[] | select(.name == \"$FILENAME\") | .id")
+              | jq -r ".[] | select(.name == \"$FILENAME\") | .id" 2>/dev/null)
 
             if [ -n "$STILL_EXISTS" ]; then
               echo "⚠️ Asset still exists, waiting 10 more seconds..."
@@ -87,6 +88,7 @@ jobs:
               echo "✅ Uploaded $FILENAME"
             else
               echo "❌ Upload failed for $FILENAME with status $HTTP_STATUS"
+              set -e
               exit 1
             fi
           }
@@ -107,8 +109,8 @@ jobs:
               -H "Content-Type: application/json" \
               "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases" \
               -d "{\"tag_name\":\"v$VERSION\",\"name\":\"v$VERSION\",\"draft\":false,\"prerelease\":false}")
-            echo "Create response: $CREATE_RESPONSE"
             RELEASE_ID=$(echo "$CREATE_RESPONSE" | jq -r '.id // empty')
+            echo "✅ Created release: $RELEASE_ID"
           else
             echo "✅ Release already exists: $RELEASE_ID"
           fi
@@ -121,6 +123,8 @@ jobs:
           for file in release/*; do
             [ -f "$file" ] && delete_and_upload "$RELEASE_ID" "$file"
           done
+
+          echo "🎉 All Mac files uploaded successfully!"
 
 
   build-linux:
@@ -153,6 +157,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
+          set +e
+
           delete_and_upload() {
             local RELEASE_ID=$1
             local file=$2
@@ -166,9 +172,9 @@ jobs:
               -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?per_page=100")
 
-            echo "Assets on release: $(echo "$ASSETS_JSON" | jq -r '.[].name' 2>/dev/null || echo 'none')"
+            echo "Assets on release: $(echo "$ASSETS_JSON" | jq -r '.[].name' 2>/dev/null)"
 
-            for ASSET_ID in $(echo "$ASSETS_JSON" | jq -r ".[] | select(.name == \"$FILENAME\") | .id"); do
+            for ASSET_ID in $(echo "$ASSETS_JSON" | jq -r ".[] | select(.name == \"$FILENAME\") | .id" 2>/dev/null); do
               echo "🗑️ Deleting asset ID: $ASSET_ID"
               curl -s -o /dev/null -X DELETE \
                 -H "Authorization: Bearer $GH_TOKEN" \
@@ -181,7 +187,7 @@ jobs:
             STILL_EXISTS=$(curl -s \
               -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?per_page=100" \
-              | jq -r ".[] | select(.name == \"$FILENAME\") | .id")
+              | jq -r ".[] | select(.name == \"$FILENAME\") | .id" 2>/dev/null)
 
             if [ -n "$STILL_EXISTS" ]; then
               echo "⚠️ Asset still exists, waiting 10 more seconds..."
@@ -201,6 +207,7 @@ jobs:
               echo "✅ Uploaded $FILENAME"
             else
               echo "❌ Upload failed for $FILENAME with status $HTTP_STATUS"
+              set -e
               exit 1
             fi
           }
@@ -223,6 +230,8 @@ jobs:
           for file in release/*; do
             [ -f "$file" ] && delete_and_upload "$RELEASE_ID" "$file"
           done
+
+          echo "🎉 All Linux files uploaded successfully!"
 
 
   build-windows:
@@ -253,6 +262,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
+          set +e
+
           delete_and_upload() {
             local RELEASE_ID=$1
             local file=$2
@@ -266,9 +277,9 @@ jobs:
               -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?per_page=100")
 
-            echo "Assets on release: $(echo "$ASSETS_JSON" | jq -r '.[].name' 2>/dev/null || echo 'none')"
+            echo "Assets on release: $(echo "$ASSETS_JSON" | jq -r '.[].name' 2>/dev/null)"
 
-            for ASSET_ID in $(echo "$ASSETS_JSON" | jq -r ".[] | select(.name == \"$FILENAME\") | .id"); do
+            for ASSET_ID in $(echo "$ASSETS_JSON" | jq -r ".[] | select(.name == \"$FILENAME\") | .id" 2>/dev/null); do
               echo "🗑️ Deleting asset ID: $ASSET_ID"
               curl -s -o /dev/null -X DELETE \
                 -H "Authorization: Bearer $GH_TOKEN" \
@@ -281,7 +292,7 @@ jobs:
             STILL_EXISTS=$(curl -s \
               -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?per_page=100" \
-              | jq -r ".[] | select(.name == \"$FILENAME\") | .id")
+              | jq -r ".[] | select(.name == \"$FILENAME\") | .id" 2>/dev/null)
 
             if [ -n "$STILL_EXISTS" ]; then
               echo "⚠️ Asset still exists, waiting 10 more seconds..."
@@ -301,6 +312,7 @@ jobs:
               echo "✅ Uploaded $FILENAME"
             else
               echo "❌ Upload failed for $FILENAME with status $HTTP_STATUS"
+              set -e
               exit 1
             fi
           }
@@ -323,3 +335,5 @@ jobs:
           for file in release/*; do
             [ -f "$file" ] && delete_and_upload "$RELEASE_ID" "$file"
           done
+
+          echo "🎉 All Windows files uploaded successfully!"
