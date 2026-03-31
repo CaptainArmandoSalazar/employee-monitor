@@ -1,6 +1,13 @@
 {
   "history": [
     {
+      "version": "v1.0.31",
+      "date": "2026-04-09",
+      "changes": [
+        "logo updated for windows"
+      ]
+    },
+    {
       "version": "v1.0.30",
       "date": "2026-04-09",
       "changes": [
