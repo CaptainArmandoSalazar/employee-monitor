@@ -1,6 +1,6 @@
 {
   "name": "av-devs-collab",
-  "version": "1.0.29",
+  "version": "1.0.30",
   "description": "Employee Monitoring Desktop App",
   "main": "dist/main/main.js",
   "homepage": "https://avdevs.com",
@@ -93,7 +93,7 @@
     },
     "linux": {
       "target": ["AppImage", "deb"],
-      "icon": "assets/icon.png",
+      "icon": "assets/icons/",  
       "category": "Utility",
       "executableName": "av-devs-collab",
       "maintainer": "AvDevs <admin@avdevs.com>"

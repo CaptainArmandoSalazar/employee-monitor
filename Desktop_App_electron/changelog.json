@@ -1,7 +1,14 @@
 {
   "history": [
     {
-      "version": "v1.0.28",
+      "version": "v1.0.30",
+      "date": "2026-04-09",
+      "changes": [
+        "Added new logo"
+      ]
+    },
+    {
+      "version": "v1.0.29",
       "date": "2026-04-09",
       "changes": [
         "Added Updates Log"

@@ -25,7 +25,16 @@ jobs:
 
       - run: npm run build
         working-directory: Desktop_App_electron
-
+      - name: Generate icon.icns from icon.png
+        working-directory: Desktop_App_electron
+        run: |
+          mkdir -p assets/icon.iconset
+          for sz in 16 32 64 128 256 512; do
+            sips -z $sz $sz assets/icon.png --out assets/icon.iconset/icon_${sz}x${sz}.png
+            sips -z $((sz*2)) $((sz*2)) assets/icon.png --out assets/icon.iconset/icon_${sz}x${sz}@2x.png
+          done
+          iconutil -c icns assets/icon.iconset -o assets/icon.icns
+          echo "✅ icon.icns generated"
       - name: Build Mac DMG
         working-directory: Desktop_App_electron
         run: |
