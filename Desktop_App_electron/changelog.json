@@ -1,6 +1,13 @@
 {
   "history": [
     {
+      "version": "v1.0.33",
+      "date": "2026-04-02",
+      "changes": [
+        "Logs Issue Solved"
+      ]
+    },
+    {
       "version": "v1.0.32",
       "date": "2026-04-02",
       "changes": [

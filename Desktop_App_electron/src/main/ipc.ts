@@ -445,27 +445,46 @@ if (netSpeed.download !== undefined) {
   ipcMain.handle('system:getNetworkInfo', () => getNetworkInfo());
   ipcMain.handle('system:getAppVersion', () => {
     const { app } = require('electron');
-    const fs = require('fs');
+    const fs   = require('fs');
     const path = require('path');
 
-    const changelogPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'changelog.json')
-      : path.join(app.getAppPath(), 'changelog.json');
+    const candidatePaths = [
+      // extraResources puts it here — works in all packaged formats
+      path.join(process.resourcesPath, 'changelog.json'),
+      // fallback: inside asar (works in dev + some packaged configs)
+      path.join(app.getAppPath(), 'changelog.json'),
+      // another fallback
+      path.join(__dirname, '..', '..', '..', 'changelog.json'),
+      path.join(__dirname, '..', '..', 'changelog.json'),
+    ];
 
-    let history = [];
-    try {
-      const raw = fs.readFileSync(changelogPath, 'utf8');
-      history = JSON.parse(raw).history || [];
-    } catch (e) {
-      console.error('[Version] Could not read changelog.json:', e);
+    let history: any[] = [];
+
+    for (const p of candidatePaths) {
+      try {
+        if (fs.existsSync(p)) {
+          const raw = fs.readFileSync(p, 'utf8');
+          history = JSON.parse(raw).history || [];
+          console.log('[Version] changelog loaded from:', p, '| entries:', history.length);
+          break;
+        }
+      } catch (e: any) {
+        console.warn('[Version] failed to read:', p, e?.message);
+        continue;
+      }
+    }
+
+    if (!history.length) {
+      console.error('[Version] changelog.json not found in any candidate path');
+      candidatePaths.forEach(p => console.log('[Version] tried:', p, '→', fs.existsSync(p)));
     }
 
     return {
-      current: app.getVersion(),
+      current:                app.getVersion(),
       history,
-      updateDownloaded: isUpdateDownloaded(),
+      updateDownloaded:       isUpdateDownloaded(),
       updateAvailableVersion: getUpdateAvailableVersion(),
-      isPackaged: app.isPackaged,
+      isPackaged:             app.isPackaged,
     };
   });
   ipcMain.handle('system:downloadUpdate', async () => {

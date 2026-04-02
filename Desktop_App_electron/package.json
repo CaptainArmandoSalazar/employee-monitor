@@ -1,6 +1,6 @@
 {
   "name": "av-devs-collab",
-  "version": "1.0.32",
+  "version": "1.0.33",
   "description": "Employee Monitoring Desktop App",
   "main": "dist/main/main.js",
   "homepage": "https://avdevs.com",
@@ -58,6 +58,12 @@
       "node_modules/**/*",
       "changelog.json"
     ],
+    "extraResources": [
+      {
+        "from": "changelog.json",
+        "to": "changelog.json"
+      }
+    ],
     "extraFiles": [
       {
         "from": "src/main/services/inputWorker.js",
@@ -73,7 +79,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "assets/icon.ico"
@@ -92,8 +100,11 @@
       }
     },
     "linux": {
-      "target": ["AppImage", "deb"],
-      "icon": "assets/icons/",  
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "assets/icons/",
       "category": "Utility",
       "executableName": "av-devs-collab",
       "maintainer": "AvDevs <admin@avdevs.com>"
