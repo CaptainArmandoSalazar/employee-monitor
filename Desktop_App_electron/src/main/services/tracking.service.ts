@@ -54,14 +54,19 @@ export const trackingService = {
       }
     }, 30_000);
 
-    setInterval(async () => {
+setInterval(async () => {
   const token   = authService.getToken();
   const session = sessionService.getActiveSession();
   if (!token || !session) return;
   try {
     const totals = activityTracker.getTotals();
+    
+    // ADD: include current unflushed window time
+    const now = Date.now();
+    const currentWindowElapsed = activityTracker.getCurrentWindowElapsed(now);
+    
     await apiService.patch(`/sessions/${session.session_id}/update-totals`, {
-      total_active_time: totals.active,
+      total_active_time: totals.active + currentWindowElapsed,
       total_idle_time:   totals.idle,
     }, token);
   } catch { /* silent */ }
@@ -84,11 +89,8 @@ globalKeyboard.start(async (count: number, raw?: string) => {
 });
 
     // ── Metrics 5s after start, then every 5 min ──────────
-    setTimeout(() => this.sendCpuMemMetrics(), 5_000);
-    _metricsInterval = setInterval(() => this.sendCpuMemMetrics(), 5 * 60_000);
+    _metricsInterval = setInterval(() => this.sendSpeedAndMetrics(), 60 * 60_000);
 
-    // Speed: first check at 5s (captures clock-in speed in logs), then every 1 hour
-    setInterval(() => this.sendSpeedMetrics(), 60 * 60_000);
 
     console.log('[Tracking] Started.');
   },
@@ -138,38 +140,53 @@ globalKeyboard.start(async (count: number, raw?: string) => {
     return Promise.resolve();
   },
 
-async sendCpuMemMetrics(): Promise<void> {
-    const session = sessionService.getActiveSession();
-    const token   = authService.getToken();
-    if (!session || !token) return;
+async sendSpeedAndMetrics(): Promise<void> {
+  const session = sessionService.getActiveSession();
+  const token   = authService.getToken();
+  if (!session || !token) return;
 
-    const { getCpuUsage, getMemoryUsage } = await import('../system/metrics');
-    const [cpu, mem] = await Promise.all([getCpuUsage(), getMemoryUsage()]);
-
-    await apiService.post('/tracking/system-metrics', {
-      session_id: session.session_id, cpu_usage: cpu,
-      memory_usage: mem, timestamp: nowIST(),
-    }, token).catch(() => {});
-  },
-
-  async sendSpeedMetrics(): Promise<void> {
-    const session = sessionService.getActiveSession();
-    const token   = authService.getToken();
-    if (!session || !token) return;
-
+  try {
+    // Run speed test and CPU/memory in parallel
     const { getNetworkSpeed } = await import('../system/network');
-    const speed = await getNetworkSpeed();
+    const { getCpuUsage, getMemoryUsage } = await import('../system/metrics');
+
+    const [speed, cpu, mem] = await Promise.all([
+      getNetworkSpeed(),
+      getCpuUsage(),
+      Promise.resolve(getMemoryUsage()),
+    ]);
+
     _lastSpeed = speed;
 
+    // Re-check session still active after speed test (takes ~20s)
     const s2 = sessionService.getActiveSession();
     const t2 = authService.getToken();
     if (!s2 || !t2) return;
 
-    await apiService.post('/tracking/network-speed', {
-      session_id: s2.session_id, download_speed: speed.download,
-      upload_speed: speed.upload, ping: speed.ping, timestamp: nowIST(),
-    }, t2).catch(() => {});
-  },
+    const ts = nowIST();
+
+    // Save both in parallel
+    await Promise.all([
+      apiService.post('/tracking/network-speed', {
+        session_id:     s2.session_id,
+        download_speed: speed.download,
+        upload_speed:   speed.upload,
+        ping:           speed.ping,
+        timestamp:      ts,
+      }, t2),
+      apiService.post('/tracking/system-metrics', {
+        session_id:   s2.session_id,
+        cpu_usage:    cpu,
+        memory_usage: mem,
+        timestamp:    ts,  // ← same timestamp, so they align perfectly
+      }, t2),
+    ]);
+
+    console.log(`[Tracking] Hourly snapshot saved — ↓${speed.download}Mbps CPU:${cpu}% MEM:${mem}%`);
+  } catch (err) {
+    console.error('[Tracking] sendSpeedAndMetrics error:', err);
+  }
+},
   async flushBuffers(): Promise<void> {
     await Promise.allSettled([this.flushActivity(), this.flushWebsite()]);
   },

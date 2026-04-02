@@ -1,6 +1,15 @@
 {
   "history": [
     {
+      "version": "v1.0.32",
+      "date": "2026-04-02",
+      "changes": [
+        "Logs Issue Solved",
+        "Updated CPU usage and Memory Usage",
+        "Updated New Idol Time and Active time Settings"
+      ]
+    },
+    {
       "version": "v1.0.31",
       "date": "2026-04-09",
       "changes": [

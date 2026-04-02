@@ -789,3 +789,72 @@ tbody tr:hover { background: var(--bg-hover); }
   z-index: 999;
 }
 [data-tooltip]:hover::after { opacity: 1; }
+
+/* ── Hover effect classes (replaces inline onmouseenter/onmouseleave) ── */
+.hover-border {
+  transition: border-color .2s;
+}
+.hover-border:hover {
+  border-color: var(--border-light) !important;
+}
+
+.hover-card {
+  transition: border-color .2s, opacity .2s;
+}
+.hover-card:hover {
+  border-color: var(--border-light) !important;
+  opacity: 1 !important;
+}
+
+.hover-lift {
+  transition: transform .2s, box-shadow .2s;
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 0 4px rgba(108,99,255,.12), 0 12px 40px rgba(108,99,255,.3);
+}
+
+.hover-tile {
+  transition: border-color .15s, background .15s;
+}
+.hover-tile:hover {
+  border-color: var(--accent) !important;
+  background: var(--bg-hover) !important;
+}
+
+.version-card {
+  background: linear-gradient(135deg, rgba(108,99,255,.15), rgba(108,99,255,.05));
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-lg);
+  padding: 24px 28px;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 0 0 4px rgba(108,99,255,.08), 0 8px 32px rgba(108,99,255,.2);
+  transition: transform .2s, box-shadow .2s;
+}
+.version-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 0 4px rgba(108,99,255,.12), 0 12px 40px rgba(108,99,255,.3);
+}
+
+.history-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  transition: border-color .2s, opacity .2s;
+  opacity: 0.75;
+}
+.history-card:hover {
+  border-color: var(--border-light);
+  opacity: 1;
+}
+
+/* ── Hover border effect (replaces CSP-violating inline onmouseenter) ── */
+.hover-border {
+  transition: border-color .2s;
+}
+.hover-border:hover {
+  border-color: var(--border-light) !important;
+}

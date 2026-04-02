@@ -458,16 +458,12 @@ async function loadMySessions() {
       const cardId = `my-day-sessions-${dateKey.replace(/-/g, '')}`;
 
       return `
-        <div style="
-          background:var(--bg-surface);
-          border:1px solid var(--border);
-          border-radius:var(--radius-lg);
-          overflow:hidden;
-          transition:border-color .2s;
-        "
-        onmouseenter="this.style.borderColor='var(--border-light)'"
-        onmouseleave="this.style.borderColor='var(--border)'"
-        >
+          <div class="hover-border" style="
+            background:var(--bg-surface);
+            border:1px solid var(--border);
+            border-radius:var(--radius-lg);
+            overflow:hidden;
+          ">
           <!-- Card Header -->
           <div style="
             background:var(--bg-raised);
@@ -653,20 +649,7 @@ async function loadSettings() {
       <div style="display:flex;flex-direction:column;gap:16px;max-width:480px;">
 
         <!-- Version Card -->
-        <div id="version-summary-card" style="
-          background: linear-gradient(135deg, rgba(108,99,255,.15), rgba(108,99,255,.05));
-          border: 2px solid var(--accent);
-          border-radius: var(--radius-lg);
-          padding: 24px 28px;
-          cursor: pointer;
-          transition: all .2s;
-          position:relative;
-          overflow:hidden;
-          box-shadow: 0 0 0 4px rgba(108,99,255,.08), 0 8px 32px rgba(108,99,255,.2);
-        "
-        onmouseenter="this.style.transform='translateY(-2px)';this.style.boxShadow='0 0 0 4px rgba(108,99,255,.12), 0 12px 40px rgba(108,99,255,.3)'"
-        onmouseleave="this.style.transform='translateY(0)';this.style.boxShadow='0 0 0 4px rgba(108,99,255,.08), 0 8px 32px rgba(108,99,255,.2)'"
-        >
+<div id="version-summary-card" class="version-card">
           <!-- Glow -->
           <div style="
             position:absolute;top:-50px;right:-50px;width:180px;height:180px;border-radius:50%;
@@ -883,14 +866,8 @@ function showFullChangelog(current, history, updateDownloaded = false, updateAva
         </div>
         <div style="display:flex;flex-direction:column;gap:12px;">
           ${older.map(v => `
-            <div style="
-              background:var(--bg-surface);border:1px solid var(--border);
-              border-radius:var(--radius);padding:20px 24px;
-              transition:all .2s;opacity:0.75;
-            "
-            onmouseenter="this.style.borderColor='var(--border-light)';this.style.opacity='1'"
-            onmouseleave="this.style.borderColor='var(--border)';this.style.opacity='0.75'"
-            >
+          <div class="history-card">
+
               <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:${v.changes && v.changes.length ? '14px' : '0'};">
                 <div style="display:flex;align-items:center;gap:12px;">
                   <div style="font-size:18px;font-weight:700;font-family:var(--font-mono);color:var(--text-secondary);">
@@ -1864,37 +1841,48 @@ async function openKeystrokesPage(sessionId, pageId, backDetailSubId) {
 // ══════════════════════════════════════════════════════════
 async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
   const nsSubId =
-    pageId === 'my-sessions' ? 'my-session-netspeed'
-      : pageId === 'super-admins' ? 'super-admin-session-netspeed'
-        : pageId === 'hrs' ? 'hr-session-netspeed'
-          : pageId === 'managers' ? 'manager-session-netspeed'
-            : pageId === 'my-employees' ? 'my-emp-session-netspeed'
-              : 'emp-session-netspeed';
+    pageId === 'my-sessions'   ? 'my-session-netspeed'
+    : pageId === 'super-admins' ? 'super-admin-session-netspeed'
+    : pageId === 'hrs'          ? 'hr-session-netspeed'
+    : pageId === 'managers'     ? 'manager-session-netspeed'
+    : pageId === 'my-employees' ? 'my-emp-session-netspeed'
+    : 'emp-session-netspeed';
+
   const container = g(nsSubId);
   if (!container) return;
   container.innerHTML = spinHtml();
   showSub(pageId, nsSubId);
+
   try {
     const [nsR, smR] = await Promise.all([
       api.getAdminNetworkSpeed({ session_id: sessionId, limit: '500' }),
       api.getAdminSystemMetrics({ session_id: sessionId, limit: '500' }),
     ]);
+
     const nsRows = (nsR && nsR.ok && Array.isArray(nsR.data)) ? nsR.data : [];
     const smRows = (smR && smR.ok && Array.isArray(smR.data)) ? smR.data : [];
-    const len = Math.max(nsRows.length, smRows.length);
-    const rows = Array.from({ length: len }, (_, i) => ({ ns: nsRows[i] || null, sm: smRows[i] || null }));
 
-    // Compute averages
+    // Since both are saved at same timestamp, zip by index safely
+    const len  = Math.max(nsRows.length, smRows.length);
+    const rows = Array.from({ length: len }, (_, i) => ({
+      ns: nsRows[i] || null,
+      sm: smRows[i] || null,
+    }));
+
+    // Averages
     const validNs = nsRows.filter(r => r.download_speed != null);
     const avgDown = validNs.length ? (validNs.reduce((a, r) => a + (r.download_speed || 0), 0) / validNs.length).toFixed(1) : '—';
-    const avgUp = validNs.length ? (validNs.reduce((a, r) => a + (r.upload_speed || 0), 0) / validNs.length).toFixed(1) : '—';
+    const avgUp   = validNs.length ? (validNs.reduce((a, r) => a + (r.upload_speed   || 0), 0) / validNs.length).toFixed(1) : '—';
     const avgPing = validNs.length ? Math.round(validNs.reduce((a, r) => a + (r.ping || 0), 0) / validNs.length) : '—';
+
     const validSm = smRows.filter(r => r.cpu_usage != null);
-    const avgCpu = validSm.length ? (validSm.reduce((a, r) => a + (r.cpu_usage || 0), 0) / validSm.length).toFixed(1) : '—';
-    const avgMem = validSm.length ? (validSm.reduce((a, r) => a + (r.memory_usage || 0), 0) / validSm.length).toFixed(1) : '—';
+    const avgCpu  = validSm.length ? (validSm.reduce((a, r) => a + (r.cpu_usage    || 0), 0) / validSm.length).toFixed(1) : '—';
+    const avgMem  = validSm.length ? (validSm.reduce((a, r) => a + (r.memory_usage || 0), 0) / validSm.length).toFixed(1) : '—';
 
     container.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:20px;">
+
+        <!-- Header -->
         <div style="display:flex;align-items:center;gap:12px;">
           <button class="back-btn"
                   data-action="back-to-sub"
@@ -1905,12 +1893,12 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
           <div>
             <div class="page-title">📶 Network & System Metrics</div>
             <div class="page-subtitle">
-              Captured every 1 Hour · ${rows.length} snapshot${rows.length !== 1 ? 's' : ''}
+              Captured every 1 hour · ${rows.length} snapshot${rows.length !== 1 ? 's' : ''}
             </div>
           </div>
         </div>
 
-        ${rows.length > 0 ? `
+        <!-- Stats -->
         <div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));">
           <div class="stat-card accent">
             <div class="stat-label">Avg Download</div>
@@ -1937,8 +1925,9 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
             <div class="stat-value" style="font-size:20px;">${avgMem}</div>
             <div class="stat-sub">%</div>
           </div>
-        </div>` : ''}
+        </div>
 
+        <!-- Combined Table -->
         <div class="table-wrap">
           <table>
             <thead>
@@ -1954,57 +1943,67 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
             </thead>
             <tbody>
               ${rows.length
-        ? rows.map((row, i) => {
-          const ns = row.ns, sm = row.sm;
-          const cpuPct = sm ? Math.min(sm.cpu_usage, 100) : 0;
-          const memPct = sm ? Math.min(sm.memory_usage, 100) : 0;
-          return `<tr>
-                      <td class="td-muted">${i + 1}</td>
-                      <td>
-                        ${ns && ns.download_speed != null
-              ? `<span class="text-success">↓ ${ns.download_speed} Mbps</span>`
-              : '<span class="td-muted">—</span>'}
-                      </td>
-                      <td>
-                        ${ns && ns.upload_speed != null
-              ? `<span class="text-accent">↑ ${ns.upload_speed} Mbps</span>`
-              : '<span class="td-muted">—</span>'}
-                      </td>
-                      <td>
-                        ${ns && ns.ping != null
-              ? `<span class="${ns.ping < 50 ? 'text-success' : ns.ping < 100 ? 'text-warning' : 'text-danger'}">${ns.ping}ms</span>`
-              : '<span class="td-muted">—</span>'}
-                      </td>
-                      <td>
-                        ${sm && sm.cpu_usage != null
-              ? `<div style="display:flex;align-items:center;gap:6px;">
-                               <span class="${cpuCls(sm.cpu_usage) === 'danger' ? 'text-danger' : cpuCls(sm.cpu_usage) === 'warning' ? 'text-warning' : 'text-success'}">${sm.cpu_usage.toFixed(1)}%</span>
-                               <div class="progress-bar" style="width:60px;">
-                                 <div class="progress-fill ${cpuCls(sm.cpu_usage)}" style="width:${cpuPct}%;"></div>
-                               </div>
-                             </div>`
-              : '<span class="td-muted">—</span>'}
-                      </td>
-                      <td>
-                        ${sm && sm.memory_usage != null
-              ? `<div style="display:flex;align-items:center;gap:6px;">
-                               <span class="${cpuCls(sm.memory_usage) === 'danger' ? 'text-danger' : cpuCls(sm.memory_usage) === 'warning' ? 'text-warning' : 'text-success'}">${sm.memory_usage.toFixed(1)}%</span>
-                               <div class="progress-bar" style="width:60px;">
-                                 <div class="progress-fill ${cpuCls(sm.memory_usage)}" style="width:${memPct}%;"></div>
-                               </div>
-                             </div>`
-              : '<span class="td-muted">—</span>'}
-                      </td>
-                      <td class="td-mono td-muted">
-                        ${fmtDateTime((ns || sm)?.timestamp)}
-                      </td>
-                    </tr>`;
-        }).join('')
-        : emptyRow(7, 'No network/system snapshots for this session')}
+                ? rows.map((row, i) => {
+                    const ns     = row.ns;
+                    const sm     = row.sm;
+                    const cpuPct = sm?.cpu_usage    != null ? Math.min(sm.cpu_usage,    100) : 0;
+                    const memPct = sm?.memory_usage != null ? Math.min(sm.memory_usage, 100) : 0;
+                    return `
+                      <tr>
+                        <td class="td-muted">${i + 1}</td>
+                        <td>
+                          ${ns?.download_speed != null
+                            ? `<span class="text-success">↓ ${ns.download_speed} Mbps</span>`
+                            : '<span class="td-muted">—</span>'}
+                        </td>
+                        <td>
+                          ${ns?.upload_speed != null
+                            ? `<span class="text-accent">↑ ${ns.upload_speed} Mbps</span>`
+                            : '<span class="td-muted">—</span>'}
+                        </td>
+                        <td>
+                          ${ns?.ping != null
+                            ? `<span class="${ns.ping < 50 ? 'text-success' : ns.ping < 100 ? 'text-warning' : 'text-danger'}">${ns.ping}ms</span>`
+                            : '<span class="td-muted">—</span>'}
+                        </td>
+                        <td>
+                          ${sm?.cpu_usage != null
+                            ? `<div style="display:flex;align-items:center;gap:6px;">
+                                 <span class="${cpuCls(sm.cpu_usage) === 'danger' ? 'text-danger' : cpuCls(sm.cpu_usage) === 'warning' ? 'text-warning' : 'text-success'}" style="min-width:42px;">
+                                   ${sm.cpu_usage.toFixed(1)}%
+                                 </span>
+                                 <div class="progress-bar" style="width:80px;">
+                                   <div class="progress-fill ${cpuCls(sm.cpu_usage)}" style="width:${cpuPct}%;"></div>
+                                 </div>
+                               </div>`
+                            : '<span class="td-muted">—</span>'}
+                        </td>
+                        <td>
+                          ${sm?.memory_usage != null
+                            ? `<div style="display:flex;align-items:center;gap:6px;">
+                                 <span class="${cpuCls(sm.memory_usage) === 'danger' ? 'text-danger' : cpuCls(sm.memory_usage) === 'warning' ? 'text-warning' : 'text-success'}" style="min-width:42px;">
+                                   ${sm.memory_usage.toFixed(1)}%
+                                 </span>
+                                 <div class="progress-bar" style="width:80px;">
+                                   <div class="progress-fill ${cpuCls(sm.memory_usage)}" style="width:${memPct}%;"></div>
+                                 </div>
+                               </div>`
+                            : '<span class="td-muted">—</span>'}
+                        </td>
+                        <td class="td-mono td-muted">
+                          ${fmtDateTime((ns || sm)?.timestamp)}
+                        </td>
+                      </tr>`;
+                  }).join('')
+                : emptyRow(7, 'No snapshots for this session')}
             </tbody>
           </table>
         </div>
+
       </div>`;
+
+
+
   } catch (e) {
     container.innerHTML = `
       <div style="padding:20px;">
@@ -2018,7 +2017,6 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
       </div>`;
   }
 }
-
 // ══════════════════════════════════════════════════════════
 // ADMINS PAGE
 // ══════════════════════════════════════════════════════════
@@ -2316,18 +2314,13 @@ async function openUserSessions(empId, empName, pageId) {
         const hasActive = daySessions.some(s => s.session_status === 'active');
         const cardId = `day-sessions-${dateKey.replace(/-/g, '')}`;
 
-        return `
-          <!-- Date Card -->
-          <div style="
-            background:var(--bg-surface);
-            border:1px solid var(--border);
-            border-radius:var(--radius-lg);
-            overflow:hidden;
-            transition:border-color .2s;
-          "
-          onmouseenter="this.style.borderColor='var(--border-light)'"
-          onmouseleave="this.style.borderColor='var(--border)'"
-          >
+return `
+  <div class="hover-border" style="
+    background:var(--bg-surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius-lg);
+    overflow:hidden;
+  ">
             <!-- Card Header -->
             <div style="
               background:var(--bg-raised);

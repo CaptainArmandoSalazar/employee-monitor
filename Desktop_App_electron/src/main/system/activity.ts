@@ -295,6 +295,12 @@ export const activityTracker = {
     }
   },
 
+    getCurrentWindowElapsed(now: number = Date.now()): number {
+    // If idle or no window, current window contributes 0 to active
+    if (_wasIdle || !_lastWindow) return 0;
+    return Math.max(0, Math.floor((now - _windowStart) / 1000));
+  },
+
   getTotals(): { active: number; idle: number } {
     return { active: _totalActive, idle: _totalIdle };
   },

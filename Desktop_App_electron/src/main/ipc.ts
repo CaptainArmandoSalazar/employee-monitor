@@ -143,18 +143,36 @@ export function registerIpcHandlers(): void {
 
     // FIX: Also save initial network speed to network_speed_logs table immediately
     // so it shows up in the session's network speed history even for short sessions
-    if (netSpeed.download !== undefined) {
-      const token = authService.getToken();
-      if (token) {
-        apiService.post('/tracking/network-speed', {
-          session_id: clockInResult.session!.session_id,
-          download_speed: netSpeed.download,
-          upload_speed: netSpeed.upload,
-          ping: netSpeed.ping,
-          timestamp: new Date().toISOString(),
-        }, token).catch(() => { });
-      }
-    }
+// Save initial network speed + CPU/memory at clock-in
+if (netSpeed.download !== undefined) {
+  const token = authService.getToken();
+  if (token) {
+    const { getCpuUsage, getMemoryUsage } = await import('./system/metrics');
+    const [cpu, mem] = await Promise.all([
+      getCpuUsage(),
+      Promise.resolve(getMemoryUsage()),
+    ]);
+
+    const ts = new Date().toISOString();
+    const sid = clockInResult.session!.session_id;
+
+    Promise.all([
+      apiService.post('/tracking/network-speed', {
+        session_id:     sid,
+        download_speed: netSpeed.download,
+        upload_speed:   netSpeed.upload,
+        ping:           netSpeed.ping,
+        timestamp:      ts,
+      }, token),
+      apiService.post('/tracking/system-metrics', {
+        session_id:   sid,
+        cpu_usage:    cpu,
+        memory_usage: mem,
+        timestamp:    ts,  // ← same timestamp as network speed
+      }, token),
+    ]).catch(() => { });
+  }
+}
 
     return { ...clockInResult, deviceInfo, netInfo, geo, netSpeed };
   });
@@ -378,11 +396,13 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('admin:getSystemMetrics', async (_event, params: Record<string, string> = {}) => {
-    const token = authService.getToken(); if (!token) return { ok: false, data: [] };
-    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
-    const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) ? '/admin/system-matrics' : '/tracking/system-matrics';
-    return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
-  });
+      const token = authService.getToken(); if (!token) return { ok: false, data: [] };
+      const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
+      const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) 
+        ? '/admin/system-metrics' 
+        : '/tracking/system-metrics';
+      return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
+    });
 
   ipcMain.handle('admin:getNetworkSpeed', async (_event, params: Record<string, string> = {}) => {
     const token = authService.getToken(); if (!token) return { ok: false, data: [] };
