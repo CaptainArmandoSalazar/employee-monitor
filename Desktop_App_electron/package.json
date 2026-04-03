@@ -1,6 +1,6 @@
 {
   "name": "av-devs-collab",
-  "version": "1.0.34",
+  "version": "1.0.35",
   "description": "Employee Monitoring Desktop App",
   "main": "dist/main/main.js",
   "homepage": "https://avdevs.com",

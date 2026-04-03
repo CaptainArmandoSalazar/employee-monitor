@@ -845,183 +845,190 @@ function showFullChangelog(current, history, updateDownloaded = false, updateAva
   const container = g('settings-version-content');
   const latest = history[0] || {};
   const older = history.slice(1);
-  const latestClean = updateAvailableVersion 
-    ? updateAvailableVersion 
+  const latestClean = updateAvailableVersion
+    ? updateAvailableVersion
     : (latest.version || '').replace('v', '');
   const isOutdated = latestClean && current !== latestClean;
 
   container.innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:20px;">
+    <div style="display:flex;flex-direction:column;gap:24px;">
 
       <!-- Back button -->
       <div>
-        <button id="btn-back-settings" class="back-btn">
-          ← Back to Settings
-        </button>
+        <button id="btn-back-settings" class="back-btn">← Back to Settings</button>
       </div>
 
-      <!-- Latest Version Card -->
-      <div style="
-        background: linear-gradient(135deg, rgba(108,99,255,.15), rgba(108,99,255,.05));
-        border: 2px solid var(--accent);
-        border-radius: var(--radius-lg);
-        padding: 28px 32px;
-        position: relative;
-        overflow: hidden;
-        box-shadow: 0 0 0 4px rgba(108,99,255,.08), 0 8px 32px rgba(108,99,255,.2);
-      ">
+      <!-- ── SECTION 1: Latest Version (only if update available) ── -->
+      ${isOutdated ? `
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--warning);margin-bottom:12px;display:flex;align-items:center;gap:8px;">
+          <span>🆕</span> Latest Version
+        </div>
         <div style="
-          position:absolute;top:-60px;right:-60px;width:220px;height:220px;border-radius:50%;
-          background:radial-gradient(circle, rgba(108,99,255,.25) 0%, transparent 65%);
-          pointer-events:none;animation:pulse 3s ease-in-out infinite;
-        "></div>
-        <div style="
-          position:absolute;bottom:-40px;left:-40px;width:160px;height:160px;border-radius:50%;
-          background:radial-gradient(circle, rgba(108,99,255,.12) 0%, transparent 70%);
-          pointer-events:none;
-        "></div>
-
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
-          <div>
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
-              <span style="font-size:22px;">🚀</span>
-              <span style="
-                font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;
-                color:var(--accent);background:var(--accent-dim);border:1px solid var(--accent);
-                padding:3px 10px;border-radius:999px;
-              ">Latest</span>
-              ${isOutdated ? `<span style="
-                font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;
-                color:var(--warning);background:rgba(245,158,11,.15);border:1px solid var(--warning);
-                padding:3px 10px;border-radius:999px;
-              ">⚠ Update Available</span>` : ''}
-            </div>
-            <div style="font-size:32px;font-weight:800;color:var(--text-primary);font-family:var(--font-mono);">
-              v${esc(latestClean || current)}
-            </div>
-            ${latest.date ? `
-            <div style="font-size:13px;color:var(--text-secondary);margin-top:6px;">
-              📅 Released: <strong style="color:var(--text-primary);">${fmtSettingsDate(latest.date)}</strong>
-            </div>` : ''}
-            ${isOutdated ? `
-            <div style="font-size:12px;color:var(--warning);margin-top:4px;">
-              You are currently on <strong>v${esc(current)}</strong>
-            </div>` : ''}
-          </div>
-          <div style="
-            ${isOutdated
-      ? 'background:rgba(245,158,11,.15);border:1px solid var(--warning);'
-      : 'background:var(--success-dim);border:1px solid var(--success);'}
-            border-radius:var(--radius);padding:10px 18px;
-            display:flex;align-items:center;gap:8px;
-          ">
-          <span style="font-size:18px;">${isOutdated ? '⚠️' : '✅'}</span>
+          background: rgba(245,158,11,.08);
+          border: 1px solid rgba(245,158,11,.4);
+          border-left: 4px solid var(--warning);
+          border-radius: var(--radius);
+          padding: 20px 24px;
+        ">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
             <div>
-              <div style="font-size:11px;color:${isOutdated ? 'var(--warning)' : 'var(--success)'};font-weight:600;text-transform:uppercase;letter-spacing:.06em;">Status</div>
-              <div style="font-size:13px;font-weight:700;color:var(--text-primary);">${isOutdated ? 'Update Available' : 'Up to date'}</div>
-              ${isOutdated ? `
-              <div style="margin-top:10px;">
-                ${updateDownloaded
-        ? `<button id="btn-install-now" class="btn btn-success btn-sm">⚡ Install & Restart</button>`
-        : `<button id="btn-download-update" class="btn btn-primary btn-sm">⬇ Download Update</button>`
-      }
+              <div style="font-size:28px;font-weight:800;font-family:var(--font-mono);color:var(--warning);">
+                v${esc(latestClean)}
+              </div>
+              ${latest.date ? `
+              <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">
+                📅 Released: <strong style="color:var(--text-primary);">${fmtSettingsDate(latest.date)}</strong>
+              </div>` : ''}
+              ${latest.changes && latest.changes.length ? `
+              <div style="margin-top:14px;">
+                <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:8px;">What's New</div>
+                <div style="display:flex;flex-direction:column;gap:6px;">
+                  ${latest.changes.map(c => `
+                    <div style="display:flex;align-items:flex-start;gap:8px;">
+                      <span style="color:var(--warning);font-size:12px;margin-top:2px;">◆</span>
+                      <span style="font-size:13px;color:var(--text-primary);">${esc(c)}</span>
+                    </div>
+                  `).join('')}
+                </div>
               </div>` : ''}
             </div>
+            <div style="display:flex;flex-direction:column;gap:10px;align-items:flex-end;">
+              <div style="
+                background:rgba(245,158,11,.15);
+                border:1px solid var(--warning);
+                border-radius:var(--radius-sm);
+                padding:6px 12px;
+                font-size:11px;font-weight:700;
+                color:var(--warning);
+                text-transform:uppercase;letter-spacing:.06em;
+              ">⚠ Update Available</div>
+              ${updateDownloaded
+                ? `<button id="btn-install-now" class="btn btn-success">⚡ Install & Restart</button>`
+                : `<button id="btn-download-update" class="btn btn-primary">⬇ Download Update</button>`}
+            </div>
           </div>
         </div>
+      </div>` : ''}
 
-        ${latest.changes && latest.changes.length ? `
-        <div style="margin-top:22px;">
-          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:12px;">
-            What's New
+      <!-- ── SECTION 2: Current Version ── -->
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text-muted);margin-bottom:12px;display:flex;align-items:center;gap:8px;">
+          <span>💻</span> Current Version
+        </div>
+        <div style="
+          background: var(--bg-surface);
+          border: 1px solid var(--border);
+          border-left: 4px solid ${isOutdated ? 'var(--text-muted)' : 'var(--success)'};
+          border-radius: var(--radius);
+          padding: 20px 24px;
+          display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
+        ">
+          <div>
+            <div style="font-size:28px;font-weight:800;font-family:var(--font-mono);color:var(--text-primary);">
+              v${esc(current)}
+            </div>
+            ${isOutdated
+              ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">A newer version is available above</div>`
+              : `<div style="font-size:12px;color:var(--success);margin-top:4px;">✅ You are on the latest version</div>`}
           </div>
-          <div style="display:flex;flex-direction:column;gap:8px;">
-            ${latest.changes.map(c => `
-              <div style="display:flex;align-items:flex-start;gap:10px;">
-                <span style="color:var(--accent);margin-top:1px;font-size:14px;">◆</span>
-                <span style="font-size:13px;color:var(--text-primary);">${esc(c)}</span>
-              </div>
-            `).join('')}
+          <div style="
+            background: ${isOutdated ? 'rgba(255,255,255,.05)' : 'var(--success-dim)'};
+            border: 1px solid ${isOutdated ? 'var(--border)' : 'var(--success)'};
+            border-radius: var(--radius-sm);
+            padding: 6px 14px;
+            font-size: 12px;
+            font-weight: 700;
+            color: ${isOutdated ? 'var(--text-muted)' : 'var(--success)'};
+          ">
+            ${isOutdated ? 'Outdated' : '✅ Up to date'}
           </div>
-        </div>` : ''}
+        </div>
       </div>
 
-      <!-- Older Versions -->
-      ${older.length ? `
+      <!-- ── SECTION 3: Version History ── -->
+      ${history.length ? `
       <div>
-        <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:14px;display:flex;align-items:center;gap:8px;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text-muted);margin-bottom:12px;display:flex;align-items:center;gap:8px;">
           <span>📦</span> Version History
         </div>
-        <div style="display:flex;flex-direction:column;gap:12px;">
-          ${older.map(v => `
-          <div class="history-card">
-
-              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:${v.changes && v.changes.length ? '14px' : '0'};">
-                <div style="display:flex;align-items:center;gap:12px;">
-                  <div style="font-size:18px;font-weight:700;font-family:var(--font-mono);color:var(--text-secondary);">
-                    v${esc(v.version.replace('v', ''))}
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          ${history.map(v => {
+            const vClean = v.version.replace('v', '');
+            const isCurrent = vClean === current;
+            return `
+            <div style="
+              background: var(--bg-surface);
+              border: 1px solid ${isCurrent ? 'var(--accent)' : 'var(--border)'};
+              border-left: 3px solid ${isCurrent ? 'var(--accent)' : 'var(--border-light)'};
+              border-radius: var(--radius);
+              padding: 16px 20px;
+              transition: border-color .15s;
+            ">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:${v.changes && v.changes.length ? '12px' : '0'};">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <div style="font-size:16px;font-weight:700;font-family:var(--font-mono);color:${isCurrent ? 'var(--accent)' : 'var(--text-primary)'};">
+                    v${esc(vClean)}
                   </div>
-                  <span style="
+                  ${isCurrent ? `<span style="
+                    font-size:10px;font-weight:600;
+                    background:var(--accent-dim);border:1px solid var(--accent);
+                    color:var(--accent);padding:2px 8px;border-radius:999px;
+                  ">Current</span>` : `<span style="
                     font-size:10px;font-weight:600;
                     background:var(--bg-raised);border:1px solid var(--border-light);
                     color:var(--text-muted);padding:2px 8px;border-radius:999px;
-                  ">Previous</span>
+                  ">Previous</span>`}
                 </div>
                 <div style="font-size:12px;color:var(--text-muted);">
                   📅 ${v.date ? fmtSettingsDate(v.date) : '—'}
                 </div>
               </div>
               ${v.changes && v.changes.length ? `
-              <div style="display:flex;flex-direction:column;gap:6px;">
+              <div style="display:flex;flex-direction:column;gap:5px;">
                 ${v.changes.map(c => `
                   <div style="display:flex;align-items:flex-start;gap:8px;">
-                    <span style="color:var(--text-muted);font-size:12px;margin-top:1px;">▸</span>
+                    <span style="color:var(--text-muted);font-size:12px;margin-top:2px;">▸</span>
                     <span style="font-size:12px;color:var(--text-secondary);">${esc(c)}</span>
                   </div>
                 `).join('')}
               </div>` : ''}
-            </div>
-          `).join('')}
+            </div>`;
+          }).join('')}
         </div>
       </div>` : ''}
 
       <!-- Footer -->
       <div style="
         background:var(--bg-surface);border:1px solid var(--border);
-        border-radius:var(--radius);padding:16px 20px;
-        display:flex;gap:24px;flex-wrap:wrap;
+        border-radius:var(--radius);padding:14px 20px;
+        display:flex;gap:24px;flex-wrap:wrap;align-items:center;
       ">
         <div>
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">Product</div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:2px;">Product</div>
           <div style="font-size:13px;font-weight:600;color:var(--text-primary);">AV DEVS Collab</div>
         </div>
         <div>
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">Installed</div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:2px;">Installed</div>
           <div style="font-size:13px;font-weight:600;font-family:var(--font-mono);color:var(--text-primary);">v${esc(current)}</div>
         </div>
         <div>
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">Latest</div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:2px;">Latest</div>
           <div style="font-size:13px;font-weight:600;font-family:var(--font-mono);color:${isOutdated ? 'var(--warning)' : 'var(--success)'};">v${esc(latestClean || current)}</div>
         </div>
         <div>
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">Developer</div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:2px;">Developer</div>
           <div style="font-size:13px;font-weight:600;color:var(--text-primary);">AvDevs</div>
-        </div>
-        <div>
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">License</div>
-          <div style="font-size:13px;font-weight:600;color:var(--text-primary);">MIT</div>
         </div>
       </div>
 
     </div>`;
 
-  // Back button
   g('btn-back-settings').addEventListener('click', () => loadSettings());
-  // Wire download button
+
   const dlBtn = g('btn-download-update');
   if (dlBtn) dlBtn.addEventListener('click', () => handleDownloadUpdate(dlBtn));
 
-  // Wire install button
   const installBtn = g('btn-install-now');
   if (installBtn) installBtn.addEventListener('click', () => api.installUpdate());
 }
