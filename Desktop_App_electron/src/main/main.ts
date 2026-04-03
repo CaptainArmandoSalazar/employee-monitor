@@ -206,10 +206,38 @@ async function handleExit(code: number = 0): Promise<void> {
 }
 
 // ── App lifecycle ─────────────────────────────────────────
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   registerIpcHandlers();
-  const win = createLoginWindow();
-  setMainWindow(win);
+
+  // ── Check for saved session ───────────────────────────
+  const savedEmployee = authService.getEmployee();
+  const savedToken    = authService.getToken();
+
+  if (savedEmployee && savedToken) {
+    // Validate token with backend before skipping login
+    try {
+      const verified = await authService.getProfile();
+      if (verified) {
+        // Token still valid — go straight to dashboard
+        console.log('[App] Restored session for:', verified.email);
+        const win = createDashboardWindow();
+        setMainWindow(win);
+      } else {
+        // Token expired — show login
+        const win = createLoginWindow();
+        setMainWindow(win);
+      }
+    } catch {
+      // Network error — still restore session (offline support)
+      console.log('[App] Network unavailable — restoring session from cache');
+      const win = createDashboardWindow();
+      setMainWindow(win);
+    }
+  } else {
+    // No saved session — show login
+    const win = createLoginWindow();
+    setMainWindow(win);
+  }
 
   // Start auto updater (only in production builds)
   if (app.isPackaged) {
