@@ -37,7 +37,7 @@ function loadSession(): { token: string; employee: Employee } | null {
     if (!data.token || !data.employee) return null;
     // Treat saved session as valid for up to 7.5 hours (token expires in 8h)
     const age = Date.now() - (data.savedAt || 0);
-    if (age > 7.5 * 60 * 60 * 1000) { clearSession(); return null; }
+    if (age > 30 * 24 * 60 * 60 * 1000) { clearSession(); return null; } // 30 days
     return { token: data.token, employee: data.employee };
   } catch { return null; }
 }
@@ -91,11 +91,17 @@ export const authService = {
     clearSession();
   },
 
-  async getProfile(): Promise<Employee | null> {
-    if (!_token) return null;
-    const res = await apiService.get<Employee>('/auth/me', _token);
-    if (res.ok) { _employee = res.data; return res.data; }
-    if (res.status === 401) this.handleExpiredToken();
-    return null;
-  },
+// REPLACE WITH:
+async getProfile(): Promise<Employee | null> {
+  if (!_token) return null;
+  const res = await apiService.get<Employee>('/auth/me', _token);
+  if (res.ok) {
+    _employee = res.data;
+    // Refresh savedAt so 30-day window resets on active use
+    saveSession(_token, res.data);
+    return res.data;
+  }
+  if (res.status === 401) this.handleExpiredToken();
+  return null;
+},
 };

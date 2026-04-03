@@ -47,9 +47,17 @@ export function registerIpcHandlers(): void {
       { ok: false, status: 0, data: { detail: 'Request failed' } }
     );
   });
-  ipcMain.handle('auth:getEmployee', () => {
-    return authService.getEmployee();
-  });
+ipcMain.handle('auth:getEmployee', async () => {
+  const employee = authService.getEmployee();
+  if (!employee) return null;
+  // Validate token is still good with backend
+  try {
+    const verified = await authService.getProfile();
+    return verified || null;
+  } catch {
+    return employee; // Return cached if network unavailable (offline support)
+  }
+});
 
   // ── Window navigation ─────────────────────────────────
   ipcMain.handle('nav:showDashboard', (event) => {

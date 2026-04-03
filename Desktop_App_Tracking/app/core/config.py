@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200  # 30 days
 
     DEFAULT_ADMIN_EMAIL: str = "admin@avdevs.com"
     DEFAULT_ADMIN_PASSWORD: str = "1234"

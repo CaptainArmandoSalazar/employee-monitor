@@ -1,6 +1,13 @@
 {
   "history": [
     {
+      "version": "v1.0.36",
+      "date": "2026-04-03",
+      "changes": [
+        "Session lives for 30 days"
+      ]
+    },
+    {
       "version": "v1.0.35",
       "date": "2026-04-03",
       "changes": [
