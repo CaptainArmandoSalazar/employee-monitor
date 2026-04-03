@@ -169,9 +169,14 @@ async function loadRolePage(role, tbodyId, pageKey) {
     let managerMap = {};
     if (tbodyId === 'employees-body') {
       try {
-        const mr = await api.listEmployees({ role: 'manager', active_only: 'false' });
+        const [mr, hr] = await Promise.all([
+          api.listEmployees({ role: 'manager', active_only: 'false' }),
+          api.listEmployees({ role: 'hr', active_only: 'false' }),
+        ]);
         const managers = (mr && mr.ok && Array.isArray(mr.data)) ? mr.data : [];
+        const hrs = (hr && hr.ok && Array.isArray(hr.data)) ? hr.data : [];
         managers.forEach(m => { managerMap[m.employee_id] = m.employee_name; });
+        hrs.forEach(h => { managerMap[h.employee_id] = `${h.employee_name} (HR)`; });
       } catch { /* ignore, show — as fallback */ }
     }
     tbody.innerHTML = list.map(e => `
@@ -397,12 +402,95 @@ async function loadOverview() {
           </tr>`).join('')
       : emptyRow(5, 'No sessions yet');
 
-    const today = new Date().toDateString();
-    const el = g('stat-sessions');
-    if (el) el.textContent = String(arr.filter(s => {
-      const d = s.clock_in ? new Date(s.clock_in) : (s.date ? new Date(s.date) : null);
-      return d && d.toDateString() === today;
-    }).length);
+    // ── Org Stats Cards (Super Admin only) ────────────────
+    const orgStatsContainer = g('org-stats-container');
+    if (orgStatsContainer) {
+      if (isAdmin) {
+        orgStatsContainer.style.display = '';
+        orgStatsContainer.innerHTML = `<div style="padding:20px;text-align:center;"><span class="spinner"></span></div>`;
+        try {
+          const [saRes, hrRes, mgrRes, empRes] = await Promise.all([
+            api.listEmployees({ role: 'super_admin', active_only: 'false' }),
+            api.listEmployees({ role: 'hr',          active_only: 'false' }),
+            api.listEmployees({ role: 'manager',     active_only: 'false' }),
+            api.listEmployees({ role: 'employee',    active_only: 'false' }),
+          ]);
+
+          const saCount  = (saRes  && saRes.ok  && Array.isArray(saRes.data))  ? saRes.data.length  : 0;
+          const hrCount  = (hrRes  && hrRes.ok  && Array.isArray(hrRes.data))  ? hrRes.data.length  : 0;
+          const mgrCount = (mgrRes && mgrRes.ok && Array.isArray(mgrRes.data)) ? mgrRes.data.length : 0;
+          const empCount = (empRes && empRes.ok && Array.isArray(empRes.data)) ? empRes.data.length : 0;
+          const totalCount = saCount + hrCount + mgrCount + empCount;
+
+          const statCards = [
+            { icon: '🏢', label: 'Total Organization', value: totalCount, color: 'var(--accent)',  border: 'var(--accent)' },
+            { icon: '🛡️', label: 'Super Admins',       value: saCount,    color: 'var(--info)',    border: 'var(--info)' },
+            { icon: '👔', label: 'HRs',                value: hrCount,    color: 'var(--warning)', border: 'var(--warning)' },
+            { icon: '🏢', label: 'Managers',           value: mgrCount,   color: 'var(--success)', border: 'var(--success)' },
+            { icon: '👥', label: 'Employees',          value: empCount,   color: '#a78bfa',        border: '#a78bfa' },
+          ];
+
+          orgStatsContainer.innerHTML = `
+            <div style="
+              display: grid;
+              grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+              gap: 14px;
+              margin-bottom: 4px;
+            ">
+              ${statCards.map(c => `
+                <div style="
+                  background: var(--bg-surface);
+                  border: 1px solid var(--border);
+                  border-left: 4px solid ${c.border};
+                  border-radius: var(--radius);
+                  padding: 18px 20px;
+                  display: flex;
+                  flex-direction: column;
+                  gap: 10px;
+                  transition: border-color .2s, transform .15s;
+                  cursor: default;
+                "
+                  onmouseenter="this.style.transform='translateY(-2px)';this.style.borderColor='${c.border}';"
+                  onmouseleave="this.style.transform='translateY(0)';"
+                >
+                  <div style="display:flex;align-items:center;justify-content:space-between;">
+                    <div style="
+                      font-size: 10px;
+                      font-weight: 700;
+                      text-transform: uppercase;
+                      letter-spacing: .07em;
+                      color: var(--text-muted);
+                    ">${esc(c.label)}</div>
+                    <div style="
+                      width: 32px; height: 32px;
+                      border-radius: var(--radius-sm);
+                      background: ${c.border}22;
+                      display: flex; align-items: center; justify-content: center;
+                      font-size: 16px;
+                    ">${c.icon}</div>
+                  </div>
+                  <div style="
+                    font-size: 36px;
+                    font-weight: 800;
+                    color: ${c.color};
+                    line-height: 1;
+                    font-variant-numeric: tabular-nums;
+                  ">${c.value}</div>
+                  <div style="
+                    font-size: 11px;
+                    color: var(--text-muted);
+                  ">Total registered</div>
+                </div>
+              `).join('')}
+            </div>`;
+        } catch (e) {
+          orgStatsContainer.innerHTML = `<p class="text-muted" style="font-size:13px;">Could not load organization stats.</p>`;
+        }
+      } else {
+        orgStatsContainer.style.display = 'none';
+      }
+    }
+
   } catch (e) { console.error('loadOverview:', e); }
 }
 
@@ -2142,23 +2230,111 @@ async function openUserSessions(empId, empName, pageId) {
           String(s.employee_id).toLowerCase().trim() === empIdStr.toLowerCase()
         );
         console.log(`[openUserSessions] after client-side filter: ${sessions.length} sessions`);
-        if (sessions.length === 0) {
-          container.innerHTML = `
-            <div style="padding:20px;">
-              <button class="back-btn"
-                      data-action="back-to-sub"
-                      data-target-page="${pageId}"
-                      data-target-sub="${listSubId}">
-                ← Back
-              </button>
-              <div class="empty-state" style="margin-top:24px;">
-                <span class="empty-icon">📭</span>
-                <span class="empty-title">No sessions found for ${esc(empName)}</span>
-                <span class="empty-sub">This employee has not clocked in yet</span>
+if (sessions.length === 0) {
+  container.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:20px;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button class="back-btn"
+                data-action="back-to-sub"
+                data-target-page="${pageId}"
+                data-target-sub="${listSubId}">
+          ← Back
+        </button>
+        <div>
+          <div class="page-title">${esc(empName)}</div>
+          <div class="page-subtitle">No sessions yet</div>
+        </div>
+      </div>
+
+      <!-- Team Members still loads even with no sessions -->
+      <div id="usr-team-members"></div>
+
+      <div class="empty-state" style="margin-top:8px;">
+        <span class="empty-icon">📭</span>
+        <span class="empty-title">No sessions found for ${esc(empName)}</span>
+        <span class="empty-sub">This employee has not clocked in yet</span>
+      </div>
+    </div>`;
+
+  // Still load team members even if no sessions
+  setTimeout(async () => {
+    const teamContainer = document.getElementById('usr-team-members');
+    if (!teamContainer) return;
+    try {
+      const [empRes, mgrRes, hrRes, saRes] = await Promise.all([
+        api.listEmployees({ role: 'employee', active_only: 'false' }),
+        api.listEmployees({ role: 'manager',  active_only: 'false' }),
+        api.listEmployees({ role: 'hr',       active_only: 'false' }),
+        api.listEmployees({ role: 'super_admin', active_only: 'false' }),
+      ]);
+      const allEmps = [
+        ...((empRes?.ok && Array.isArray(empRes.data)) ? empRes.data : []),
+        ...((mgrRes?.ok && Array.isArray(mgrRes.data)) ? mgrRes.data : []),
+        ...((hrRes?.ok  && Array.isArray(hrRes.data))  ? hrRes.data  : []),
+        ...((saRes?.ok  && Array.isArray(saRes.data))  ? saRes.data  : []),
+      ];
+      const targetEmp = allEmps.find(e => String(e.employee_id) === String(empId));
+      if (!targetEmp || !['manager', 'hr'].includes(targetEmp.role)) {
+        teamContainer.innerHTML = ''; return;
+      }
+      const teamMembers = allEmps.filter(e =>
+        e.role === 'employee' && String(e.manager_id) === String(empId)
+      );
+      if (!teamMembers.length) {
+        teamContainer.innerHTML = `
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">👥 Team Members</div>
+              <div class="card-subtitle">No employees assigned to this ${targetEmp.role}</div>
+            </div>
+          </div>`;
+        return;
+      }
+      teamContainer.innerHTML = `
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">👥 Team Members</div>
+              <div class="card-subtitle">${teamMembers.length} employee${teamMembers.length !== 1 ? 's' : ''} under ${esc(empName)}</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;">
+            ${teamMembers.map(m => `
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;transition:border-color .15s;"
+                   onmouseenter="this.style.borderColor='var(--accent)'"
+                   onmouseleave="this.style.borderColor='var(--border)'">
+                <div style="display:flex;align-items:center;gap:10px;overflow:hidden;">
+                  <div class="avatar" style="width:34px;height:34px;font-size:13px;flex-shrink:0;">
+                    ${m.employee_name.charAt(0).toUpperCase()}
+                  </div>
+                  <div style="overflow:hidden;">
+                    <div style="font-size:13px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                      ${esc(m.employee_name)}
+                    </div>
+                    <div style="font-size:11px;color:var(--text-muted);">${esc(m.email)}</div>
+                    <div style="margin-top:3px;">
+                      ${m.status
+                        ? '<span class="badge badge-success" style="font-size:10px;padding:2px 7px;">Active</span>'
+                        : '<span class="badge badge-danger" style="font-size:10px;padding:2px 7px;">Inactive</span>'}
+                    </div>
+                  </div>
+                </div>
+                <button class="btn btn-ghost btn-sm" style="flex-shrink:0;"
+                        data-action="view-user"
+                        data-emp-id="${esc(String(m.employee_id))}"
+                        data-emp-name="${esc(m.employee_name)}"
+                        data-page="${pageId}">
+                  View →
+                </button>
               </div>
-            </div>`;
-          return;
-        }
+            `).join('')}
+          </div>
+        </div>`;
+    } catch (err) { console.error('Team members load error:', err); }
+  }, 100);
+
+  return; // ← now returns AFTER setting up team members
+}
       }
     }
 
@@ -2219,8 +2395,10 @@ async function openUserSessions(empId, empName, pageId) {
         </div>
 
 
-        <!-- Table -->
-<!-- Date Cards Grid -->
+<!-- Team Members (only for manager/hr) -->
+        <div id="usr-team-members"></div>
+
+        <!-- Date Cards Grid -->
         <div id="usr-sessions-tbody" style="display:flex;flex-direction:column;gap:12px;">
           <div style="padding:40px;text-align:center;"><span class="spinner"></span></div>
         </div>
@@ -2498,6 +2676,112 @@ return `
       applyFilter();
     }, 50);
 
+    // ── Load Team Members for HR/Manager ──────────────────
+    setTimeout(async () => {
+      const teamContainer = document.getElementById('usr-team-members');
+      if (!teamContainer) return;
+
+      // Fetch the target employee's role to decide if we show team
+      try {
+// REPLACE the team members block's fetch logic with this:
+// Fetch all roles separately to ensure we get everyone
+const [empRes, mgrRes, hrRes, saRes] = await Promise.all([
+  api.listEmployees({ role: 'employee', active_only: 'false' }),
+  api.listEmployees({ role: 'manager', active_only: 'false' }),
+  api.listEmployees({ role: 'hr', active_only: 'false' }),
+  api.listEmployees({ role: 'super_admin', active_only: 'false' }),
+]);
+
+const allEmps = [
+  ...((empRes?.ok && Array.isArray(empRes.data)) ? empRes.data : []),
+  ...((mgrRes?.ok && Array.isArray(mgrRes.data)) ? mgrRes.data : []),
+  ...((hrRes?.ok  && Array.isArray(hrRes.data))  ? hrRes.data  : []),
+  ...((saRes?.ok  && Array.isArray(saRes.data))  ? saRes.data  : []),
+];
+
+const targetEmp = allEmps.find(e => String(e.employee_id) === String(empId));
+
+if (!targetEmp || !['manager', 'hr'].includes(targetEmp.role)) {
+  teamContainer.innerHTML = '';
+  return;
+}
+
+// Filter client-side instead of relying on backend manager_id param
+const teamMembers = allEmps.filter(e =>
+  e.role === 'employee' &&
+  String(e.manager_id) === String(empId)
+);
+
+        if (!teamMembers.length) {
+          teamContainer.innerHTML = `
+            <div class="card" style="margin-bottom:4px;">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">👥 Team Members</div>
+                  <div class="card-subtitle">No employees assigned to this ${targetEmp.role}</div>
+                </div>
+              </div>
+            </div>`;
+          return;
+        }
+
+        teamContainer.innerHTML = `
+          <div class="card" style="margin-bottom:4px;">
+            <div class="card-header">
+              <div>
+                <div class="card-title">👥 Team Members</div>
+                <div class="card-subtitle">${teamMembers.length} employee${teamMembers.length !== 1 ? 's' : ''} under ${esc(empName)}</div>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;">
+              ${teamMembers.map(m => `
+                <div style="
+                  background: var(--bg-raised);
+                  border: 1px solid var(--border);
+                  border-radius: var(--radius);
+                  padding: 14px 16px;
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  gap: 12px;
+                  transition: border-color .15s;
+                " onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='var(--border)'">
+                  <div style="display:flex;align-items:center;gap:10px;overflow:hidden;">
+                    <div class="avatar" style="width:34px;height:34px;font-size:13px;flex-shrink:0;">
+                      ${m.employee_name.charAt(0).toUpperCase()}
+                    </div>
+                    <div style="overflow:hidden;">
+                      <div style="font-size:13px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                        ${esc(m.employee_name)}
+                      </div>
+                      <div style="font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                        ${esc(m.email)}
+                      </div>
+                      <div style="margin-top:3px;">
+                        ${m.status
+                          ? '<span class="badge badge-success" style="font-size:10px;padding:2px 7px;">Active</span>'
+                          : '<span class="badge badge-danger"  style="font-size:10px;padding:2px 7px;">Inactive</span>'}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    class="btn btn-ghost btn-sm"
+                    style="flex-shrink:0;"
+                    data-action="view-user"
+                    data-emp-id="${esc(String(m.employee_id))}"
+                    data-emp-name="${esc(m.employee_name)}"
+                    data-page="${pageId}">
+                    View →
+                  </button>
+                </div>
+              `).join('')}
+            </div>
+          </div>`;
+      } catch (e) {
+        console.error('Team members load error:', e);
+      }
+    }, 100);
+
   } catch (e) {
     console.error('openUserSessions error:', e);
     container.innerHTML = `
@@ -2643,14 +2927,41 @@ async function populateManagerDropdown() {
   if (!sel) return;
   sel.innerHTML = '<option value="">— No Manager —</option>';
   try {
-    const r = await api.listEmployees({ role: 'manager', active_only: 'true' });
-    const list = (r && r.ok && Array.isArray(r.data)) ? r.data : [];
-    list.forEach(m => {
-      const opt = document.createElement('option');
-      opt.value = m.employee_id;
-      opt.textContent = `${esc(m.employee_name)} (${esc(m.department || '—')})`;
-      sel.appendChild(opt);
-    });
+    // Fetch managers and HRs in parallel
+    const [managerRes, hrRes] = await Promise.all([
+      api.listEmployees({ role: 'manager', active_only: 'true' }),
+      api.listEmployees({ role: 'hr', active_only: 'true' }),
+    ]);
+
+    const managers = (managerRes && managerRes.ok && Array.isArray(managerRes.data)) ? managerRes.data : [];
+    const hrs = (hrRes && hrRes.ok && Array.isArray(hrRes.data)) ? hrRes.data : [];
+
+    // Add managers first
+    if (managers.length) {
+      const managerGroup = document.createElement('optgroup');
+      managerGroup.label = '── Managers ──';
+      managers.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.employee_id;
+        opt.textContent = `${m.employee_name}${m.department ? ' (' + m.department + ')' : ''}`;
+        managerGroup.appendChild(opt);
+      });
+      sel.appendChild(managerGroup);
+    }
+
+    // Add HRs second with (HR) label
+    if (hrs.length) {
+      const hrGroup = document.createElement('optgroup');
+      hrGroup.label = '── HRs ──';
+      hrs.forEach(h => {
+        const opt = document.createElement('option');
+        opt.value = h.employee_id;
+        opt.textContent = `${h.employee_name} (HR)`;
+        hrGroup.appendChild(opt);
+      });
+      sel.appendChild(hrGroup);
+    }
+
     // If current user is manager, pre-select and lock
     if (currentEmployee?.role === 'manager') {
       sel.value = currentEmployee.employee_id;

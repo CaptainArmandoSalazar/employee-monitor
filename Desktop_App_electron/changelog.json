@@ -1,6 +1,15 @@
 {
   "history": [
     {
+      "version": "v1.0.34",
+      "date": "2026-04-03",
+      "changes": [
+        "Assign HR as a Manager to Employee",
+        "Added Count for Super Admin",
+        "Added Employee list under Manager and HR view"
+      ]
+    },
+    {
       "version": "v1.0.33",
       "date": "2026-04-02",
       "changes": [

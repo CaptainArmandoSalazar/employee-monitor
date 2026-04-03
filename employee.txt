@@ -4478,6 +4478,22 @@ FILE: ./Desktop_App_electron/changelog.json
 {
   "history": [
     {
+      "version": "v1.0.33",
+      "date": "2026-04-02",
+      "changes": [
+        "Logs Issue Solved"
+      ]
+    },
+    {
+      "version": "v1.0.32",
+      "date": "2026-04-02",
+      "changes": [
+        "Logs Issue Solved",
+        "Updated CPU usage and Memory Usage",
+        "Updated New Idol Time and Active time Settings"
+      ]
+    },
+    {
       "version": "v1.0.31",
       "date": "2026-04-09",
       "changes": [
@@ -4804,7 +4820,7 @@ FILE: ./Desktop_App_electron/package.json
 ====================================
 {
   "name": "av-devs-collab",
-  "version": "1.0.31",
+  "version": "1.0.33",
   "description": "Employee Monitoring Desktop App",
   "main": "dist/main/main.js",
   "homepage": "https://avdevs.com",
@@ -4862,6 +4878,12 @@ FILE: ./Desktop_App_electron/package.json
       "node_modules/**/*",
       "changelog.json"
     ],
+    "extraResources": [
+      {
+        "from": "changelog.json",
+        "to": "changelog.json"
+      }
+    ],
     "extraFiles": [
       {
         "from": "src/main/services/inputWorker.js",
@@ -4877,7 +4899,9 @@ FILE: ./Desktop_App_electron/package.json
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "assets/icon.ico"
@@ -4896,8 +4920,11 @@ FILE: ./Desktop_App_electron/package.json
       }
     },
     "linux": {
-      "target": ["AppImage", "deb"],
-      "icon": "assets/icons/",  
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "assets/icons/",
       "category": "Utility",
       "executableName": "av-devs-collab",
       "maintainer": "AvDevs <admin@avdevs.com>"
@@ -5076,7 +5103,7 @@ FILE: ./Desktop_App_electron/src/renderer/login.html
       </button>
 
       <p style="text-align:center; margin-top:20px; font-size:12px; color:var(--text-muted)">
-        AV DEVS Collab System v1.0.31
+        AV DEVS Collab System v1.0.33
       </p>
     </div>
   </div>
@@ -5884,6 +5911,74 @@ tbody tr:hover { background: var(--bg-hover); }
 }
 [data-tooltip]:hover::after { opacity: 1; }
 
+/* ── Hover effect classes (replaces inline onmouseenter/onmouseleave) ── */
+.hover-border {
+  transition: border-color .2s;
+}
+.hover-border:hover {
+  border-color: var(--border-light) !important;
+}
+
+.hover-card {
+  transition: border-color .2s, opacity .2s;
+}
+.hover-card:hover {
+  border-color: var(--border-light) !important;
+  opacity: 1 !important;
+}
+
+.hover-lift {
+  transition: transform .2s, box-shadow .2s;
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 0 4px rgba(108,99,255,.12), 0 12px 40px rgba(108,99,255,.3);
+}
+
+.hover-tile {
+  transition: border-color .15s, background .15s;
+}
+.hover-tile:hover {
+  border-color: var(--accent) !important;
+  background: var(--bg-hover) !important;
+}
+
+.version-card {
+  background: linear-gradient(135deg, rgba(108,99,255,.15), rgba(108,99,255,.05));
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-lg);
+  padding: 24px 28px;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 0 0 4px rgba(108,99,255,.08), 0 8px 32px rgba(108,99,255,.2);
+  transition: transform .2s, box-shadow .2s;
+}
+.version-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 0 4px rgba(108,99,255,.12), 0 12px 40px rgba(108,99,255,.3);
+}
+
+.history-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  transition: border-color .2s, opacity .2s;
+  opacity: 0.75;
+}
+.history-card:hover {
+  border-color: var(--border-light);
+  opacity: 1;
+}
+
+/* ── Hover border effect (replaces CSP-violating inline onmouseenter) ── */
+.hover-border {
+  transition: border-color .2s;
+}
+.hover-border:hover {
+  border-color: var(--border-light) !important;
+}
 
 
 ====================================
@@ -6971,16 +7066,12 @@ async function loadMySessions() {
       const cardId = `my-day-sessions-${dateKey.replace(/-/g, '')}`;
 
       return `
-        <div style="
-          background:var(--bg-surface);
-          border:1px solid var(--border);
-          border-radius:var(--radius-lg);
-          overflow:hidden;
-          transition:border-color .2s;
-        "
-        onmouseenter="this.style.borderColor='var(--border-light)'"
-        onmouseleave="this.style.borderColor='var(--border)'"
-        >
+          <div class="hover-border" style="
+            background:var(--bg-surface);
+            border:1px solid var(--border);
+            border-radius:var(--radius-lg);
+            overflow:hidden;
+          ">
           <!-- Card Header -->
           <div style="
             background:var(--bg-raised);
@@ -7166,20 +7257,7 @@ async function loadSettings() {
       <div style="display:flex;flex-direction:column;gap:16px;max-width:480px;">
 
         <!-- Version Card -->
-        <div id="version-summary-card" style="
-          background: linear-gradient(135deg, rgba(108,99,255,.15), rgba(108,99,255,.05));
-          border: 2px solid var(--accent);
-          border-radius: var(--radius-lg);
-          padding: 24px 28px;
-          cursor: pointer;
-          transition: all .2s;
-          position:relative;
-          overflow:hidden;
-          box-shadow: 0 0 0 4px rgba(108,99,255,.08), 0 8px 32px rgba(108,99,255,.2);
-        "
-        onmouseenter="this.style.transform='translateY(-2px)';this.style.boxShadow='0 0 0 4px rgba(108,99,255,.12), 0 12px 40px rgba(108,99,255,.3)'"
-        onmouseleave="this.style.transform='translateY(0)';this.style.boxShadow='0 0 0 4px rgba(108,99,255,.08), 0 8px 32px rgba(108,99,255,.2)'"
-        >
+<div id="version-summary-card" class="version-card">
           <!-- Glow -->
           <div style="
             position:absolute;top:-50px;right:-50px;width:180px;height:180px;border-radius:50%;
@@ -7396,14 +7474,8 @@ function showFullChangelog(current, history, updateDownloaded = false, updateAva
         </div>
         <div style="display:flex;flex-direction:column;gap:12px;">
           ${older.map(v => `
-            <div style="
-              background:var(--bg-surface);border:1px solid var(--border);
-              border-radius:var(--radius);padding:20px 24px;
-              transition:all .2s;opacity:0.75;
-            "
-            onmouseenter="this.style.borderColor='var(--border-light)';this.style.opacity='1'"
-            onmouseleave="this.style.borderColor='var(--border)';this.style.opacity='0.75'"
-            >
+          <div class="history-card">
+
               <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:${v.changes && v.changes.length ? '14px' : '0'};">
                 <div style="display:flex;align-items:center;gap:12px;">
                   <div style="font-size:18px;font-weight:700;font-family:var(--font-mono);color:var(--text-secondary);">
@@ -8377,37 +8449,48 @@ async function openKeystrokesPage(sessionId, pageId, backDetailSubId) {
 // ══════════════════════════════════════════════════════════
 async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
   const nsSubId =
-    pageId === 'my-sessions' ? 'my-session-netspeed'
-      : pageId === 'super-admins' ? 'super-admin-session-netspeed'
-        : pageId === 'hrs' ? 'hr-session-netspeed'
-          : pageId === 'managers' ? 'manager-session-netspeed'
-            : pageId === 'my-employees' ? 'my-emp-session-netspeed'
-              : 'emp-session-netspeed';
+    pageId === 'my-sessions'   ? 'my-session-netspeed'
+    : pageId === 'super-admins' ? 'super-admin-session-netspeed'
+    : pageId === 'hrs'          ? 'hr-session-netspeed'
+    : pageId === 'managers'     ? 'manager-session-netspeed'
+    : pageId === 'my-employees' ? 'my-emp-session-netspeed'
+    : 'emp-session-netspeed';
+
   const container = g(nsSubId);
   if (!container) return;
   container.innerHTML = spinHtml();
   showSub(pageId, nsSubId);
+
   try {
     const [nsR, smR] = await Promise.all([
       api.getAdminNetworkSpeed({ session_id: sessionId, limit: '500' }),
       api.getAdminSystemMetrics({ session_id: sessionId, limit: '500' }),
     ]);
+
     const nsRows = (nsR && nsR.ok && Array.isArray(nsR.data)) ? nsR.data : [];
     const smRows = (smR && smR.ok && Array.isArray(smR.data)) ? smR.data : [];
-    const len = Math.max(nsRows.length, smRows.length);
-    const rows = Array.from({ length: len }, (_, i) => ({ ns: nsRows[i] || null, sm: smRows[i] || null }));
 
-    // Compute averages
+    // Since both are saved at same timestamp, zip by index safely
+    const len  = Math.max(nsRows.length, smRows.length);
+    const rows = Array.from({ length: len }, (_, i) => ({
+      ns: nsRows[i] || null,
+      sm: smRows[i] || null,
+    }));
+
+    // Averages
     const validNs = nsRows.filter(r => r.download_speed != null);
     const avgDown = validNs.length ? (validNs.reduce((a, r) => a + (r.download_speed || 0), 0) / validNs.length).toFixed(1) : '—';
-    const avgUp = validNs.length ? (validNs.reduce((a, r) => a + (r.upload_speed || 0), 0) / validNs.length).toFixed(1) : '—';
+    const avgUp   = validNs.length ? (validNs.reduce((a, r) => a + (r.upload_speed   || 0), 0) / validNs.length).toFixed(1) : '—';
     const avgPing = validNs.length ? Math.round(validNs.reduce((a, r) => a + (r.ping || 0), 0) / validNs.length) : '—';
+
     const validSm = smRows.filter(r => r.cpu_usage != null);
-    const avgCpu = validSm.length ? (validSm.reduce((a, r) => a + (r.cpu_usage || 0), 0) / validSm.length).toFixed(1) : '—';
-    const avgMem = validSm.length ? (validSm.reduce((a, r) => a + (r.memory_usage || 0), 0) / validSm.length).toFixed(1) : '—';
+    const avgCpu  = validSm.length ? (validSm.reduce((a, r) => a + (r.cpu_usage    || 0), 0) / validSm.length).toFixed(1) : '—';
+    const avgMem  = validSm.length ? (validSm.reduce((a, r) => a + (r.memory_usage || 0), 0) / validSm.length).toFixed(1) : '—';
 
     container.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:20px;">
+
+        <!-- Header -->
         <div style="display:flex;align-items:center;gap:12px;">
           <button class="back-btn"
                   data-action="back-to-sub"
@@ -8418,12 +8501,12 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
           <div>
             <div class="page-title">📶 Network & System Metrics</div>
             <div class="page-subtitle">
-              Captured every 1 Hour · ${rows.length} snapshot${rows.length !== 1 ? 's' : ''}
+              Captured every 1 hour · ${rows.length} snapshot${rows.length !== 1 ? 's' : ''}
             </div>
           </div>
         </div>
 
-        ${rows.length > 0 ? `
+        <!-- Stats -->
         <div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));">
           <div class="stat-card accent">
             <div class="stat-label">Avg Download</div>
@@ -8450,8 +8533,9 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
             <div class="stat-value" style="font-size:20px;">${avgMem}</div>
             <div class="stat-sub">%</div>
           </div>
-        </div>` : ''}
+        </div>
 
+        <!-- Combined Table -->
         <div class="table-wrap">
           <table>
             <thead>
@@ -8467,57 +8551,67 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
             </thead>
             <tbody>
               ${rows.length
-        ? rows.map((row, i) => {
-          const ns = row.ns, sm = row.sm;
-          const cpuPct = sm ? Math.min(sm.cpu_usage, 100) : 0;
-          const memPct = sm ? Math.min(sm.memory_usage, 100) : 0;
-          return `<tr>
-                      <td class="td-muted">${i + 1}</td>
-                      <td>
-                        ${ns && ns.download_speed != null
-              ? `<span class="text-success">↓ ${ns.download_speed} Mbps</span>`
-              : '<span class="td-muted">—</span>'}
-                      </td>
-                      <td>
-                        ${ns && ns.upload_speed != null
-              ? `<span class="text-accent">↑ ${ns.upload_speed} Mbps</span>`
-              : '<span class="td-muted">—</span>'}
-                      </td>
-                      <td>
-                        ${ns && ns.ping != null
-              ? `<span class="${ns.ping < 50 ? 'text-success' : ns.ping < 100 ? 'text-warning' : 'text-danger'}">${ns.ping}ms</span>`
-              : '<span class="td-muted">—</span>'}
-                      </td>
-                      <td>
-                        ${sm && sm.cpu_usage != null
-              ? `<div style="display:flex;align-items:center;gap:6px;">
-                               <span class="${cpuCls(sm.cpu_usage) === 'danger' ? 'text-danger' : cpuCls(sm.cpu_usage) === 'warning' ? 'text-warning' : 'text-success'}">${sm.cpu_usage.toFixed(1)}%</span>
-                               <div class="progress-bar" style="width:60px;">
-                                 <div class="progress-fill ${cpuCls(sm.cpu_usage)}" style="width:${cpuPct}%;"></div>
-                               </div>
-                             </div>`
-              : '<span class="td-muted">—</span>'}
-                      </td>
-                      <td>
-                        ${sm && sm.memory_usage != null
-              ? `<div style="display:flex;align-items:center;gap:6px;">
-                               <span class="${cpuCls(sm.memory_usage) === 'danger' ? 'text-danger' : cpuCls(sm.memory_usage) === 'warning' ? 'text-warning' : 'text-success'}">${sm.memory_usage.toFixed(1)}%</span>
-                               <div class="progress-bar" style="width:60px;">
-                                 <div class="progress-fill ${cpuCls(sm.memory_usage)}" style="width:${memPct}%;"></div>
-                               </div>
-                             </div>`
-              : '<span class="td-muted">—</span>'}
-                      </td>
-                      <td class="td-mono td-muted">
-                        ${fmtDateTime((ns || sm)?.timestamp)}
-                      </td>
-                    </tr>`;
-        }).join('')
-        : emptyRow(7, 'No network/system snapshots for this session')}
+                ? rows.map((row, i) => {
+                    const ns     = row.ns;
+                    const sm     = row.sm;
+                    const cpuPct = sm?.cpu_usage    != null ? Math.min(sm.cpu_usage,    100) : 0;
+                    const memPct = sm?.memory_usage != null ? Math.min(sm.memory_usage, 100) : 0;
+                    return `
+                      <tr>
+                        <td class="td-muted">${i + 1}</td>
+                        <td>
+                          ${ns?.download_speed != null
+                            ? `<span class="text-success">↓ ${ns.download_speed} Mbps</span>`
+                            : '<span class="td-muted">—</span>'}
+                        </td>
+                        <td>
+                          ${ns?.upload_speed != null
+                            ? `<span class="text-accent">↑ ${ns.upload_speed} Mbps</span>`
+                            : '<span class="td-muted">—</span>'}
+                        </td>
+                        <td>
+                          ${ns?.ping != null
+                            ? `<span class="${ns.ping < 50 ? 'text-success' : ns.ping < 100 ? 'text-warning' : 'text-danger'}">${ns.ping}ms</span>`
+                            : '<span class="td-muted">—</span>'}
+                        </td>
+                        <td>
+                          ${sm?.cpu_usage != null
+                            ? `<div style="display:flex;align-items:center;gap:6px;">
+                                 <span class="${cpuCls(sm.cpu_usage) === 'danger' ? 'text-danger' : cpuCls(sm.cpu_usage) === 'warning' ? 'text-warning' : 'text-success'}" style="min-width:42px;">
+                                   ${sm.cpu_usage.toFixed(1)}%
+                                 </span>
+                                 <div class="progress-bar" style="width:80px;">
+                                   <div class="progress-fill ${cpuCls(sm.cpu_usage)}" style="width:${cpuPct}%;"></div>
+                                 </div>
+                               </div>`
+                            : '<span class="td-muted">—</span>'}
+                        </td>
+                        <td>
+                          ${sm?.memory_usage != null
+                            ? `<div style="display:flex;align-items:center;gap:6px;">
+                                 <span class="${cpuCls(sm.memory_usage) === 'danger' ? 'text-danger' : cpuCls(sm.memory_usage) === 'warning' ? 'text-warning' : 'text-success'}" style="min-width:42px;">
+                                   ${sm.memory_usage.toFixed(1)}%
+                                 </span>
+                                 <div class="progress-bar" style="width:80px;">
+                                   <div class="progress-fill ${cpuCls(sm.memory_usage)}" style="width:${memPct}%;"></div>
+                                 </div>
+                               </div>`
+                            : '<span class="td-muted">—</span>'}
+                        </td>
+                        <td class="td-mono td-muted">
+                          ${fmtDateTime((ns || sm)?.timestamp)}
+                        </td>
+                      </tr>`;
+                  }).join('')
+                : emptyRow(7, 'No snapshots for this session')}
             </tbody>
           </table>
         </div>
+
       </div>`;
+
+
+
   } catch (e) {
     container.innerHTML = `
       <div style="padding:20px;">
@@ -8531,7 +8625,6 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
       </div>`;
   }
 }
-
 // ══════════════════════════════════════════════════════════
 // ADMINS PAGE
 // ══════════════════════════════════════════════════════════
@@ -8829,18 +8922,13 @@ async function openUserSessions(empId, empName, pageId) {
         const hasActive = daySessions.some(s => s.session_status === 'active');
         const cardId = `day-sessions-${dateKey.replace(/-/g, '')}`;
 
-        return `
-          <!-- Date Card -->
-          <div style="
-            background:var(--bg-surface);
-            border:1px solid var(--border);
-            border-radius:var(--radius-lg);
-            overflow:hidden;
-            transition:border-color .2s;
-          "
-          onmouseenter="this.style.borderColor='var(--border-light)'"
-          onmouseleave="this.style.borderColor='var(--border)'"
-          >
+return `
+  <div class="hover-border" style="
+    background:var(--bg-surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius-lg);
+    overflow:hidden;
+  ">
             <!-- Card Header -->
             <div style="
               background:var(--bg-raised);
@@ -10683,6 +10771,12 @@ export const activityTracker = {
     }
   },
 
+    getCurrentWindowElapsed(now: number = Date.now()): number {
+    // If idle or no window, current window contributes 0 to active
+    if (_wasIdle || !_lastWindow) return 0;
+    return Math.max(0, Math.floor((now - _windowStart) / 1000));
+  },
+
   getTotals(): { active: number; idle: number } {
     return { active: _totalActive, idle: _totalIdle };
   },
@@ -10921,18 +11015,36 @@ export function registerIpcHandlers(): void {
 
     // FIX: Also save initial network speed to network_speed_logs table immediately
     // so it shows up in the session's network speed history even for short sessions
-    if (netSpeed.download !== undefined) {
-      const token = authService.getToken();
-      if (token) {
-        apiService.post('/tracking/network-speed', {
-          session_id: clockInResult.session!.session_id,
-          download_speed: netSpeed.download,
-          upload_speed: netSpeed.upload,
-          ping: netSpeed.ping,
-          timestamp: new Date().toISOString(),
-        }, token).catch(() => { });
-      }
-    }
+// Save initial network speed + CPU/memory at clock-in
+if (netSpeed.download !== undefined) {
+  const token = authService.getToken();
+  if (token) {
+    const { getCpuUsage, getMemoryUsage } = await import('./system/metrics');
+    const [cpu, mem] = await Promise.all([
+      getCpuUsage(),
+      Promise.resolve(getMemoryUsage()),
+    ]);
+
+    const ts = new Date().toISOString();
+    const sid = clockInResult.session!.session_id;
+
+    Promise.all([
+      apiService.post('/tracking/network-speed', {
+        session_id:     sid,
+        download_speed: netSpeed.download,
+        upload_speed:   netSpeed.upload,
+        ping:           netSpeed.ping,
+        timestamp:      ts,
+      }, token),
+      apiService.post('/tracking/system-metrics', {
+        session_id:   sid,
+        cpu_usage:    cpu,
+        memory_usage: mem,
+        timestamp:    ts,  // ← same timestamp as network speed
+      }, token),
+    ]).catch(() => { });
+  }
+}
 
     return { ...clockInResult, deviceInfo, netInfo, geo, netSpeed };
   });
@@ -11156,11 +11268,13 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('admin:getSystemMetrics', async (_event, params: Record<string, string> = {}) => {
-    const token = authService.getToken(); if (!token) return { ok: false, data: [] };
-    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
-    const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) ? '/admin/system-matrics' : '/tracking/system-matrics';
-    return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
-  });
+      const token = authService.getToken(); if (!token) return { ok: false, data: [] };
+      const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
+      const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) 
+        ? '/admin/system-metrics' 
+        : '/tracking/system-metrics';
+      return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
+    });
 
   ipcMain.handle('admin:getNetworkSpeed', async (_event, params: Record<string, string> = {}) => {
     const token = authService.getToken(); if (!token) return { ok: false, data: [] };
@@ -11203,27 +11317,46 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('system:getNetworkInfo', () => getNetworkInfo());
   ipcMain.handle('system:getAppVersion', () => {
     const { app } = require('electron');
-    const fs = require('fs');
+    const fs   = require('fs');
     const path = require('path');
 
-    const changelogPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'changelog.json')
-      : path.join(app.getAppPath(), 'changelog.json');
+    const candidatePaths = [
+      // extraResources puts it here — works in all packaged formats
+      path.join(process.resourcesPath, 'changelog.json'),
+      // fallback: inside asar (works in dev + some packaged configs)
+      path.join(app.getAppPath(), 'changelog.json'),
+      // another fallback
+      path.join(__dirname, '..', '..', '..', 'changelog.json'),
+      path.join(__dirname, '..', '..', 'changelog.json'),
+    ];
 
-    let history = [];
-    try {
-      const raw = fs.readFileSync(changelogPath, 'utf8');
-      history = JSON.parse(raw).history || [];
-    } catch (e) {
-      console.error('[Version] Could not read changelog.json:', e);
+    let history: any[] = [];
+
+    for (const p of candidatePaths) {
+      try {
+        if (fs.existsSync(p)) {
+          const raw = fs.readFileSync(p, 'utf8');
+          history = JSON.parse(raw).history || [];
+          console.log('[Version] changelog loaded from:', p, '| entries:', history.length);
+          break;
+        }
+      } catch (e: any) {
+        console.warn('[Version] failed to read:', p, e?.message);
+        continue;
+      }
+    }
+
+    if (!history.length) {
+      console.error('[Version] changelog.json not found in any candidate path');
+      candidatePaths.forEach(p => console.log('[Version] tried:', p, '→', fs.existsSync(p)));
     }
 
     return {
-      current: app.getVersion(),
+      current:                app.getVersion(),
       history,
-      updateDownloaded: isUpdateDownloaded(),
+      updateDownloaded:       isUpdateDownloaded(),
       updateAvailableVersion: getUpdateAvailableVersion(),
-      isPackaged: app.isPackaged,
+      isPackaged:             app.isPackaged,
     };
   });
   ipcMain.handle('system:downloadUpdate', async () => {
@@ -11563,14 +11696,19 @@ export const trackingService = {
       }
     }, 30_000);
 
-    setInterval(async () => {
+setInterval(async () => {
   const token   = authService.getToken();
   const session = sessionService.getActiveSession();
   if (!token || !session) return;
   try {
     const totals = activityTracker.getTotals();
+    
+    // ADD: include current unflushed window time
+    const now = Date.now();
+    const currentWindowElapsed = activityTracker.getCurrentWindowElapsed(now);
+    
     await apiService.patch(`/sessions/${session.session_id}/update-totals`, {
-      total_active_time: totals.active,
+      total_active_time: totals.active + currentWindowElapsed,
       total_idle_time:   totals.idle,
     }, token);
   } catch { /* silent */ }
@@ -11593,11 +11731,8 @@ globalKeyboard.start(async (count: number, raw?: string) => {
 });
 
     // ── Metrics 5s after start, then every 5 min ──────────
-    setTimeout(() => this.sendCpuMemMetrics(), 5_000);
-    _metricsInterval = setInterval(() => this.sendCpuMemMetrics(), 5 * 60_000);
+    _metricsInterval = setInterval(() => this.sendSpeedAndMetrics(), 60 * 60_000);
 
-    // Speed: first check at 5s (captures clock-in speed in logs), then every 1 hour
-    setInterval(() => this.sendSpeedMetrics(), 60 * 60_000);
 
     console.log('[Tracking] Started.');
   },
@@ -11647,38 +11782,53 @@ globalKeyboard.start(async (count: number, raw?: string) => {
     return Promise.resolve();
   },
 
-async sendCpuMemMetrics(): Promise<void> {
-    const session = sessionService.getActiveSession();
-    const token   = authService.getToken();
-    if (!session || !token) return;
+async sendSpeedAndMetrics(): Promise<void> {
+  const session = sessionService.getActiveSession();
+  const token   = authService.getToken();
+  if (!session || !token) return;
 
-    const { getCpuUsage, getMemoryUsage } = await import('../system/metrics');
-    const [cpu, mem] = await Promise.all([getCpuUsage(), getMemoryUsage()]);
-
-    await apiService.post('/tracking/system-metrics', {
-      session_id: session.session_id, cpu_usage: cpu,
-      memory_usage: mem, timestamp: nowIST(),
-    }, token).catch(() => {});
-  },
-
-  async sendSpeedMetrics(): Promise<void> {
-    const session = sessionService.getActiveSession();
-    const token   = authService.getToken();
-    if (!session || !token) return;
-
+  try {
+    // Run speed test and CPU/memory in parallel
     const { getNetworkSpeed } = await import('../system/network');
-    const speed = await getNetworkSpeed();
+    const { getCpuUsage, getMemoryUsage } = await import('../system/metrics');
+
+    const [speed, cpu, mem] = await Promise.all([
+      getNetworkSpeed(),
+      getCpuUsage(),
+      Promise.resolve(getMemoryUsage()),
+    ]);
+
     _lastSpeed = speed;
 
+    // Re-check session still active after speed test (takes ~20s)
     const s2 = sessionService.getActiveSession();
     const t2 = authService.getToken();
     if (!s2 || !t2) return;
 
-    await apiService.post('/tracking/network-speed', {
-      session_id: s2.session_id, download_speed: speed.download,
-      upload_speed: speed.upload, ping: speed.ping, timestamp: nowIST(),
-    }, t2).catch(() => {});
-  },
+    const ts = nowIST();
+
+    // Save both in parallel
+    await Promise.all([
+      apiService.post('/tracking/network-speed', {
+        session_id:     s2.session_id,
+        download_speed: speed.download,
+        upload_speed:   speed.upload,
+        ping:           speed.ping,
+        timestamp:      ts,
+      }, t2),
+      apiService.post('/tracking/system-metrics', {
+        session_id:   s2.session_id,
+        cpu_usage:    cpu,
+        memory_usage: mem,
+        timestamp:    ts,  // ← same timestamp, so they align perfectly
+      }, t2),
+    ]);
+
+    console.log(`[Tracking] Hourly snapshot saved — ↓${speed.download}Mbps CPU:${cpu}% MEM:${mem}%`);
+  } catch (err) {
+    console.error('[Tracking] sendSpeedAndMetrics error:', err);
+  }
+},
   async flushBuffers(): Promise<void> {
     await Promise.allSettled([this.flushActivity(), this.flushWebsite()]);
   },
