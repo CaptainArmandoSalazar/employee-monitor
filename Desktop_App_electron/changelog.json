@@ -1,5 +1,13 @@
 {
   "history": [
+        {
+      "version": "v1.0.38",
+      "date": "2026-04-03",
+      "changes": [
+        "Internet off issue solved"
+
+      ]
+    },
     {
       "version": "v1.0.37",
       "date": "2026-04-03",

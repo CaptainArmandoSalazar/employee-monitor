@@ -13,7 +13,7 @@ from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-STALE_AFTER_MINUTES = 10
+STALE_AFTER_MINUTES = 480
 
 
 async def close_stale_sessions():
@@ -35,10 +35,18 @@ async def close_stale_sessions():
             )
             .all()
         )
+# FIND:
+# REPLACE WITH:
         for s in stale:
-            s.session_status = "stale"
-            s.clock_out      = utcnow()
-            logger.warning(f"Auto-closed stale session {s.session_id} for employee {s.employee_id}")
+            # Only auto-close if truly abandoned (8+ hours no heartbeat)
+            # For shorter gaps, just log — network may have been down
+            gap_minutes = (utcnow() - (s.last_heartbeat or s.clock_in)).total_seconds() / 60
+            if gap_minutes > 480:
+                s.session_status = "stale"
+                s.clock_out      = utcnow()
+                logger.warning(f"Auto-closed stale session {s.session_id} for employee {s.employee_id}")
+            else:
+                logger.info(f"Session {s.session_id} has heartbeat gap of {gap_minutes:.1f}min — keeping active (possible network issue)")
         if stale:
             db.commit()
     except Exception as e:

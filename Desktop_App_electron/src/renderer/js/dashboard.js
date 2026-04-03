@@ -411,23 +411,23 @@ async function loadOverview() {
         try {
           const [saRes, hrRes, mgrRes, empRes] = await Promise.all([
             api.listEmployees({ role: 'super_admin', active_only: 'false' }),
-            api.listEmployees({ role: 'hr',          active_only: 'false' }),
-            api.listEmployees({ role: 'manager',     active_only: 'false' }),
-            api.listEmployees({ role: 'employee',    active_only: 'false' }),
+            api.listEmployees({ role: 'hr', active_only: 'false' }),
+            api.listEmployees({ role: 'manager', active_only: 'false' }),
+            api.listEmployees({ role: 'employee', active_only: 'false' }),
           ]);
 
-          const saCount  = (saRes  && saRes.ok  && Array.isArray(saRes.data))  ? saRes.data.length  : 0;
-          const hrCount  = (hrRes  && hrRes.ok  && Array.isArray(hrRes.data))  ? hrRes.data.length  : 0;
+          const saCount = (saRes && saRes.ok && Array.isArray(saRes.data)) ? saRes.data.length : 0;
+          const hrCount = (hrRes && hrRes.ok && Array.isArray(hrRes.data)) ? hrRes.data.length : 0;
           const mgrCount = (mgrRes && mgrRes.ok && Array.isArray(mgrRes.data)) ? mgrRes.data.length : 0;
           const empCount = (empRes && empRes.ok && Array.isArray(empRes.data)) ? empRes.data.length : 0;
           const totalCount = saCount + hrCount + mgrCount + empCount;
 
           const statCards = [
-            { icon: '🏢', label: 'Total Organization', value: totalCount, color: 'var(--accent)',  border: 'var(--accent)' },
-            { icon: '🛡️', label: 'Super Admins',       value: saCount,    color: 'var(--info)',    border: 'var(--info)' },
-            { icon: '👔', label: 'HRs',                value: hrCount,    color: 'var(--warning)', border: 'var(--warning)' },
-            { icon: '🏢', label: 'Managers',           value: mgrCount,   color: 'var(--success)', border: 'var(--success)' },
-            { icon: '👥', label: 'Employees',          value: empCount,   color: '#a78bfa',        border: '#a78bfa' },
+            { icon: '🏢', label: 'Total Organization', value: totalCount, color: 'var(--accent)', border: 'var(--accent)' },
+            { icon: '🛡️', label: 'Super Admins', value: saCount, color: 'var(--info)', border: 'var(--info)' },
+            { icon: '👔', label: 'HRs', value: hrCount, color: 'var(--warning)', border: 'var(--warning)' },
+            { icon: '🏢', label: 'Managers', value: mgrCount, color: 'var(--success)', border: 'var(--success)' },
+            { icon: '👥', label: 'Employees', value: empCount, color: '#a78bfa', border: '#a78bfa' },
           ];
 
           orgStatsContainer.innerHTML = `
@@ -904,8 +904,8 @@ function showFullChangelog(current, history, updateDownloaded = false, updateAva
                 text-transform:uppercase;letter-spacing:.06em;
               ">⚠ Update Available</div>
               ${updateDownloaded
-                ? `<button id="btn-install-now" class="btn btn-success">⚡ Install & Restart</button>`
-                : `<button id="btn-download-update" class="btn btn-primary">⬇ Download Update</button>`}
+        ? `<button id="btn-install-now" class="btn btn-success">⚡ Install & Restart</button>`
+        : `<button id="btn-download-update" class="btn btn-primary">⬇ Download Update</button>`}
             </div>
           </div>
         </div>
@@ -929,8 +929,8 @@ function showFullChangelog(current, history, updateDownloaded = false, updateAva
               v${esc(current)}
             </div>
             ${isOutdated
-              ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">A newer version is available above</div>`
-              : `<div style="font-size:12px;color:var(--success);margin-top:4px;">✅ You are on the latest version</div>`}
+      ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">A newer version is available above</div>`
+      : `<div style="font-size:12px;color:var(--success);margin-top:4px;">✅ You are on the latest version</div>`}
           </div>
           <div style="
             background: ${isOutdated ? 'rgba(255,255,255,.05)' : 'var(--success-dim)'};
@@ -954,9 +954,9 @@ function showFullChangelog(current, history, updateDownloaded = false, updateAva
         </div>
         <div style="display:flex;flex-direction:column;gap:10px;">
           ${history.map(v => {
-            const vClean = v.version.replace('v', '');
-            const isCurrent = vClean === current;
-            return `
+        const vClean = v.version.replace('v', '');
+        const isCurrent = vClean === current;
+        return `
             <div style="
               background: var(--bg-surface);
               border: 1px solid ${isCurrent ? 'var(--accent)' : 'var(--border)'};
@@ -994,7 +994,7 @@ function showFullChangelog(current, history, updateDownloaded = false, updateAva
                 `).join('')}
               </div>` : ''}
             </div>`;
-          }).join('')}
+      }).join('')}
         </div>
       </div>` : ''}
 
@@ -1936,12 +1936,12 @@ async function openKeystrokesPage(sessionId, pageId, backDetailSubId) {
 // ══════════════════════════════════════════════════════════
 async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
   const nsSubId =
-    pageId === 'my-sessions'   ? 'my-session-netspeed'
-    : pageId === 'super-admins' ? 'super-admin-session-netspeed'
-    : pageId === 'hrs'          ? 'hr-session-netspeed'
-    : pageId === 'managers'     ? 'manager-session-netspeed'
-    : pageId === 'my-employees' ? 'my-emp-session-netspeed'
-    : 'emp-session-netspeed';
+    pageId === 'my-sessions' ? 'my-session-netspeed'
+      : pageId === 'super-admins' ? 'super-admin-session-netspeed'
+        : pageId === 'hrs' ? 'hr-session-netspeed'
+          : pageId === 'managers' ? 'manager-session-netspeed'
+            : pageId === 'my-employees' ? 'my-emp-session-netspeed'
+              : 'emp-session-netspeed';
 
   const container = g(nsSubId);
   if (!container) return;
@@ -1958,21 +1958,23 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
     const smRows = (smR && smR.ok && Array.isArray(smR.data)) ? smR.data : [];
 
     // Since both are saved at same timestamp, zip by index safely
-    const len  = Math.max(nsRows.length, smRows.length);
+    const len = Math.max(nsRows.length, smRows.length);
     const rows = Array.from({ length: len }, (_, i) => ({
       ns: nsRows[i] || null,
       sm: smRows[i] || null,
     }));
 
     // Averages
-    const validNs = nsRows.filter(r => r.download_speed != null);
+    // REPLACE WITH — exclude offline markers from averages:
+    const validNs = nsRows.filter(r => r.download_speed != null && r.download_speed !== -1);
+    const offlineCount = nsRows.filter(r => r.download_speed === -1).length;
     const avgDown = validNs.length ? (validNs.reduce((a, r) => a + (r.download_speed || 0), 0) / validNs.length).toFixed(1) : '—';
-    const avgUp   = validNs.length ? (validNs.reduce((a, r) => a + (r.upload_speed   || 0), 0) / validNs.length).toFixed(1) : '—';
+    const avgUp = validNs.length ? (validNs.reduce((a, r) => a + (r.upload_speed || 0), 0) / validNs.length).toFixed(1) : '—';
     const avgPing = validNs.length ? Math.round(validNs.reduce((a, r) => a + (r.ping || 0), 0) / validNs.length) : '—';
 
     const validSm = smRows.filter(r => r.cpu_usage != null);
-    const avgCpu  = validSm.length ? (validSm.reduce((a, r) => a + (r.cpu_usage    || 0), 0) / validSm.length).toFixed(1) : '—';
-    const avgMem  = validSm.length ? (validSm.reduce((a, r) => a + (r.memory_usage || 0), 0) / validSm.length).toFixed(1) : '—';
+    const avgCpu = validSm.length ? (validSm.reduce((a, r) => a + (r.cpu_usage || 0), 0) / validSm.length).toFixed(1) : '—';
+    const avgMem = validSm.length ? (validSm.reduce((a, r) => a + (r.memory_usage || 0), 0) / validSm.length).toFixed(1) : '—';
 
     container.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:20px;">
@@ -2015,11 +2017,19 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
             <div class="stat-value" style="font-size:20px;">${avgCpu}</div>
             <div class="stat-sub">%</div>
           </div>
-          <div class="stat-card danger">
-            <div class="stat-label">Avg Memory</div>
-            <div class="stat-value" style="font-size:20px;">${avgMem}</div>
-            <div class="stat-sub">%</div>
-          </div>
+// REPLACE the closing </div> of stats grid with:
+      <div class="stat-card danger">
+        <div class="stat-label">Avg Memory</div>
+        <div class="stat-value" style="font-size:20px;">${avgMem}</div>
+        <div class="stat-sub">%</div>
+      </div>
+      ${offlineCount > 0 ? `
+      <div class="stat-card danger">
+        <div class="stat-label">Offline Periods</div>
+        <div class="stat-value" style="font-size:20px;">${offlineCount}</div>
+        <div class="stat-sub">Network unavailable</div>
+      </div>` : ''}
+    </div>
         </div>
 
         <!-- Combined Table -->
@@ -2038,32 +2048,41 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
             </thead>
             <tbody>
               ${rows.length
-                ? rows.map((row, i) => {
-                    const ns     = row.ns;
-                    const sm     = row.sm;
-                    const cpuPct = sm?.cpu_usage    != null ? Math.min(sm.cpu_usage,    100) : 0;
-                    const memPct = sm?.memory_usage != null ? Math.min(sm.memory_usage, 100) : 0;
-                    return `
+        ? rows.map((row, i) => {
+          const ns = row.ns;
+          const sm = row.sm;
+          const cpuPct = sm?.cpu_usage != null ? Math.min(sm.cpu_usage, 100) : 0;
+          const memPct = sm?.memory_usage != null ? Math.min(sm.memory_usage, 100) : 0;
+          return `
                       <tr>
                         <td class="td-muted">${i + 1}</td>
                         <td>
-                          ${ns?.download_speed != null
-                            ? `<span class="text-success">↓ ${ns.download_speed} Mbps</span>`
-                            : '<span class="td-muted">—</span>'}
+                        // REPLACE WITH:
+                        ${ns?.download_speed != null
+              ? ns.download_speed === -1
+                ? `<span class="text-danger">🔴 Offline</span>`
+                : `<span class="text-success">↓ ${ns.download_speed} Mbps</span>`
+              : '<span class="td-muted">—</span>'}
                         </td>
                         <td>
-                          ${ns?.upload_speed != null
-                            ? `<span class="text-accent">↑ ${ns.upload_speed} Mbps</span>`
-                            : '<span class="td-muted">—</span>'}
+                        // REPLACE WITH:
+                        ${ns?.upload_speed != null
+              ? ns.upload_speed === -1
+                ? `<span class="text-danger">🔴 Offline</span>`
+                : `<span class="text-accent">↑ ${ns.upload_speed} Mbps</span>`
+              : '<span class="td-muted">—</span>'}
                         </td>
                         <td>
-                          ${ns?.ping != null
-                            ? `<span class="${ns.ping < 50 ? 'text-success' : ns.ping < 100 ? 'text-warning' : 'text-danger'}">${ns.ping}ms</span>`
-                            : '<span class="td-muted">—</span>'}
+                      // REPLACE WITH:
+                      ${ns?.ping != null
+              ? ns.ping === -1
+                ? `<span class="text-danger">🔴 No Connection</span>`
+                : `<span class="${ns.ping < 50 ? 'text-success' : ns.ping < 100 ? 'text-warning' : 'text-danger'}">${ns.ping}ms</span>`
+              : '<span class="td-muted">—</span>'}
                         </td>
                         <td>
                           ${sm?.cpu_usage != null
-                            ? `<div style="display:flex;align-items:center;gap:6px;">
+              ? `<div style="display:flex;align-items:center;gap:6px;">
                                  <span class="${cpuCls(sm.cpu_usage) === 'danger' ? 'text-danger' : cpuCls(sm.cpu_usage) === 'warning' ? 'text-warning' : 'text-success'}" style="min-width:42px;">
                                    ${sm.cpu_usage.toFixed(1)}%
                                  </span>
@@ -2071,11 +2090,11 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
                                    <div class="progress-fill ${cpuCls(sm.cpu_usage)}" style="width:${cpuPct}%;"></div>
                                  </div>
                                </div>`
-                            : '<span class="td-muted">—</span>'}
+              : '<span class="td-muted">—</span>'}
                         </td>
                         <td>
                           ${sm?.memory_usage != null
-                            ? `<div style="display:flex;align-items:center;gap:6px;">
+              ? `<div style="display:flex;align-items:center;gap:6px;">
                                  <span class="${cpuCls(sm.memory_usage) === 'danger' ? 'text-danger' : cpuCls(sm.memory_usage) === 'warning' ? 'text-warning' : 'text-success'}" style="min-width:42px;">
                                    ${sm.memory_usage.toFixed(1)}%
                                  </span>
@@ -2083,14 +2102,14 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
                                    <div class="progress-fill ${cpuCls(sm.memory_usage)}" style="width:${memPct}%;"></div>
                                  </div>
                                </div>`
-                            : '<span class="td-muted">—</span>'}
+              : '<span class="td-muted">—</span>'}
                         </td>
                         <td class="td-mono td-muted">
                           ${fmtDateTime((ns || sm)?.timestamp)}
                         </td>
                       </tr>`;
-                  }).join('')
-                : emptyRow(7, 'No snapshots for this session')}
+        }).join('')
+        : emptyRow(7, 'No snapshots for this session')}
             </tbody>
           </table>
         </div>
@@ -2237,8 +2256,8 @@ async function openUserSessions(empId, empName, pageId) {
           String(s.employee_id).toLowerCase().trim() === empIdStr.toLowerCase()
         );
         console.log(`[openUserSessions] after client-side filter: ${sessions.length} sessions`);
-if (sessions.length === 0) {
-  container.innerHTML = `
+        if (sessions.length === 0) {
+          container.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:20px;">
       <div style="display:flex;align-items:center;gap:12px;">
         <button class="back-btn"
@@ -2263,41 +2282,41 @@ if (sessions.length === 0) {
       </div>
     </div>`;
 
-  // Still load team members even if no sessions
-  setTimeout(async () => {
-    const teamContainer = document.getElementById('usr-team-members');
-    if (!teamContainer) return;
-    try {
-      const [empRes, mgrRes, hrRes, saRes] = await Promise.all([
-        api.listEmployees({ role: 'employee', active_only: 'false' }),
-        api.listEmployees({ role: 'manager',  active_only: 'false' }),
-        api.listEmployees({ role: 'hr',       active_only: 'false' }),
-        api.listEmployees({ role: 'super_admin', active_only: 'false' }),
-      ]);
-      const allEmps = [
-        ...((empRes?.ok && Array.isArray(empRes.data)) ? empRes.data : []),
-        ...((mgrRes?.ok && Array.isArray(mgrRes.data)) ? mgrRes.data : []),
-        ...((hrRes?.ok  && Array.isArray(hrRes.data))  ? hrRes.data  : []),
-        ...((saRes?.ok  && Array.isArray(saRes.data))  ? saRes.data  : []),
-      ];
-      const targetEmp = allEmps.find(e => String(e.employee_id) === String(empId));
-      if (!targetEmp || !['manager', 'hr'].includes(targetEmp.role)) {
-        teamContainer.innerHTML = ''; return;
-      }
-      const teamMembers = allEmps.filter(e =>
-        e.role === 'employee' && String(e.manager_id) === String(empId)
-      );
-      if (!teamMembers.length) {
-        teamContainer.innerHTML = `
+          // Still load team members even if no sessions
+          setTimeout(async () => {
+            const teamContainer = document.getElementById('usr-team-members');
+            if (!teamContainer) return;
+            try {
+              const [empRes, mgrRes, hrRes, saRes] = await Promise.all([
+                api.listEmployees({ role: 'employee', active_only: 'false' }),
+                api.listEmployees({ role: 'manager', active_only: 'false' }),
+                api.listEmployees({ role: 'hr', active_only: 'false' }),
+                api.listEmployees({ role: 'super_admin', active_only: 'false' }),
+              ]);
+              const allEmps = [
+                ...((empRes?.ok && Array.isArray(empRes.data)) ? empRes.data : []),
+                ...((mgrRes?.ok && Array.isArray(mgrRes.data)) ? mgrRes.data : []),
+                ...((hrRes?.ok && Array.isArray(hrRes.data)) ? hrRes.data : []),
+                ...((saRes?.ok && Array.isArray(saRes.data)) ? saRes.data : []),
+              ];
+              const targetEmp = allEmps.find(e => String(e.employee_id) === String(empId));
+              if (!targetEmp || !['manager', 'hr'].includes(targetEmp.role)) {
+                teamContainer.innerHTML = ''; return;
+              }
+              const teamMembers = allEmps.filter(e =>
+                e.role === 'employee' && String(e.manager_id) === String(empId)
+              );
+              if (!teamMembers.length) {
+                teamContainer.innerHTML = `
           <div class="card">
             <div class="card-header">
               <div class="card-title">👥 Team Members</div>
               <div class="card-subtitle">No employees assigned to this ${targetEmp.role}</div>
             </div>
           </div>`;
-        return;
-      }
-      teamContainer.innerHTML = `
+                return;
+              }
+              teamContainer.innerHTML = `
         <div class="card">
           <div class="card-header">
             <div>
@@ -2321,8 +2340,8 @@ if (sessions.length === 0) {
                     <div style="font-size:11px;color:var(--text-muted);">${esc(m.email)}</div>
                     <div style="margin-top:3px;">
                       ${m.status
-                        ? '<span class="badge badge-success" style="font-size:10px;padding:2px 7px;">Active</span>'
-                        : '<span class="badge badge-danger" style="font-size:10px;padding:2px 7px;">Inactive</span>'}
+                  ? '<span class="badge badge-success" style="font-size:10px;padding:2px 7px;">Active</span>'
+                  : '<span class="badge badge-danger" style="font-size:10px;padding:2px 7px;">Inactive</span>'}
                     </div>
                   </div>
                 </div>
@@ -2337,11 +2356,11 @@ if (sessions.length === 0) {
             `).join('')}
           </div>
         </div>`;
-    } catch (err) { console.error('Team members load error:', err); }
-  }, 100);
+            } catch (err) { console.error('Team members load error:', err); }
+          }, 100);
 
-  return; // ← now returns AFTER setting up team members
-}
+          return; // ← now returns AFTER setting up team members
+        }
       }
     }
 
@@ -2499,7 +2518,7 @@ if (sessions.length === 0) {
         const hasActive = daySessions.some(s => s.session_status === 'active');
         const cardId = `day-sessions-${dateKey.replace(/-/g, '')}`;
 
-return `
+        return `
   <div class="hover-border" style="
     background:var(--bg-surface);
     border:1px solid var(--border);
@@ -2690,34 +2709,34 @@ return `
 
       // Fetch the target employee's role to decide if we show team
       try {
-// REPLACE the team members block's fetch logic with this:
-// Fetch all roles separately to ensure we get everyone
-const [empRes, mgrRes, hrRes, saRes] = await Promise.all([
-  api.listEmployees({ role: 'employee', active_only: 'false' }),
-  api.listEmployees({ role: 'manager', active_only: 'false' }),
-  api.listEmployees({ role: 'hr', active_only: 'false' }),
-  api.listEmployees({ role: 'super_admin', active_only: 'false' }),
-]);
+        // REPLACE the team members block's fetch logic with this:
+        // Fetch all roles separately to ensure we get everyone
+        const [empRes, mgrRes, hrRes, saRes] = await Promise.all([
+          api.listEmployees({ role: 'employee', active_only: 'false' }),
+          api.listEmployees({ role: 'manager', active_only: 'false' }),
+          api.listEmployees({ role: 'hr', active_only: 'false' }),
+          api.listEmployees({ role: 'super_admin', active_only: 'false' }),
+        ]);
 
-const allEmps = [
-  ...((empRes?.ok && Array.isArray(empRes.data)) ? empRes.data : []),
-  ...((mgrRes?.ok && Array.isArray(mgrRes.data)) ? mgrRes.data : []),
-  ...((hrRes?.ok  && Array.isArray(hrRes.data))  ? hrRes.data  : []),
-  ...((saRes?.ok  && Array.isArray(saRes.data))  ? saRes.data  : []),
-];
+        const allEmps = [
+          ...((empRes?.ok && Array.isArray(empRes.data)) ? empRes.data : []),
+          ...((mgrRes?.ok && Array.isArray(mgrRes.data)) ? mgrRes.data : []),
+          ...((hrRes?.ok && Array.isArray(hrRes.data)) ? hrRes.data : []),
+          ...((saRes?.ok && Array.isArray(saRes.data)) ? saRes.data : []),
+        ];
 
-const targetEmp = allEmps.find(e => String(e.employee_id) === String(empId));
+        const targetEmp = allEmps.find(e => String(e.employee_id) === String(empId));
 
-if (!targetEmp || !['manager', 'hr'].includes(targetEmp.role)) {
-  teamContainer.innerHTML = '';
-  return;
-}
+        if (!targetEmp || !['manager', 'hr'].includes(targetEmp.role)) {
+          teamContainer.innerHTML = '';
+          return;
+        }
 
-// Filter client-side instead of relying on backend manager_id param
-const teamMembers = allEmps.filter(e =>
-  e.role === 'employee' &&
-  String(e.manager_id) === String(empId)
-);
+        // Filter client-side instead of relying on backend manager_id param
+        const teamMembers = allEmps.filter(e =>
+          e.role === 'employee' &&
+          String(e.manager_id) === String(empId)
+        );
 
         if (!teamMembers.length) {
           teamContainer.innerHTML = `
@@ -2766,8 +2785,8 @@ const teamMembers = allEmps.filter(e =>
                       </div>
                       <div style="margin-top:3px;">
                         ${m.status
-                          ? '<span class="badge badge-success" style="font-size:10px;padding:2px 7px;">Active</span>'
-                          : '<span class="badge badge-danger"  style="font-size:10px;padding:2px 7px;">Inactive</span>'}
+            ? '<span class="badge badge-success" style="font-size:10px;padding:2px 7px;">Active</span>'
+            : '<span class="badge badge-danger"  style="font-size:10px;padding:2px 7px;">Inactive</span>'}
                       </div>
                     </div>
                   </div>
