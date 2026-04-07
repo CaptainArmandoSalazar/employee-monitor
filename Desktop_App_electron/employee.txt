@@ -6647,7 +6647,6 @@ export function registerIpcHandlers(): void {
     return sessionService.clockOut(totals.active, totals.idle);
   });
 
-  // REPLACE the session:getActive handler entirely:
   ipcMain.handle('session:getActive', async () => {
     const session = await sessionService.fetchActiveSession();
 

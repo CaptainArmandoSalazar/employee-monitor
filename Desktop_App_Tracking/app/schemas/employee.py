@@ -1,5 +1,6 @@
 # REPLACE entire file:
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
+from app.schemas.password import validate_strong_password
 from typing import Optional
 from uuid import UUID
 from datetime import date, datetime
@@ -16,6 +17,10 @@ class EmployeeCreate(BaseModel):
     date_of_joining: Optional[date] = None
     manager_id: Optional[UUID] = None
 
+    @field_validator("password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        return validate_strong_password(v)
 
 class EmployeeUpdate(BaseModel):
     employee_name: Optional[str] = None

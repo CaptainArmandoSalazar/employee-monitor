@@ -189,10 +189,15 @@ if (netSpeed.download !== undefined) {
     activityTracker.stop();
     trackingService.stop();
     const totals = activityTracker.getTotals();
-    return sessionService.clockOut(totals.active, totals.idle);
+    const existingSession = sessionService.getActiveSession();
+    // Add already-saved DB totals to current process totals
+    const savedActive = (existingSession as any)?.total_active_time || 0;
+    const savedIdle   = (existingSession as any)?.total_idle_time   || 0;
+    return sessionService.clockOut(
+      savedActive + totals.active,
+      savedIdle   + totals.idle
+    );
   });
-
-  // REPLACE the session:getActive handler entirely:
   ipcMain.handle('session:getActive', async () => {
     const session = await sessionService.fetchActiveSession();
 
@@ -264,7 +269,22 @@ if (netSpeed.download !== undefined) {
         return null;
       }
     }
+        if (session && sessionService.getClockInTime()) {
+      sessionService.resumeSession(session);
+      activityTracker.start();
+      trackingService.start();
+    }
 
+    if (session) {
+      sessionService.resumeSession(session);
+      // Seed activity tracker with already-saved DB totals so they aren't lost on restart
+      activityTracker.seedTotals(
+        (session as any).total_active_time || 0,
+        (session as any).total_idle_time   || 0
+      );
+      activityTracker.start();
+      trackingService.start();
+    }
     return session;
   });
   ipcMain.handle('session:getMySessions', async (_e, limit = 200) => {

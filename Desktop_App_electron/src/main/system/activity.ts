@@ -235,6 +235,13 @@ function closeCurrentWindow(now: number): void {
 }
 
 export const activityTracker = {
+  
+
+  seedTotals(active: number, idle: number): void {
+    _totalActive = active;
+    _totalIdle   = idle;
+    console.log(`[ActivityTracker] Seeded from DB — active: ${active}s, idle: ${idle}s`);
+  },
 
   start(): void {
     if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }

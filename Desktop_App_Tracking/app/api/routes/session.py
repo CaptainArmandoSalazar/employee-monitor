@@ -195,8 +195,14 @@ def update_session_totals(
     if not session:
         raise HTTPException(status_code=404, detail="Active session not found")
     if payload.total_active_time is not None:
-        session.total_active_time = payload.total_active_time
+        session.total_active_time = max(
+            session.total_active_time or 0,
+            payload.total_active_time
+        )
     if payload.total_idle_time is not None:
-        session.total_idle_time = payload.total_idle_time
+        session.total_idle_time = max(
+            session.total_idle_time or 0,
+            payload.total_idle_time
+        )
     db.commit()
     return {"ok": True}

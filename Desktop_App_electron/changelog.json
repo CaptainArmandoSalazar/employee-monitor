@@ -1,11 +1,19 @@
 {
   "history": [
-        {
+    {
+      "version": "v1.0.39",
+      "date": "2026-04-07",
+      "changes": [
+        "Strong Password",
+        "Total Time",
+        "Few Known Bugs solved"
+      ]
+    },
+    {
       "version": "v1.0.38",
       "date": "2026-04-03",
       "changes": [
         "Internet off issue solved"
-
       ]
     },
     {

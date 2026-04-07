@@ -16,6 +16,21 @@ let resetPwEmployeeId = null;
 // Shorthand
 function g(id) { return document.getElementById(id); }
 
+
+function validateStrongPassword(pw) {
+  if (pw.length < 8)
+    return 'Password must be at least 8 characters long';
+  if (!/[A-Z]/.test(pw))
+    return 'Password must contain at least one uppercase letter (A-Z)';
+  if (!/[a-z]/.test(pw))
+    return 'Password must contain at least one lowercase letter (a-z)';
+  if (!/\d/.test(pw))
+    return 'Password must contain at least one number (0-9)';
+  if (!/[!@#$%^&*()\-_=+\[\]{};:'",.<>/?\\|`~]/.test(pw))
+    return 'Password must contain at least one special character (!@#$%^&*...)';
+  return null; // valid
+}
+
 // ══════════════════════════════════════════════════════════
 // BOOT
 // ══════════════════════════════════════════════════════════
@@ -45,8 +60,6 @@ async function boot() {
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
     });
 
-    // Restore active session if any
-    // REPLACE WITH:
     const active = await api.getActiveSession();
     if (active) {
       // Restore clock-in time from actual session timestamp (survives app restart)
@@ -1964,8 +1977,6 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
       sm: smRows[i] || null,
     }));
 
-    // Averages
-    // REPLACE WITH — exclude offline markers from averages:
     const validNs = nsRows.filter(r => r.download_speed != null && r.download_speed !== -1);
     const offlineCount = nsRows.filter(r => r.download_speed === -1).length;
     const avgDown = validNs.length ? (validNs.reduce((a, r) => a + (r.download_speed || 0), 0) / validNs.length).toFixed(1) : '—';
@@ -2017,7 +2028,6 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
             <div class="stat-value" style="font-size:20px;">${avgCpu}</div>
             <div class="stat-sub">%</div>
           </div>
-// REPLACE the closing </div> of stats grid with:
       <div class="stat-card danger">
         <div class="stat-label">Avg Memory</div>
         <div class="stat-value" style="font-size:20px;">${avgMem}</div>
@@ -2057,7 +2067,6 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
                       <tr>
                         <td class="td-muted">${i + 1}</td>
                         <td>
-                        // REPLACE WITH:
                         ${ns?.download_speed != null
               ? ns.download_speed === -1
                 ? `<span class="text-danger">🔴 Offline</span>`
@@ -2065,7 +2074,6 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
               : '<span class="td-muted">—</span>'}
                         </td>
                         <td>
-                        // REPLACE WITH:
                         ${ns?.upload_speed != null
               ? ns.upload_speed === -1
                 ? `<span class="text-danger">🔴 Offline</span>`
@@ -2073,7 +2081,6 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
               : '<span class="td-muted">—</span>'}
                         </td>
                         <td>
-                      // REPLACE WITH:
                       ${ns?.ping != null
               ? ns.ping === -1
                 ? `<span class="text-danger">🔴 No Connection</span>`
@@ -2709,7 +2716,6 @@ async function openUserSessions(empId, empName, pageId) {
 
       // Fetch the target employee's role to decide if we show team
       try {
-        // REPLACE the team members block's fetch logic with this:
         // Fetch all roles separately to ensure we get everyone
         const [empRes, mgrRes, hrRes, saRes] = await Promise.all([
           api.listEmployees({ role: 'employee', active_only: 'false' }),
@@ -3024,7 +3030,11 @@ async function saveEmployee() {
 
   if (!name) { showModalAlert('modal-emp-alert', 'Name is required'); return; }
   if (!editingEmployeeId && !email) { showModalAlert('modal-emp-alert', 'Email is required'); return; }
-  if (!editingEmployeeId && !password) { showModalAlert('modal-emp-alert', 'Password is required'); return; }
+    if (!editingEmployeeId && !password) { showModalAlert('modal-emp-alert', 'Password is required'); return; }
+  if (!editingEmployeeId && password) {
+    const pwErr = validateStrongPassword(password);
+    if (pwErr) { showModalAlert('modal-emp-alert', pwErr); return; }
+  }
 
   btn.disabled = true; btn.textContent = 'Saving…';
   try {
@@ -3074,10 +3084,9 @@ function openResetPasswordModal(id) {
 async function confirmReset() {
   const btn = g('btn-confirm-reset');
   const pw = g('new-password').value;
-  if (!pw || pw.length < 6) {
-    showModalAlert('modal-pw-alert', 'Password must be at least 6 characters');
-    return;
-  }
+  if (!pw) { showModalAlert('modal-pw-alert', 'Password is required'); return; }
+  const pwErr = validateStrongPassword(pw);
+  if (pwErr) { showModalAlert('modal-pw-alert', pwErr); return; }
   btn.disabled = true; btn.textContent = 'Resetting…';
   try {
     const r = await api.resetPassword(resetPwEmployeeId, pw);
@@ -3102,7 +3111,9 @@ async function confirmChangePassword() {
   g('modal-change-pw-alert').classList.add('hidden');
 
   if (!current) { showModalAlert('modal-change-pw-alert', 'Current password is required'); return; }
-  if (!newPw || newPw.length < 6) { showModalAlert('modal-change-pw-alert', 'New password must be at least 6 characters'); return; }
+    if (!newPw) { showModalAlert('modal-change-pw-alert', 'New password is required'); return; }
+  const pwErr = validateStrongPassword(newPw);
+  if (pwErr) { showModalAlert('modal-change-pw-alert', pwErr); return; }
   if (newPw !== confirm) { showModalAlert('modal-change-pw-alert', 'Passwords do not match'); return; }
 
   btn.disabled = true; btn.textContent = 'Updating…';

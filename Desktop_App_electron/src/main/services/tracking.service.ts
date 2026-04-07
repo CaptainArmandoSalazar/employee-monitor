@@ -312,7 +312,6 @@ export const trackingService = {
 
       const ts = nowIST();
 
-// REPLACE WITH:
 if (!_isOnline) {
   console.warn('[Tracking] ⚠ Network unavailable — saving offline marker');
 

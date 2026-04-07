@@ -1047,7 +1047,7 @@ from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-STALE_AFTER_MINUTES = 10
+STALE_AFTER_MINUTES = 480
 
 
 async def close_stale_sessions():
@@ -1069,10 +1069,18 @@ async def close_stale_sessions():
             )
             .all()
         )
+# FIND:
+# REPLACE WITH:
         for s in stale:
-            s.session_status = "stale"
-            s.clock_out      = utcnow()
-            logger.warning(f"Auto-closed stale session {s.session_id} for employee {s.employee_id}")
+            # Only auto-close if truly abandoned (8+ hours no heartbeat)
+            # For shorter gaps, just log — network may have been down
+            gap_minutes = (utcnow() - (s.last_heartbeat or s.clock_in)).total_seconds() / 60
+            if gap_minutes > 480:
+                s.session_status = "stale"
+                s.clock_out      = utcnow()
+                logger.warning(f"Auto-closed stale session {s.session_id} for employee {s.employee_id}")
+            else:
+                logger.info(f"Session {s.session_id} has heartbeat gap of {gap_minutes:.1f}min — keeping active (possible network issue)")
         if stale:
             db.commit()
     except Exception as e:
@@ -2802,7 +2810,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200  # 30 days
 
     DEFAULT_ADMIN_EMAIL: str = "admin@avdevs.com"
     DEFAULT_ADMIN_PASSWORD: str = "1234"
@@ -4477,6 +4485,44 @@ FILE: ./Desktop_App_electron/changelog.json
 ====================================
 {
   "history": [
+        {
+      "version": "v1.0.38",
+      "date": "2026-04-03",
+      "changes": [
+        "Internet off issue solved"
+
+      ]
+    },
+    {
+      "version": "v1.0.37",
+      "date": "2026-04-03",
+      "changes": [
+        "Session issue fixed"
+      ]
+    },
+    {
+      "version": "v1.0.36",
+      "date": "2026-04-03",
+      "changes": [
+        "Session lives for 30 days"
+      ]
+    },
+    {
+      "version": "v1.0.35",
+      "date": "2026-04-03",
+      "changes": [
+        "Latest Version Update"
+      ]
+    },
+    {
+      "version": "v1.0.34",
+      "date": "2026-04-03",
+      "changes": [
+        "Assign HR as a Manager to Employee",
+        "Added Count for Super Admin",
+        "Added Employee list under Manager and HR view"
+      ]
+    },
     {
       "version": "v1.0.33",
       "date": "2026-04-02",
@@ -4820,7 +4866,7 @@ FILE: ./Desktop_App_electron/package.json
 ====================================
 {
   "name": "av-devs-collab",
-  "version": "1.0.33",
+  "version": "1.0.38",
   "description": "Employee Monitoring Desktop App",
   "main": "dist/main/main.js",
   "homepage": "https://avdevs.com",
@@ -5103,7 +5149,7 @@ FILE: ./Desktop_App_electron/src/renderer/login.html
       </button>
 
       <p style="text-align:center; margin-top:20px; font-size:12px; color:var(--text-muted)">
-        AV DEVS Collab System v1.0.33
+        AV DEVS Collab System v1.0.38
       </p>
     </div>
   </div>
@@ -6239,6 +6285,7 @@ FILE: ./Desktop_App_electron/src/renderer/dashboard.html
 
         <!-- Stats row -->
 
+<div id="org-stats-container"></div>
 
         <!-- Recent sessions -->
         <div class="card">
@@ -6653,8 +6700,6 @@ async function boot() {
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
     });
 
-    // Restore active session if any
-    // REPLACE WITH:
     const active = await api.getActiveSession();
     if (active) {
       // Restore clock-in time from actual session timestamp (survives app restart)
@@ -6777,9 +6822,14 @@ async function loadRolePage(role, tbodyId, pageKey) {
     let managerMap = {};
     if (tbodyId === 'employees-body') {
       try {
-        const mr = await api.listEmployees({ role: 'manager', active_only: 'false' });
+        const [mr, hr] = await Promise.all([
+          api.listEmployees({ role: 'manager', active_only: 'false' }),
+          api.listEmployees({ role: 'hr', active_only: 'false' }),
+        ]);
         const managers = (mr && mr.ok && Array.isArray(mr.data)) ? mr.data : [];
+        const hrs = (hr && hr.ok && Array.isArray(hr.data)) ? hr.data : [];
         managers.forEach(m => { managerMap[m.employee_id] = m.employee_name; });
+        hrs.forEach(h => { managerMap[h.employee_id] = `${h.employee_name} (HR)`; });
       } catch { /* ignore, show — as fallback */ }
     }
     tbody.innerHTML = list.map(e => `
@@ -7005,12 +7055,95 @@ async function loadOverview() {
           </tr>`).join('')
       : emptyRow(5, 'No sessions yet');
 
-    const today = new Date().toDateString();
-    const el = g('stat-sessions');
-    if (el) el.textContent = String(arr.filter(s => {
-      const d = s.clock_in ? new Date(s.clock_in) : (s.date ? new Date(s.date) : null);
-      return d && d.toDateString() === today;
-    }).length);
+    // ── Org Stats Cards (Super Admin only) ────────────────
+    const orgStatsContainer = g('org-stats-container');
+    if (orgStatsContainer) {
+      if (isAdmin) {
+        orgStatsContainer.style.display = '';
+        orgStatsContainer.innerHTML = `<div style="padding:20px;text-align:center;"><span class="spinner"></span></div>`;
+        try {
+          const [saRes, hrRes, mgrRes, empRes] = await Promise.all([
+            api.listEmployees({ role: 'super_admin', active_only: 'false' }),
+            api.listEmployees({ role: 'hr', active_only: 'false' }),
+            api.listEmployees({ role: 'manager', active_only: 'false' }),
+            api.listEmployees({ role: 'employee', active_only: 'false' }),
+          ]);
+
+          const saCount = (saRes && saRes.ok && Array.isArray(saRes.data)) ? saRes.data.length : 0;
+          const hrCount = (hrRes && hrRes.ok && Array.isArray(hrRes.data)) ? hrRes.data.length : 0;
+          const mgrCount = (mgrRes && mgrRes.ok && Array.isArray(mgrRes.data)) ? mgrRes.data.length : 0;
+          const empCount = (empRes && empRes.ok && Array.isArray(empRes.data)) ? empRes.data.length : 0;
+          const totalCount = saCount + hrCount + mgrCount + empCount;
+
+          const statCards = [
+            { icon: '🏢', label: 'Total Organization', value: totalCount, color: 'var(--accent)', border: 'var(--accent)' },
+            { icon: '🛡️', label: 'Super Admins', value: saCount, color: 'var(--info)', border: 'var(--info)' },
+            { icon: '👔', label: 'HRs', value: hrCount, color: 'var(--warning)', border: 'var(--warning)' },
+            { icon: '🏢', label: 'Managers', value: mgrCount, color: 'var(--success)', border: 'var(--success)' },
+            { icon: '👥', label: 'Employees', value: empCount, color: '#a78bfa', border: '#a78bfa' },
+          ];
+
+          orgStatsContainer.innerHTML = `
+            <div style="
+              display: grid;
+              grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+              gap: 14px;
+              margin-bottom: 4px;
+            ">
+              ${statCards.map(c => `
+                <div style="
+                  background: var(--bg-surface);
+                  border: 1px solid var(--border);
+                  border-left: 4px solid ${c.border};
+                  border-radius: var(--radius);
+                  padding: 18px 20px;
+                  display: flex;
+                  flex-direction: column;
+                  gap: 10px;
+                  transition: border-color .2s, transform .15s;
+                  cursor: default;
+                "
+                  onmouseenter="this.style.transform='translateY(-2px)';this.style.borderColor='${c.border}';"
+                  onmouseleave="this.style.transform='translateY(0)';"
+                >
+                  <div style="display:flex;align-items:center;justify-content:space-between;">
+                    <div style="
+                      font-size: 10px;
+                      font-weight: 700;
+                      text-transform: uppercase;
+                      letter-spacing: .07em;
+                      color: var(--text-muted);
+                    ">${esc(c.label)}</div>
+                    <div style="
+                      width: 32px; height: 32px;
+                      border-radius: var(--radius-sm);
+                      background: ${c.border}22;
+                      display: flex; align-items: center; justify-content: center;
+                      font-size: 16px;
+                    ">${c.icon}</div>
+                  </div>
+                  <div style="
+                    font-size: 36px;
+                    font-weight: 800;
+                    color: ${c.color};
+                    line-height: 1;
+                    font-variant-numeric: tabular-nums;
+                  ">${c.value}</div>
+                  <div style="
+                    font-size: 11px;
+                    color: var(--text-muted);
+                  ">Total registered</div>
+                </div>
+              `).join('')}
+            </div>`;
+        } catch (e) {
+          orgStatsContainer.innerHTML = `<p class="text-muted" style="font-size:13px;">Could not load organization stats.</p>`;
+        }
+      } else {
+        orgStatsContainer.style.display = 'none';
+      }
+    }
+
   } catch (e) { console.error('loadOverview:', e); }
 }
 
@@ -7365,183 +7498,190 @@ function showFullChangelog(current, history, updateDownloaded = false, updateAva
   const container = g('settings-version-content');
   const latest = history[0] || {};
   const older = history.slice(1);
-  const latestClean = updateAvailableVersion 
-    ? updateAvailableVersion 
+  const latestClean = updateAvailableVersion
+    ? updateAvailableVersion
     : (latest.version || '').replace('v', '');
   const isOutdated = latestClean && current !== latestClean;
 
   container.innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:20px;">
+    <div style="display:flex;flex-direction:column;gap:24px;">
 
       <!-- Back button -->
       <div>
-        <button id="btn-back-settings" class="back-btn">
-          ← Back to Settings
-        </button>
+        <button id="btn-back-settings" class="back-btn">← Back to Settings</button>
       </div>
 
-      <!-- Latest Version Card -->
-      <div style="
-        background: linear-gradient(135deg, rgba(108,99,255,.15), rgba(108,99,255,.05));
-        border: 2px solid var(--accent);
-        border-radius: var(--radius-lg);
-        padding: 28px 32px;
-        position: relative;
-        overflow: hidden;
-        box-shadow: 0 0 0 4px rgba(108,99,255,.08), 0 8px 32px rgba(108,99,255,.2);
-      ">
+      <!-- ── SECTION 1: Latest Version (only if update available) ── -->
+      ${isOutdated ? `
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--warning);margin-bottom:12px;display:flex;align-items:center;gap:8px;">
+          <span>🆕</span> Latest Version
+        </div>
         <div style="
-          position:absolute;top:-60px;right:-60px;width:220px;height:220px;border-radius:50%;
-          background:radial-gradient(circle, rgba(108,99,255,.25) 0%, transparent 65%);
-          pointer-events:none;animation:pulse 3s ease-in-out infinite;
-        "></div>
-        <div style="
-          position:absolute;bottom:-40px;left:-40px;width:160px;height:160px;border-radius:50%;
-          background:radial-gradient(circle, rgba(108,99,255,.12) 0%, transparent 70%);
-          pointer-events:none;
-        "></div>
-
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
-          <div>
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
-              <span style="font-size:22px;">🚀</span>
-              <span style="
-                font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;
-                color:var(--accent);background:var(--accent-dim);border:1px solid var(--accent);
-                padding:3px 10px;border-radius:999px;
-              ">Latest</span>
-              ${isOutdated ? `<span style="
-                font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;
-                color:var(--warning);background:rgba(245,158,11,.15);border:1px solid var(--warning);
-                padding:3px 10px;border-radius:999px;
-              ">⚠ Update Available</span>` : ''}
-            </div>
-            <div style="font-size:32px;font-weight:800;color:var(--text-primary);font-family:var(--font-mono);">
-              v${esc(latestClean || current)}
-            </div>
-            ${latest.date ? `
-            <div style="font-size:13px;color:var(--text-secondary);margin-top:6px;">
-              📅 Released: <strong style="color:var(--text-primary);">${fmtSettingsDate(latest.date)}</strong>
-            </div>` : ''}
-            ${isOutdated ? `
-            <div style="font-size:12px;color:var(--warning);margin-top:4px;">
-              You are currently on <strong>v${esc(current)}</strong>
-            </div>` : ''}
-          </div>
-          <div style="
-            ${isOutdated
-      ? 'background:rgba(245,158,11,.15);border:1px solid var(--warning);'
-      : 'background:var(--success-dim);border:1px solid var(--success);'}
-            border-radius:var(--radius);padding:10px 18px;
-            display:flex;align-items:center;gap:8px;
-          ">
-          <span style="font-size:18px;">${isOutdated ? '⚠️' : '✅'}</span>
+          background: rgba(245,158,11,.08);
+          border: 1px solid rgba(245,158,11,.4);
+          border-left: 4px solid var(--warning);
+          border-radius: var(--radius);
+          padding: 20px 24px;
+        ">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
             <div>
-              <div style="font-size:11px;color:${isOutdated ? 'var(--warning)' : 'var(--success)'};font-weight:600;text-transform:uppercase;letter-spacing:.06em;">Status</div>
-              <div style="font-size:13px;font-weight:700;color:var(--text-primary);">${isOutdated ? 'Update Available' : 'Up to date'}</div>
-              ${isOutdated ? `
-              <div style="margin-top:10px;">
-                ${updateDownloaded
-        ? `<button id="btn-install-now" class="btn btn-success btn-sm">⚡ Install & Restart</button>`
-        : `<button id="btn-download-update" class="btn btn-primary btn-sm">⬇ Download Update</button>`
-      }
+              <div style="font-size:28px;font-weight:800;font-family:var(--font-mono);color:var(--warning);">
+                v${esc(latestClean)}
+              </div>
+              ${latest.date ? `
+              <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">
+                📅 Released: <strong style="color:var(--text-primary);">${fmtSettingsDate(latest.date)}</strong>
+              </div>` : ''}
+              ${latest.changes && latest.changes.length ? `
+              <div style="margin-top:14px;">
+                <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:8px;">What's New</div>
+                <div style="display:flex;flex-direction:column;gap:6px;">
+                  ${latest.changes.map(c => `
+                    <div style="display:flex;align-items:flex-start;gap:8px;">
+                      <span style="color:var(--warning);font-size:12px;margin-top:2px;">◆</span>
+                      <span style="font-size:13px;color:var(--text-primary);">${esc(c)}</span>
+                    </div>
+                  `).join('')}
+                </div>
               </div>` : ''}
             </div>
+            <div style="display:flex;flex-direction:column;gap:10px;align-items:flex-end;">
+              <div style="
+                background:rgba(245,158,11,.15);
+                border:1px solid var(--warning);
+                border-radius:var(--radius-sm);
+                padding:6px 12px;
+                font-size:11px;font-weight:700;
+                color:var(--warning);
+                text-transform:uppercase;letter-spacing:.06em;
+              ">⚠ Update Available</div>
+              ${updateDownloaded
+        ? `<button id="btn-install-now" class="btn btn-success">⚡ Install & Restart</button>`
+        : `<button id="btn-download-update" class="btn btn-primary">⬇ Download Update</button>`}
+            </div>
           </div>
         </div>
+      </div>` : ''}
 
-        ${latest.changes && latest.changes.length ? `
-        <div style="margin-top:22px;">
-          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:12px;">
-            What's New
+      <!-- ── SECTION 2: Current Version ── -->
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text-muted);margin-bottom:12px;display:flex;align-items:center;gap:8px;">
+          <span>💻</span> Current Version
+        </div>
+        <div style="
+          background: var(--bg-surface);
+          border: 1px solid var(--border);
+          border-left: 4px solid ${isOutdated ? 'var(--text-muted)' : 'var(--success)'};
+          border-radius: var(--radius);
+          padding: 20px 24px;
+          display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
+        ">
+          <div>
+            <div style="font-size:28px;font-weight:800;font-family:var(--font-mono);color:var(--text-primary);">
+              v${esc(current)}
+            </div>
+            ${isOutdated
+      ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">A newer version is available above</div>`
+      : `<div style="font-size:12px;color:var(--success);margin-top:4px;">✅ You are on the latest version</div>`}
           </div>
-          <div style="display:flex;flex-direction:column;gap:8px;">
-            ${latest.changes.map(c => `
-              <div style="display:flex;align-items:flex-start;gap:10px;">
-                <span style="color:var(--accent);margin-top:1px;font-size:14px;">◆</span>
-                <span style="font-size:13px;color:var(--text-primary);">${esc(c)}</span>
-              </div>
-            `).join('')}
+          <div style="
+            background: ${isOutdated ? 'rgba(255,255,255,.05)' : 'var(--success-dim)'};
+            border: 1px solid ${isOutdated ? 'var(--border)' : 'var(--success)'};
+            border-radius: var(--radius-sm);
+            padding: 6px 14px;
+            font-size: 12px;
+            font-weight: 700;
+            color: ${isOutdated ? 'var(--text-muted)' : 'var(--success)'};
+          ">
+            ${isOutdated ? 'Outdated' : '✅ Up to date'}
           </div>
-        </div>` : ''}
+        </div>
       </div>
 
-      <!-- Older Versions -->
-      ${older.length ? `
+      <!-- ── SECTION 3: Version History ── -->
+      ${history.length ? `
       <div>
-        <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:14px;display:flex;align-items:center;gap:8px;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text-muted);margin-bottom:12px;display:flex;align-items:center;gap:8px;">
           <span>📦</span> Version History
         </div>
-        <div style="display:flex;flex-direction:column;gap:12px;">
-          ${older.map(v => `
-          <div class="history-card">
-
-              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:${v.changes && v.changes.length ? '14px' : '0'};">
-                <div style="display:flex;align-items:center;gap:12px;">
-                  <div style="font-size:18px;font-weight:700;font-family:var(--font-mono);color:var(--text-secondary);">
-                    v${esc(v.version.replace('v', ''))}
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          ${history.map(v => {
+        const vClean = v.version.replace('v', '');
+        const isCurrent = vClean === current;
+        return `
+            <div style="
+              background: var(--bg-surface);
+              border: 1px solid ${isCurrent ? 'var(--accent)' : 'var(--border)'};
+              border-left: 3px solid ${isCurrent ? 'var(--accent)' : 'var(--border-light)'};
+              border-radius: var(--radius);
+              padding: 16px 20px;
+              transition: border-color .15s;
+            ">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:${v.changes && v.changes.length ? '12px' : '0'};">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <div style="font-size:16px;font-weight:700;font-family:var(--font-mono);color:${isCurrent ? 'var(--accent)' : 'var(--text-primary)'};">
+                    v${esc(vClean)}
                   </div>
-                  <span style="
+                  ${isCurrent ? `<span style="
+                    font-size:10px;font-weight:600;
+                    background:var(--accent-dim);border:1px solid var(--accent);
+                    color:var(--accent);padding:2px 8px;border-radius:999px;
+                  ">Current</span>` : `<span style="
                     font-size:10px;font-weight:600;
                     background:var(--bg-raised);border:1px solid var(--border-light);
                     color:var(--text-muted);padding:2px 8px;border-radius:999px;
-                  ">Previous</span>
+                  ">Previous</span>`}
                 </div>
                 <div style="font-size:12px;color:var(--text-muted);">
                   📅 ${v.date ? fmtSettingsDate(v.date) : '—'}
                 </div>
               </div>
               ${v.changes && v.changes.length ? `
-              <div style="display:flex;flex-direction:column;gap:6px;">
+              <div style="display:flex;flex-direction:column;gap:5px;">
                 ${v.changes.map(c => `
                   <div style="display:flex;align-items:flex-start;gap:8px;">
-                    <span style="color:var(--text-muted);font-size:12px;margin-top:1px;">▸</span>
+                    <span style="color:var(--text-muted);font-size:12px;margin-top:2px;">▸</span>
                     <span style="font-size:12px;color:var(--text-secondary);">${esc(c)}</span>
                   </div>
                 `).join('')}
               </div>` : ''}
-            </div>
-          `).join('')}
+            </div>`;
+      }).join('')}
         </div>
       </div>` : ''}
 
       <!-- Footer -->
       <div style="
         background:var(--bg-surface);border:1px solid var(--border);
-        border-radius:var(--radius);padding:16px 20px;
-        display:flex;gap:24px;flex-wrap:wrap;
+        border-radius:var(--radius);padding:14px 20px;
+        display:flex;gap:24px;flex-wrap:wrap;align-items:center;
       ">
         <div>
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">Product</div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:2px;">Product</div>
           <div style="font-size:13px;font-weight:600;color:var(--text-primary);">AV DEVS Collab</div>
         </div>
         <div>
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">Installed</div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:2px;">Installed</div>
           <div style="font-size:13px;font-weight:600;font-family:var(--font-mono);color:var(--text-primary);">v${esc(current)}</div>
         </div>
         <div>
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">Latest</div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:2px;">Latest</div>
           <div style="font-size:13px;font-weight:600;font-family:var(--font-mono);color:${isOutdated ? 'var(--warning)' : 'var(--success)'};">v${esc(latestClean || current)}</div>
         </div>
         <div>
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">Developer</div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:2px;">Developer</div>
           <div style="font-size:13px;font-weight:600;color:var(--text-primary);">AvDevs</div>
-        </div>
-        <div>
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">License</div>
-          <div style="font-size:13px;font-weight:600;color:var(--text-primary);">MIT</div>
         </div>
       </div>
 
     </div>`;
 
-  // Back button
   g('btn-back-settings').addEventListener('click', () => loadSettings());
-  // Wire download button
+
   const dlBtn = g('btn-download-update');
   if (dlBtn) dlBtn.addEventListener('click', () => handleDownloadUpdate(dlBtn));
 
-  // Wire install button
   const installBtn = g('btn-install-now');
   if (installBtn) installBtn.addEventListener('click', () => api.installUpdate());
 }
@@ -8449,12 +8589,12 @@ async function openKeystrokesPage(sessionId, pageId, backDetailSubId) {
 // ══════════════════════════════════════════════════════════
 async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
   const nsSubId =
-    pageId === 'my-sessions'   ? 'my-session-netspeed'
-    : pageId === 'super-admins' ? 'super-admin-session-netspeed'
-    : pageId === 'hrs'          ? 'hr-session-netspeed'
-    : pageId === 'managers'     ? 'manager-session-netspeed'
-    : pageId === 'my-employees' ? 'my-emp-session-netspeed'
-    : 'emp-session-netspeed';
+    pageId === 'my-sessions' ? 'my-session-netspeed'
+      : pageId === 'super-admins' ? 'super-admin-session-netspeed'
+        : pageId === 'hrs' ? 'hr-session-netspeed'
+          : pageId === 'managers' ? 'manager-session-netspeed'
+            : pageId === 'my-employees' ? 'my-emp-session-netspeed'
+              : 'emp-session-netspeed';
 
   const container = g(nsSubId);
   if (!container) return;
@@ -8471,21 +8611,21 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
     const smRows = (smR && smR.ok && Array.isArray(smR.data)) ? smR.data : [];
 
     // Since both are saved at same timestamp, zip by index safely
-    const len  = Math.max(nsRows.length, smRows.length);
+    const len = Math.max(nsRows.length, smRows.length);
     const rows = Array.from({ length: len }, (_, i) => ({
       ns: nsRows[i] || null,
       sm: smRows[i] || null,
     }));
 
-    // Averages
-    const validNs = nsRows.filter(r => r.download_speed != null);
+    const validNs = nsRows.filter(r => r.download_speed != null && r.download_speed !== -1);
+    const offlineCount = nsRows.filter(r => r.download_speed === -1).length;
     const avgDown = validNs.length ? (validNs.reduce((a, r) => a + (r.download_speed || 0), 0) / validNs.length).toFixed(1) : '—';
-    const avgUp   = validNs.length ? (validNs.reduce((a, r) => a + (r.upload_speed   || 0), 0) / validNs.length).toFixed(1) : '—';
+    const avgUp = validNs.length ? (validNs.reduce((a, r) => a + (r.upload_speed || 0), 0) / validNs.length).toFixed(1) : '—';
     const avgPing = validNs.length ? Math.round(validNs.reduce((a, r) => a + (r.ping || 0), 0) / validNs.length) : '—';
 
     const validSm = smRows.filter(r => r.cpu_usage != null);
-    const avgCpu  = validSm.length ? (validSm.reduce((a, r) => a + (r.cpu_usage    || 0), 0) / validSm.length).toFixed(1) : '—';
-    const avgMem  = validSm.length ? (validSm.reduce((a, r) => a + (r.memory_usage || 0), 0) / validSm.length).toFixed(1) : '—';
+    const avgCpu = validSm.length ? (validSm.reduce((a, r) => a + (r.cpu_usage || 0), 0) / validSm.length).toFixed(1) : '—';
+    const avgMem = validSm.length ? (validSm.reduce((a, r) => a + (r.memory_usage || 0), 0) / validSm.length).toFixed(1) : '—';
 
     container.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:20px;">
@@ -8528,11 +8668,19 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
             <div class="stat-value" style="font-size:20px;">${avgCpu}</div>
             <div class="stat-sub">%</div>
           </div>
-          <div class="stat-card danger">
-            <div class="stat-label">Avg Memory</div>
-            <div class="stat-value" style="font-size:20px;">${avgMem}</div>
-            <div class="stat-sub">%</div>
-          </div>
+ </div> of stats grid with:
+      <div class="stat-card danger">
+        <div class="stat-label">Avg Memory</div>
+        <div class="stat-value" style="font-size:20px;">${avgMem}</div>
+        <div class="stat-sub">%</div>
+      </div>
+      ${offlineCount > 0 ? `
+      <div class="stat-card danger">
+        <div class="stat-label">Offline Periods</div>
+        <div class="stat-value" style="font-size:20px;">${offlineCount}</div>
+        <div class="stat-sub">Network unavailable</div>
+      </div>` : ''}
+    </div>
         </div>
 
         <!-- Combined Table -->
@@ -8551,32 +8699,38 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
             </thead>
             <tbody>
               ${rows.length
-                ? rows.map((row, i) => {
-                    const ns     = row.ns;
-                    const sm     = row.sm;
-                    const cpuPct = sm?.cpu_usage    != null ? Math.min(sm.cpu_usage,    100) : 0;
-                    const memPct = sm?.memory_usage != null ? Math.min(sm.memory_usage, 100) : 0;
-                    return `
+        ? rows.map((row, i) => {
+          const ns = row.ns;
+          const sm = row.sm;
+          const cpuPct = sm?.cpu_usage != null ? Math.min(sm.cpu_usage, 100) : 0;
+          const memPct = sm?.memory_usage != null ? Math.min(sm.memory_usage, 100) : 0;
+          return `
                       <tr>
                         <td class="td-muted">${i + 1}</td>
                         <td>
-                          ${ns?.download_speed != null
-                            ? `<span class="text-success">↓ ${ns.download_speed} Mbps</span>`
-                            : '<span class="td-muted">—</span>'}
+                        ${ns?.download_speed != null
+              ? ns.download_speed === -1
+                ? `<span class="text-danger">🔴 Offline</span>`
+                : `<span class="text-success">↓ ${ns.download_speed} Mbps</span>`
+              : '<span class="td-muted">—</span>'}
                         </td>
                         <td>
-                          ${ns?.upload_speed != null
-                            ? `<span class="text-accent">↑ ${ns.upload_speed} Mbps</span>`
-                            : '<span class="td-muted">—</span>'}
+                        ${ns?.upload_speed != null
+              ? ns.upload_speed === -1
+                ? `<span class="text-danger">🔴 Offline</span>`
+                : `<span class="text-accent">↑ ${ns.upload_speed} Mbps</span>`
+              : '<span class="td-muted">—</span>'}
                         </td>
                         <td>
-                          ${ns?.ping != null
-                            ? `<span class="${ns.ping < 50 ? 'text-success' : ns.ping < 100 ? 'text-warning' : 'text-danger'}">${ns.ping}ms</span>`
-                            : '<span class="td-muted">—</span>'}
+                      ${ns?.ping != null
+              ? ns.ping === -1
+                ? `<span class="text-danger">🔴 No Connection</span>`
+                : `<span class="${ns.ping < 50 ? 'text-success' : ns.ping < 100 ? 'text-warning' : 'text-danger'}">${ns.ping}ms</span>`
+              : '<span class="td-muted">—</span>'}
                         </td>
                         <td>
                           ${sm?.cpu_usage != null
-                            ? `<div style="display:flex;align-items:center;gap:6px;">
+              ? `<div style="display:flex;align-items:center;gap:6px;">
                                  <span class="${cpuCls(sm.cpu_usage) === 'danger' ? 'text-danger' : cpuCls(sm.cpu_usage) === 'warning' ? 'text-warning' : 'text-success'}" style="min-width:42px;">
                                    ${sm.cpu_usage.toFixed(1)}%
                                  </span>
@@ -8584,11 +8738,11 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
                                    <div class="progress-fill ${cpuCls(sm.cpu_usage)}" style="width:${cpuPct}%;"></div>
                                  </div>
                                </div>`
-                            : '<span class="td-muted">—</span>'}
+              : '<span class="td-muted">—</span>'}
                         </td>
                         <td>
                           ${sm?.memory_usage != null
-                            ? `<div style="display:flex;align-items:center;gap:6px;">
+              ? `<div style="display:flex;align-items:center;gap:6px;">
                                  <span class="${cpuCls(sm.memory_usage) === 'danger' ? 'text-danger' : cpuCls(sm.memory_usage) === 'warning' ? 'text-warning' : 'text-success'}" style="min-width:42px;">
                                    ${sm.memory_usage.toFixed(1)}%
                                  </span>
@@ -8596,14 +8750,14 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
                                    <div class="progress-fill ${cpuCls(sm.memory_usage)}" style="width:${memPct}%;"></div>
                                  </div>
                                </div>`
-                            : '<span class="td-muted">—</span>'}
+              : '<span class="td-muted">—</span>'}
                         </td>
                         <td class="td-mono td-muted">
                           ${fmtDateTime((ns || sm)?.timestamp)}
                         </td>
                       </tr>`;
-                  }).join('')
-                : emptyRow(7, 'No snapshots for this session')}
+        }).join('')
+        : emptyRow(7, 'No snapshots for this session')}
             </tbody>
           </table>
         </div>
@@ -8752,20 +8906,108 @@ async function openUserSessions(empId, empName, pageId) {
         console.log(`[openUserSessions] after client-side filter: ${sessions.length} sessions`);
         if (sessions.length === 0) {
           container.innerHTML = `
-            <div style="padding:20px;">
-              <button class="back-btn"
-                      data-action="back-to-sub"
-                      data-target-page="${pageId}"
-                      data-target-sub="${listSubId}">
-                ← Back
-              </button>
-              <div class="empty-state" style="margin-top:24px;">
-                <span class="empty-icon">📭</span>
-                <span class="empty-title">No sessions found for ${esc(empName)}</span>
-                <span class="empty-sub">This employee has not clocked in yet</span>
+    <div style="display:flex;flex-direction:column;gap:20px;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button class="back-btn"
+                data-action="back-to-sub"
+                data-target-page="${pageId}"
+                data-target-sub="${listSubId}">
+          ← Back
+        </button>
+        <div>
+          <div class="page-title">${esc(empName)}</div>
+          <div class="page-subtitle">No sessions yet</div>
+        </div>
+      </div>
+
+      <!-- Team Members still loads even with no sessions -->
+      <div id="usr-team-members"></div>
+
+      <div class="empty-state" style="margin-top:8px;">
+        <span class="empty-icon">📭</span>
+        <span class="empty-title">No sessions found for ${esc(empName)}</span>
+        <span class="empty-sub">This employee has not clocked in yet</span>
+      </div>
+    </div>`;
+
+          // Still load team members even if no sessions
+          setTimeout(async () => {
+            const teamContainer = document.getElementById('usr-team-members');
+            if (!teamContainer) return;
+            try {
+              const [empRes, mgrRes, hrRes, saRes] = await Promise.all([
+                api.listEmployees({ role: 'employee', active_only: 'false' }),
+                api.listEmployees({ role: 'manager', active_only: 'false' }),
+                api.listEmployees({ role: 'hr', active_only: 'false' }),
+                api.listEmployees({ role: 'super_admin', active_only: 'false' }),
+              ]);
+              const allEmps = [
+                ...((empRes?.ok && Array.isArray(empRes.data)) ? empRes.data : []),
+                ...((mgrRes?.ok && Array.isArray(mgrRes.data)) ? mgrRes.data : []),
+                ...((hrRes?.ok && Array.isArray(hrRes.data)) ? hrRes.data : []),
+                ...((saRes?.ok && Array.isArray(saRes.data)) ? saRes.data : []),
+              ];
+              const targetEmp = allEmps.find(e => String(e.employee_id) === String(empId));
+              if (!targetEmp || !['manager', 'hr'].includes(targetEmp.role)) {
+                teamContainer.innerHTML = ''; return;
+              }
+              const teamMembers = allEmps.filter(e =>
+                e.role === 'employee' && String(e.manager_id) === String(empId)
+              );
+              if (!teamMembers.length) {
+                teamContainer.innerHTML = `
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">👥 Team Members</div>
+              <div class="card-subtitle">No employees assigned to this ${targetEmp.role}</div>
+            </div>
+          </div>`;
+                return;
+              }
+              teamContainer.innerHTML = `
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">👥 Team Members</div>
+              <div class="card-subtitle">${teamMembers.length} employee${teamMembers.length !== 1 ? 's' : ''} under ${esc(empName)}</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;">
+            ${teamMembers.map(m => `
+              <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;transition:border-color .15s;"
+                   onmouseenter="this.style.borderColor='var(--accent)'"
+                   onmouseleave="this.style.borderColor='var(--border)'">
+                <div style="display:flex;align-items:center;gap:10px;overflow:hidden;">
+                  <div class="avatar" style="width:34px;height:34px;font-size:13px;flex-shrink:0;">
+                    ${m.employee_name.charAt(0).toUpperCase()}
+                  </div>
+                  <div style="overflow:hidden;">
+                    <div style="font-size:13px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                      ${esc(m.employee_name)}
+                    </div>
+                    <div style="font-size:11px;color:var(--text-muted);">${esc(m.email)}</div>
+                    <div style="margin-top:3px;">
+                      ${m.status
+                  ? '<span class="badge badge-success" style="font-size:10px;padding:2px 7px;">Active</span>'
+                  : '<span class="badge badge-danger" style="font-size:10px;padding:2px 7px;">Inactive</span>'}
+                    </div>
+                  </div>
+                </div>
+                <button class="btn btn-ghost btn-sm" style="flex-shrink:0;"
+                        data-action="view-user"
+                        data-emp-id="${esc(String(m.employee_id))}"
+                        data-emp-name="${esc(m.employee_name)}"
+                        data-page="${pageId}">
+                  View →
+                </button>
               </div>
-            </div>`;
-          return;
+            `).join('')}
+          </div>
+        </div>`;
+            } catch (err) { console.error('Team members load error:', err); }
+          }, 100);
+
+          return; // ← now returns AFTER setting up team members
         }
       }
     }
@@ -8827,8 +9069,10 @@ async function openUserSessions(empId, empName, pageId) {
         </div>
 
 
-        <!-- Table -->
-<!-- Date Cards Grid -->
+<!-- Team Members (only for manager/hr) -->
+        <div id="usr-team-members"></div>
+
+        <!-- Date Cards Grid -->
         <div id="usr-sessions-tbody" style="display:flex;flex-direction:column;gap:12px;">
           <div style="padding:40px;text-align:center;"><span class="spinner"></span></div>
         </div>
@@ -8922,7 +9166,7 @@ async function openUserSessions(empId, empName, pageId) {
         const hasActive = daySessions.some(s => s.session_status === 'active');
         const cardId = `day-sessions-${dateKey.replace(/-/g, '')}`;
 
-return `
+        return `
   <div class="hover-border" style="
     background:var(--bg-surface);
     border:1px solid var(--border);
@@ -9106,6 +9350,111 @@ return `
       applyFilter();
     }, 50);
 
+    // ── Load Team Members for HR/Manager ──────────────────
+    setTimeout(async () => {
+      const teamContainer = document.getElementById('usr-team-members');
+      if (!teamContainer) return;
+
+      // Fetch the target employee's role to decide if we show team
+      try {
+        // Fetch all roles separately to ensure we get everyone
+        const [empRes, mgrRes, hrRes, saRes] = await Promise.all([
+          api.listEmployees({ role: 'employee', active_only: 'false' }),
+          api.listEmployees({ role: 'manager', active_only: 'false' }),
+          api.listEmployees({ role: 'hr', active_only: 'false' }),
+          api.listEmployees({ role: 'super_admin', active_only: 'false' }),
+        ]);
+
+        const allEmps = [
+          ...((empRes?.ok && Array.isArray(empRes.data)) ? empRes.data : []),
+          ...((mgrRes?.ok && Array.isArray(mgrRes.data)) ? mgrRes.data : []),
+          ...((hrRes?.ok && Array.isArray(hrRes.data)) ? hrRes.data : []),
+          ...((saRes?.ok && Array.isArray(saRes.data)) ? saRes.data : []),
+        ];
+
+        const targetEmp = allEmps.find(e => String(e.employee_id) === String(empId));
+
+        if (!targetEmp || !['manager', 'hr'].includes(targetEmp.role)) {
+          teamContainer.innerHTML = '';
+          return;
+        }
+
+        // Filter client-side instead of relying on backend manager_id param
+        const teamMembers = allEmps.filter(e =>
+          e.role === 'employee' &&
+          String(e.manager_id) === String(empId)
+        );
+
+        if (!teamMembers.length) {
+          teamContainer.innerHTML = `
+            <div class="card" style="margin-bottom:4px;">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">👥 Team Members</div>
+                  <div class="card-subtitle">No employees assigned to this ${targetEmp.role}</div>
+                </div>
+              </div>
+            </div>`;
+          return;
+        }
+
+        teamContainer.innerHTML = `
+          <div class="card" style="margin-bottom:4px;">
+            <div class="card-header">
+              <div>
+                <div class="card-title">👥 Team Members</div>
+                <div class="card-subtitle">${teamMembers.length} employee${teamMembers.length !== 1 ? 's' : ''} under ${esc(empName)}</div>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;">
+              ${teamMembers.map(m => `
+                <div style="
+                  background: var(--bg-raised);
+                  border: 1px solid var(--border);
+                  border-radius: var(--radius);
+                  padding: 14px 16px;
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  gap: 12px;
+                  transition: border-color .15s;
+                " onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='var(--border)'">
+                  <div style="display:flex;align-items:center;gap:10px;overflow:hidden;">
+                    <div class="avatar" style="width:34px;height:34px;font-size:13px;flex-shrink:0;">
+                      ${m.employee_name.charAt(0).toUpperCase()}
+                    </div>
+                    <div style="overflow:hidden;">
+                      <div style="font-size:13px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                        ${esc(m.employee_name)}
+                      </div>
+                      <div style="font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                        ${esc(m.email)}
+                      </div>
+                      <div style="margin-top:3px;">
+                        ${m.status
+            ? '<span class="badge badge-success" style="font-size:10px;padding:2px 7px;">Active</span>'
+            : '<span class="badge badge-danger"  style="font-size:10px;padding:2px 7px;">Inactive</span>'}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    class="btn btn-ghost btn-sm"
+                    style="flex-shrink:0;"
+                    data-action="view-user"
+                    data-emp-id="${esc(String(m.employee_id))}"
+                    data-emp-name="${esc(m.employee_name)}"
+                    data-page="${pageId}">
+                    View →
+                  </button>
+                </div>
+              `).join('')}
+            </div>
+          </div>`;
+      } catch (e) {
+        console.error('Team members load error:', e);
+      }
+    }, 100);
+
   } catch (e) {
     console.error('openUserSessions error:', e);
     container.innerHTML = `
@@ -9251,14 +9600,41 @@ async function populateManagerDropdown() {
   if (!sel) return;
   sel.innerHTML = '<option value="">— No Manager —</option>';
   try {
-    const r = await api.listEmployees({ role: 'manager', active_only: 'true' });
-    const list = (r && r.ok && Array.isArray(r.data)) ? r.data : [];
-    list.forEach(m => {
-      const opt = document.createElement('option');
-      opt.value = m.employee_id;
-      opt.textContent = `${esc(m.employee_name)} (${esc(m.department || '—')})`;
-      sel.appendChild(opt);
-    });
+    // Fetch managers and HRs in parallel
+    const [managerRes, hrRes] = await Promise.all([
+      api.listEmployees({ role: 'manager', active_only: 'true' }),
+      api.listEmployees({ role: 'hr', active_only: 'true' }),
+    ]);
+
+    const managers = (managerRes && managerRes.ok && Array.isArray(managerRes.data)) ? managerRes.data : [];
+    const hrs = (hrRes && hrRes.ok && Array.isArray(hrRes.data)) ? hrRes.data : [];
+
+    // Add managers first
+    if (managers.length) {
+      const managerGroup = document.createElement('optgroup');
+      managerGroup.label = '── Managers ──';
+      managers.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.employee_id;
+        opt.textContent = `${m.employee_name}${m.department ? ' (' + m.department + ')' : ''}`;
+        managerGroup.appendChild(opt);
+      });
+      sel.appendChild(managerGroup);
+    }
+
+    // Add HRs second with (HR) label
+    if (hrs.length) {
+      const hrGroup = document.createElement('optgroup');
+      hrGroup.label = '── HRs ──';
+      hrs.forEach(h => {
+        const opt = document.createElement('option');
+        opt.value = h.employee_id;
+        opt.textContent = `${h.employee_name} (HR)`;
+        hrGroup.appendChild(opt);
+      });
+      sel.appendChild(hrGroup);
+    }
+
     // If current user is manager, pre-select and lock
     if (currentEmployee?.role === 'manager') {
       sel.value = currentEmployee.employee_id;
@@ -9932,10 +10308,38 @@ async function handleExit(code: number = 0): Promise<void> {
 }
 
 // ── App lifecycle ─────────────────────────────────────────
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   registerIpcHandlers();
-  const win = createLoginWindow();
-  setMainWindow(win);
+
+  // ── Check for saved session ───────────────────────────
+  const savedEmployee = authService.getEmployee();
+  const savedToken    = authService.getToken();
+
+  if (savedEmployee && savedToken) {
+    // Validate token with backend before skipping login
+    try {
+      const verified = await authService.getProfile();
+      if (verified) {
+        // Token still valid — go straight to dashboard
+        console.log('[App] Restored session for:', verified.email);
+        const win = createDashboardWindow();
+        setMainWindow(win);
+      } else {
+        // Token expired — show login
+        const win = createLoginWindow();
+        setMainWindow(win);
+      }
+    } catch {
+      // Network error — still restore session (offline support)
+      console.log('[App] Network unavailable — restoring session from cache');
+      const win = createDashboardWindow();
+      setMainWindow(win);
+    }
+  } else {
+    // No saved session — show login
+    const win = createLoginWindow();
+    setMainWindow(win);
+  }
 
   // Start auto updater (only in production builds)
   if (app.isPackaged) {
@@ -10919,9 +11323,17 @@ export function registerIpcHandlers(): void {
       { ok: false, status: 0, data: { detail: 'Request failed' } }
     );
   });
-  ipcMain.handle('auth:getEmployee', () => {
-    return authService.getEmployee();
-  });
+ipcMain.handle('auth:getEmployee', async () => {
+  const employee = authService.getEmployee();
+  if (!employee) return null;
+  // Validate token is still good with backend
+  try {
+    const verified = await authService.getProfile();
+    return verified || null;
+  } catch {
+    return employee; // Return cached if network unavailable (offline support)
+  }
+});
 
   // ── Window navigation ─────────────────────────────────
   ipcMain.handle('nav:showDashboard', (event) => {
@@ -11056,7 +11468,6 @@ if (netSpeed.download !== undefined) {
     return sessionService.clockOut(totals.active, totals.idle);
   });
 
-  // REPLACE the session:getActive handler entirely:
   ipcMain.handle('session:getActive', async () => {
     const session = await sessionService.fetchActiveSession();
 
@@ -11431,7 +11842,7 @@ function loadSession(): { token: string; employee: Employee } | null {
     if (!data.token || !data.employee) return null;
     // Treat saved session as valid for up to 7.5 hours (token expires in 8h)
     const age = Date.now() - (data.savedAt || 0);
-    if (age > 7.5 * 60 * 60 * 1000) { clearSession(); return null; }
+    if (age > 30 * 24 * 60 * 60 * 1000) { clearSession(); return null; } // 30 days
     return { token: data.token, employee: data.employee };
   } catch { return null; }
 }
@@ -11485,13 +11896,18 @@ export const authService = {
     clearSession();
   },
 
-  async getProfile(): Promise<Employee | null> {
-    if (!_token) return null;
-    const res = await apiService.get<Employee>('/auth/me', _token);
-    if (res.ok) { _employee = res.data; return res.data; }
-    if (res.status === 401) this.handleExpiredToken();
-    return null;
-  },
+async getProfile(): Promise<Employee | null> {
+  if (!_token) return null;
+  const res = await apiService.get<Employee>('/auth/me', _token);
+  if (res.ok) {
+    _employee = res.data;
+    // Refresh savedAt so 30-day window resets on active use
+    saveSession(_token, res.data);
+    return res.data;
+  }
+  if (res.status === 401) this.handleExpiredToken();
+  return null;
+},
 };
 
 
@@ -11654,14 +12070,31 @@ interface WebsiteLog {
   session_id: string; url: string; domain: string;
   title?: string; duration: number; timestamp: string;
 }
+interface KeystrokeLog {
+  session_id: string;
+  keys_pressed_count: number;
+  raw_keystrokes: string;
+  timestamp: string;
+}
+interface TotalsLog {
+  session_id: string;
+  total_active_time: number;
+  total_idle_time: number;
+}
 
-let _activityBuffer:    ActivityLog[] = [];
-let _websiteBuffer:     WebsiteLog[]  = [];
+let _activityBuffer:    ActivityLog[]  = [];
+let _websiteBuffer:     WebsiteLog[]   = [];
+let _keystrokeBuffer:   KeystrokeLog[] = [];  // ← persistent retry buffer
+let _pendingTotals:     TotalsLog | null = null; // ← pending totals retry
 let _metricsInterval:   NodeJS.Timeout | null = null;
 let _flushInterval:     NodeJS.Timeout | null = null;
 let _heartbeatInterval: NodeJS.Timeout | null = null;
+let _totalsInterval:    NodeJS.Timeout | null = null;
 let _lastSpeed: { download: number; upload: number; ping: number } | null = null;
-let _started = false; // guard against double-start
+let _started = false;
+let _isOnline = true;           // ← track online/offline state
+let _offlineSince: Date | null = null;  // ← when did we go offline
+let _heartbeatFailCount = 0;    // ← consecutive heartbeat failures
 
 // ── IST timestamp helper ──────────────────────────────────
 function nowIST(): string {
@@ -11673,66 +12106,132 @@ function nowIST(): string {
   }).replace(', ', 'T') + '+05:30';
 }
 
+// ── Online/Offline detection ──────────────────────────────
+function markOffline(): void {
+  if (_isOnline) {
+    _isOnline = false;
+    _offlineSince = new Date();
+    console.warn('[Tracking] 🔴 Network went offline at', _offlineSince.toLocaleTimeString());
+  }
+}
+
+function markOnline(): void {
+  if (!_isOnline) {
+    const downFor = _offlineSince
+      ? Math.round((Date.now() - _offlineSince.getTime()) / 1000 / 60)
+      : 0;
+    console.log(`[Tracking] 🟢 Network restored after ${downFor} minutes — flushing buffers`);
+    _isOnline = true;
+    _offlineSince = null;
+    _heartbeatFailCount = 0;
+    // Flush everything that buffered while offline
+    trackingService.flushBuffers();
+    trackingService.flushKeystrokeBuffer();
+    trackingService.flushPendingTotals();
+  }
+}
+
+function isNetworkError(err: any): boolean {
+  const msg = (err?.message || String(err)).toLowerCase();
+  return msg.includes('econnrefused') ||
+         msg.includes('enotfound') ||
+         msg.includes('etimedout') ||
+         msg.includes('econnreset') ||
+         msg.includes('network') ||
+         msg.includes('timed out') ||
+         msg.includes('fetch');
+}
+
 export const trackingService = {
+
   start(): void {
-    // Clear any stale intervals from previous run before starting
     if (_flushInterval)     { clearInterval(_flushInterval);     _flushInterval     = null; }
     if (_metricsInterval)   { clearInterval(_metricsInterval);   _metricsInterval   = null; }
     if (_heartbeatInterval) { clearInterval(_heartbeatInterval); _heartbeatInterval = null; }
+    if (_totalsInterval)    { clearInterval(_totalsInterval);    _totalsInterval    = null; }
     _started = true;
+    _isOnline = true;
+    _heartbeatFailCount = 0;
 
-    _flushInterval = setInterval(() => this.flushBuffers(), 30_000);
+    // ── Flush buffers every 30s ────────────────────────────
+    _flushInterval = setInterval(() => {
+      this.flushBuffers();
+      this.flushKeystrokeBuffer();
+    }, 30_000);
 
-    // ── Heartbeat every 30s ────────────────────────────────
+    // ── Heartbeat every 30s with offline detection ─────────
     _heartbeatInterval = setInterval(async () => {
       const token   = authService.getToken();
       const session = sessionService.getActiveSession();
       if (!token || !session) return;
       try {
         await apiService.post('/sessions/heartbeat', {}, token);
+        _heartbeatFailCount = 0;
+        markOnline();
         console.log('[Tracking] Heartbeat ✓', new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }));
       } catch (err) {
-        console.error('[Tracking] Heartbeat failed:', err);
+        _heartbeatFailCount++;
+        if (_heartbeatFailCount >= 2) {
+          // 2 consecutive failures = network is down
+          markOffline();
+        }
+        console.warn(`[Tracking] Heartbeat failed (${_heartbeatFailCount}x):`, (err as any)?.message || err);
       }
     }, 30_000);
 
-setInterval(async () => {
-  const token   = authService.getToken();
-  const session = sessionService.getActiveSession();
-  if (!token || !session) return;
-  try {
-    const totals = activityTracker.getTotals();
-    
-    // ADD: include current unflushed window time
-    const now = Date.now();
-    const currentWindowElapsed = activityTracker.getCurrentWindowElapsed(now);
-    
-    await apiService.patch(`/sessions/${session.session_id}/update-totals`, {
-      total_active_time: totals.active + currentWindowElapsed,
-      total_idle_time:   totals.idle,
-    }, token);
-  } catch { /* silent */ }
-}, 60_000);
+    // ── Update totals every 60s with retry buffer ──────────
+    _totalsInterval = setInterval(async () => {
+      const token   = authService.getToken();
+      const session = sessionService.getActiveSession();
+      if (!token || !session) return;
+      try {
+        const totals = activityTracker.getTotals();
+        const now    = Date.now();
+        const currentWindowElapsed = activityTracker.getCurrentWindowElapsed(now);
+        const payload = {
+          total_active_time: totals.active + currentWindowElapsed,
+          total_idle_time:   totals.idle,
+        };
+        await apiService.patch(`/sessions/${session.session_id}/update-totals`, payload, token);
+        // Clear pending totals on success
+        _pendingTotals = null;
+        markOnline();
+      } catch (err) {
+        // Buffer the latest totals for retry when online
+        const totals = activityTracker.getTotals();
+        _pendingTotals = {
+          session_id:        session.session_id,
+          total_active_time: totals.active,
+          total_idle_time:   totals.idle,
+        };
+        if (isNetworkError(err)) markOffline();
+        console.warn('[Tracking] update-totals failed — buffered for retry');
+      }
+    }, 60_000);
 
-    // ── Global keystroke + mouse capture ──────────────────
-globalKeyboard.start(async (count: number, raw?: string) => {
-  if (count > 0) activityTracker.signalActivity();
-  const session = sessionService.getActiveSession();
-  const token   = authService.getToken();
-  if (!session || !token || count === 0) return;
-  try {
-    await apiService.post('/tracking/keystrokes', {
-      session_id:         session.session_id,
-      keys_pressed_count: count,
-      raw_keystrokes:     raw || '',
-      timestamp:          nowIST(),
-    }, token);
-  } catch { /* silent */ }
-});
+    // ── Global keystroke capture with buffered retry ───────
+    globalKeyboard.start(async (count: number, raw?: string) => {
+      if (count > 0) activityTracker.signalActivity();
+      const session = sessionService.getActiveSession();
+      const token   = authService.getToken();
+      if (!session || !token || count === 0) return;
 
-    // ── Metrics 5s after start, then every 5 min ──────────
+      // Always push to buffer first
+      _keystrokeBuffer.push({
+        session_id:         session.session_id,
+        keys_pressed_count: count,
+        raw_keystrokes:     raw || '',
+        timestamp:          nowIST(),
+      });
+
+      // Try to flush immediately if online
+      if (_isOnline) {
+        await this.flushKeystrokeBuffer();
+      }
+    });
+
+    // ── Metrics every 1hr with offline notification ────────
     _metricsInterval = setInterval(() => this.sendSpeedAndMetrics(), 60 * 60_000);
-
 
     console.log('[Tracking] Started.');
   },
@@ -11742,9 +12241,61 @@ globalKeyboard.start(async (count: number, raw?: string) => {
     if (_flushInterval)     { clearInterval(_flushInterval);     _flushInterval     = null; }
     if (_metricsInterval)   { clearInterval(_metricsInterval);   _metricsInterval   = null; }
     if (_heartbeatInterval) { clearInterval(_heartbeatInterval); _heartbeatInterval = null; }
+    if (_totalsInterval)    { clearInterval(_totalsInterval);    _totalsInterval    = null; }
     globalKeyboard.stop();
+    // Final flush attempt on stop
     this.flushBuffers();
+    this.flushKeystrokeBuffer();
+    this.flushPendingTotals();
     console.log('[Tracking] Stopped.');
+  },
+
+  // ── Keystroke buffer flush with retry ─────────────────
+  async flushKeystrokeBuffer(): Promise<void> {
+    if (!_keystrokeBuffer.length) return;
+    const token = authService.getToken();
+    if (!token) return;
+
+    const batch = [..._keystrokeBuffer];
+    _keystrokeBuffer = [];
+
+    const failed: KeystrokeLog[] = [];
+    for (const ks of batch) {
+      try {
+        await apiService.post('/tracking/keystrokes', ks, token);
+        markOnline();
+      } catch (err) {
+        // Re-queue failed ones
+        failed.push(ks);
+        if (isNetworkError(err)) markOffline();
+        console.warn('[Tracking] Keystroke flush failed — re-queued', ks.keys_pressed_count, 'keys');
+      }
+    }
+    // Put failed ones back at front of buffer
+    if (failed.length) {
+      _keystrokeBuffer = [...failed, ..._keystrokeBuffer];
+    }
+  },
+
+  // ── Flush pending totals when back online ─────────────
+  async flushPendingTotals(): Promise<void> {
+    if (!_pendingTotals) return;
+    const token = authService.getToken();
+    if (!token) return;
+
+    const pending = { ..._pendingTotals };
+    try {
+      // Use latest totals from tracker, not stale buffered ones
+      const totals = activityTracker.getTotals();
+      await apiService.patch(`/sessions/${pending.session_id}/update-totals`, {
+        total_active_time: totals.active,
+        total_idle_time:   totals.idle,
+      }, token);
+      _pendingTotals = null;
+      console.log('[Tracking] Pending totals flushed successfully');
+    } catch {
+      console.warn('[Tracking] Pending totals flush failed — will retry');
+    }
   },
 
   pushActivity(log: Omit<ActivityLog, 'session_id'>): void {
@@ -11758,8 +12309,13 @@ globalKeyboard.start(async (count: number, raw?: string) => {
     if (!_activityBuffer.length) return;
     const token = authService.getToken(); if (!token) return;
     const logs = [..._activityBuffer]; _activityBuffer = [];
-    try { await apiService.post('/tracking/activity/batch', { logs }, token); }
-    catch { _activityBuffer = [...logs, ..._activityBuffer]; }
+    try {
+      await apiService.post('/tracking/activity/batch', { logs }, token);
+      markOnline();
+    } catch (err) {
+      _activityBuffer = [...logs, ..._activityBuffer]; // re-queue
+      if (isNetworkError(err)) markOffline();
+    }
   },
 
   pushWebsite(log: Omit<WebsiteLog, 'session_id'>): void {
@@ -11773,8 +12329,17 @@ globalKeyboard.start(async (count: number, raw?: string) => {
     if (!_websiteBuffer.length) return;
     const token = authService.getToken(); if (!token) return;
     const logs = [..._websiteBuffer]; _websiteBuffer = [];
-    try { await apiService.post('/tracking/website/batch', { logs }, token); }
-    catch { _websiteBuffer = [...logs, ..._websiteBuffer]; }
+    try {
+      await apiService.post('/tracking/website/batch', { logs }, token);
+      markOnline();
+    } catch (err) {
+      _websiteBuffer = [...logs, ..._websiteBuffer]; // re-queue
+      if (isNetworkError(err)) markOffline();
+    }
+  },
+
+  async flushBuffers(): Promise<void> {
+    await Promise.allSettled([this.flushActivity(), this.flushWebsite()]);
   },
 
   incrementKeystrokes(count = 1): Promise<void> {
@@ -11782,60 +12347,111 @@ globalKeyboard.start(async (count: number, raw?: string) => {
     return Promise.resolve();
   },
 
-async sendSpeedAndMetrics(): Promise<void> {
-  const session = sessionService.getActiveSession();
-  const token   = authService.getToken();
-  if (!session || !token) return;
+  async sendSpeedAndMetrics(): Promise<void> {
+    const session = sessionService.getActiveSession();
+    const token   = authService.getToken();
+    if (!session || !token) return;
 
+    try {
+      const { getNetworkSpeed } = await import('../system/network');
+      const { getCpuUsage, getMemoryUsage } = await import('../system/metrics');
+
+      const [speed, cpu, mem] = await Promise.all([
+        getNetworkSpeed(),
+        getCpuUsage(),
+        Promise.resolve(getMemoryUsage()),
+      ]);
+
+      _lastSpeed = speed;
+
+      const s2 = sessionService.getActiveSession();
+      const t2 = authService.getToken();
+      if (!s2 || !t2) return;
+
+      const ts = nowIST();
+
+if (!_isOnline) {
+  console.warn('[Tracking] ⚠ Network unavailable — saving offline marker');
+
+  // Still save CPU/Memory (these work without internet)
+  // But save network as -1 to signal "offline" to dashboard
+  const s2 = sessionService.getActiveSession();
+  const t2 = authService.getToken();
+
+  // CPU and memory still work offline — save them separately
   try {
-    // Run speed test and CPU/memory in parallel
-    const { getNetworkSpeed } = await import('../system/network');
     const { getCpuUsage, getMemoryUsage } = await import('../system/metrics');
-
-    const [speed, cpu, mem] = await Promise.all([
-      getNetworkSpeed(),
+    const [cpu, mem] = await Promise.all([
       getCpuUsage(),
       Promise.resolve(getMemoryUsage()),
     ]);
-
-    _lastSpeed = speed;
-
-    // Re-check session still active after speed test (takes ~20s)
-    const s2 = sessionService.getActiveSession();
-    const t2 = authService.getToken();
-    if (!s2 || !t2) return;
-
     const ts = nowIST();
 
-    // Save both in parallel
+    // Try saving — if this succeeds internet is actually back
     await Promise.all([
       apiService.post('/tracking/network-speed', {
-        session_id:     s2.session_id,
-        download_speed: speed.download,
-        upload_speed:   speed.upload,
-        ping:           speed.ping,
+        session_id:     s2!.session_id,
+        download_speed: -1,   // ← -1 = offline marker
+        upload_speed:   -1,
+        ping:           -1,
         timestamp:      ts,
-      }, t2),
+      }, t2!),
       apiService.post('/tracking/system-metrics', {
-        session_id:   s2.session_id,
+        session_id:   s2!.session_id,
         cpu_usage:    cpu,
         memory_usage: mem,
-        timestamp:    ts,  // ← same timestamp, so they align perfectly
-      }, t2),
+        timestamp:    ts,
+      }, t2!),
     ]);
 
-    console.log(`[Tracking] Hourly snapshot saved — ↓${speed.download}Mbps CPU:${cpu}% MEM:${mem}%`);
-  } catch (err) {
-    console.error('[Tracking] sendSpeedAndMetrics error:', err);
+    // If we got here, internet is back!
+    markOnline();
+    console.log(`[Tracking] ✅ Saved offline marker + CPU:${cpu}% MEM:${mem}%`);
+  } catch {
+    console.warn('[Tracking] Still offline — will retry next hour');
   }
-},
-  async flushBuffers(): Promise<void> {
-    await Promise.allSettled([this.flushActivity(), this.flushWebsite()]);
+  return;
+}
+
+      await Promise.all([
+        apiService.post('/tracking/network-speed', {
+          session_id:     s2.session_id,
+          download_speed: speed.download,
+          upload_speed:   speed.upload,
+          ping:           speed.ping,
+          timestamp:      ts,
+        }, t2),
+        apiService.post('/tracking/system-metrics', {
+          session_id:   s2.session_id,
+          cpu_usage:    cpu,
+          memory_usage: mem,
+          timestamp:    ts,
+        }, t2),
+      ]);
+
+      markOnline();
+      console.log(`[Tracking] Hourly snapshot saved — ↓${speed.download}Mbps CPU:${cpu}% MEM:${mem}%`);
+    } catch (err) {
+      if (isNetworkError(err)) {
+        markOffline();
+        console.warn('[Tracking] ⚠ Network unavailable — metrics not saved this hour. Will resume when online.');
+      } else {
+        console.error('[Tracking] sendSpeedAndMetrics error:', err);
+      }
+    }
   },
 
   isStarted(): boolean { return _started; },
+  isOnline(): boolean  { return _isOnline; },
   getKeystrokeCount(): number { return globalKeyboard.getCurrentCount(); },
   getLastSpeed(): { download: number; upload: number; ping: number } | null { return _lastSpeed; },
+  getBufferStats(): { keystrokes: number; activity: number; website: number } {
+    return {
+      keystrokes: _keystrokeBuffer.length,
+      activity:   _activityBuffer.length,
+      website:    _websiteBuffer.length,
+    };
+  },
 };
 
 

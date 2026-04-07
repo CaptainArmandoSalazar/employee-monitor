@@ -91,7 +91,6 @@ export const authService = {
     clearSession();
   },
 
-// REPLACE WITH:
 async getProfile(): Promise<Employee | null> {
   if (!_token) return null;
   const res = await apiService.get<Employee>('/auth/me', _token);
