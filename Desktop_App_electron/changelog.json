@@ -1,6 +1,13 @@
 {
   "history": [
     {
+      "version": "v1.0.40",
+      "date": "2026-04-08",
+      "changes": [
+        "Update Feature Try"
+      ]
+    },
+    {
       "version": "v1.0.39",
       "date": "2026-04-07",
       "changes": [

@@ -8,6 +8,76 @@ import { sessionService } from './services/session.service';
 import { authService } from './services/auth.service';
 import { apiService } from './services/api.service';
 import { autoUpdater } from 'electron-updater';
+import { exec } from 'child_process';
+import * as os from 'os';
+
+
+
+// ── Wayland → X11 auto-fix ────────────────────────────────
+async function ensureX11Session(): Promise<void> {
+  if (process.platform !== 'linux') return;
+
+  const sessionType = process.env.XDG_SESSION_TYPE || '';
+  if (sessionType !== 'wayland') return;
+
+  console.warn('[Setup] Wayland detected — attempting auto-fix...');
+
+  // Run pkexec (shows GUI password prompt to user, no terminal needed)
+  await new Promise<void>((resolve) => {
+    exec(
+      `pkexec bash -c "
+        CONF=/etc/gdm3/custom.conf
+        if grep -q '^#WaylandEnable=false' \\$CONF; then
+          sed -i 's/^#WaylandEnable=false/WaylandEnable=false/' \\$CONF
+        elif grep -q '^WaylandEnable=true' \\$CONF; then
+          sed -i 's/^WaylandEnable=true/WaylandEnable=false/' \\$CONF
+        elif ! grep -q 'WaylandEnable=false' \\$CONF; then
+          sed -i '/^\\[daemon\\]/a WaylandEnable=false' \\$CONF
+        fi
+      "`,
+      (err) => {
+        if (err) {
+          console.error('[Setup] pkexec failed:', err.message);
+        } else {
+          console.log('[Setup] Wayland disabled in gdm3 config.');
+        }
+        resolve();
+      }
+    );
+  });
+
+  // Also add user to input group
+  const username = os.userInfo().username;
+  await new Promise<void>((resolve) => {
+    exec(`pkexec usermod -a -G input ${username}`, (err) => {
+      if (!err) console.log('[Setup] Added user to input group.');
+      resolve();
+    });
+  });
+
+  // Show reboot dialog
+  const { response } = await dialog.showMessageBox({
+    type: 'warning',
+    title: 'One-Time Setup Required',
+    message: 'Employee Monitor needs X11 for activity tracking.',
+    detail: 'Your system is running Wayland which blocks activity tracking. A one-time reboot is required to switch to X11. This will never happen again.',
+    buttons: ['Reboot Now', 'Later (tracking disabled)'],
+    defaultId: 0,
+  });
+
+  if (response === 0) {
+    exec('reboot');
+    app.quit();
+  } else {
+    await dialog.showMessageBox({
+      type: 'info',
+      title: 'Tracking Disabled',
+      message: 'Activity tracking will not work until you reboot.',
+      buttons: ['OK'],
+    });
+  }
+}
+
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) { app.quit(); process.exit(0); }
@@ -208,6 +278,9 @@ async function handleExit(code: number = 0): Promise<void> {
 // ── App lifecycle ─────────────────────────────────────────
 app.whenReady().then(async () => {
   registerIpcHandlers();
+
+  // ── Auto-fix Wayland on Linux ─────────────────────────
+  await ensureX11Session();
 
   // ── Check for saved session ───────────────────────────
   const savedEmployee = authService.getEmployee();

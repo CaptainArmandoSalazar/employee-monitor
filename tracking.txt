@@ -1,0 +1,2415 @@
+====================================
+FILE: ./Desktop_App_electron/src/main/system/activity.ts
+====================================
+import { exec } from 'child_process';
+import { trackingService } from '../services/tracking.service';
+
+export interface ActiveWindow {
+  appName: string;
+  windowTitle: string;
+  url?: string;
+  domain?: string;
+}
+
+// ── Friendly name map ─────────────────────────────────────
+function getFriendlyName(rawApp: string): string {
+  const nameMap: Record<string, string> = {
+    'google chrome':      'Google Chrome',
+    'chromium':           'Chromium',
+    'firefox':            'Firefox',
+    'mozilla firefox':    'Firefox',
+    'microsoft edge':     'Microsoft Edge',
+    'brave':              'Brave',
+    'opera':              'Opera',
+    'vivaldi':            'Vivaldi',
+    'visual studio code': 'VS Code',
+    'code':               'VS Code',
+    'code - oss':         'VS Code',
+    'electron':           'Electron',
+    'slack':              'Slack',
+    'telegram desktop':   'Telegram',
+    'discord':            'Discord',
+    'spotify':            'Spotify',
+    'files':              'Files',
+    'nautilus':           'Files',
+    'gedit':              'Text Editor',
+    'kate':               'Kate',
+    'sublime text':       'Sublime Text',
+    'atom':               'Atom',
+    'terminal':           'Terminal',
+    'gnome terminal':     'Terminal',
+    'konsole':            'Terminal',
+    'alacritty':          'Terminal',
+    'kitty':              'Terminal',
+    'bash':               'Terminal',
+    'zsh':                'Terminal',
+    'gimp':               'GIMP',
+    'inkscape':           'Inkscape',
+    'vlc':                'VLC',
+    'mpv':                'MPV',
+    'thunderbird':        'Thunderbird',
+    'zoom':               'Zoom',
+    'microsoft teams':    'Microsoft Teams',
+    'postman':            'Postman',
+    'dbeaver':            'DBeaver',
+    'libreoffice':        'LibreOffice',
+    'libreoffice writer': 'LibreOffice Writer',
+    'libreoffice calc':   'LibreOffice Calc',
+    'libreoffice impress':'LibreOffice Impress',
+    'evince':             'Document Viewer',
+    'eog':                'Image Viewer',
+    'rhythmbox':          'Rhythmbox',
+    'skype':              'Skype',
+  };
+  return nameMap[rawApp.toLowerCase()] || rawApp || 'Unknown';
+}
+
+// ── Get active window (cross-platform) ───────────────────
+function getActiveWindow(): Promise<ActiveWindow | null> {
+  return new Promise(resolve => {
+
+    if (process.platform === 'win32') {
+      const script = `
+        Add-Type @"
+        using System; using System.Runtime.InteropServices;
+        public class W { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+          [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr h, System.Text.StringBuilder s, int n);
+          [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p); }
+"@
+        $h = [W]::GetForegroundWindow(); $s = New-Object System.Text.StringBuilder 256
+        [W]::GetWindowText($h, $s, 256) | Out-Null; $pid = 0
+        [W]::GetWindowThreadProcessId($h, [ref]$pid) | Out-Null
+        $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+        Write-Output "$($proc.Name)|$($s.ToString())"
+      `;
+      exec(`powershell -Command "${script.replace(/\n/g, ' ')}"`, (err, out) => {
+        if (err || !out) return resolve(null);
+        const [app, ...titleParts] = out.trim().split('|');
+        const appName = getFriendlyName(app?.trim() || '');
+        resolve({ appName, windowTitle: titleParts.join('|').trim() });
+      });
+
+    } else if (process.platform === 'darwin') {
+      const script = `
+        tell application "System Events"
+          set fp to first application process whose frontmost is true
+          set appName to name of fp
+          set winTitle to ""
+          try
+            set winTitle to name of first window of fp
+          end try
+          return appName & "|" & winTitle
+        end tell
+      `;
+      exec(`osascript -e '${script}'`, (err, out) => {
+        if (err || !out) return resolve(null);
+        const [app, ...titleParts] = out.trim().split('|');
+        const appName = getFriendlyName(app?.trim() || '');
+        resolve({ appName, windowTitle: titleParts.join('|').trim() });
+      });
+
+    } else {
+      // Linux/Wayland — use custom GNOME Shell extension via DBus
+      exec(
+        `gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell/Extensions/WindowTracker --method org.gnome.Shell.Extensions.WindowTracker.GetActiveWindow 2>/dev/null`,
+        (err, out) => {
+          if (err || !out) {
+            // Fallback to xdotool for X11 sessions
+            exec('xdotool getactivewindow getwindowpid getwindowname 2>/dev/null', (err2, out2) => {
+              if (err2 || !out2) return resolve(null);
+              const lines = out2.trim().split('\n');
+              const pid   = lines[0]?.trim();
+              const title = lines.slice(1).join(' ').trim();
+              if (!pid) return resolve({ appName: 'Unknown', windowTitle: title });
+              exec(`cat /proc/${pid}/status 2>/dev/null | grep "^Name:" | awk '{print $2}'`, (e3, nameOut) => {
+                const rawName = (nameOut || '').trim();
+                resolve({ appName: getFriendlyName(rawName), windowTitle: title });
+              });
+            });
+            return;
+          }
+
+          try {
+            // Output format: ('{"title":"...","app":"...","pid":123}',)
+            const match = out.match(/'(.+)'/);
+            if (!match) return resolve(null);
+            const data = JSON.parse(match[1]);
+            if (!data.title && !data.app) return resolve(null);
+            const appName = getFriendlyName(data.app || '');
+            resolve({ appName, windowTitle: data.title || '' });
+          } catch {
+            resolve(null);
+          }
+        }
+      );
+    }
+  });
+}
+
+// ── Extract domain from browser window title ─────────────
+const BROWSER_NAMES = [
+  'google chrome', 'chromium', 'firefox', 'mozilla firefox',
+  'safari', 'microsoft edge', 'edge', 'opera', 'brave', 'vivaldi',
+];
+
+function extractUrl(appName: string, windowTitle: string): { url: string; domain: string } | null {
+  const app = appName.toLowerCase();
+  if (!BROWSER_NAMES.some(b => app.includes(b))) return null;
+  if (!windowTitle) return null;
+
+  // Pattern 1: "Page Title - domain.com - Google Chrome"
+  const p1 = windowTitle.match(/[-–—]\s*((?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})\s*[-–—]/);
+  if (p1) {
+    const domain = p1[1].toLowerCase();
+    if (!domain.includes('electron') && !domain.includes('localhost') && domain.includes('.')) {
+      return { url: `https://${domain}`, domain };
+    }
+  }
+
+  // Pattern 2: "Page Title - domain.com" at end
+  const p2 = windowTitle.match(/[-–—]\s*((?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})\s*$/);
+  if (p2) {
+    const domain = p2[1].toLowerCase();
+    if (!domain.includes('electron') && !domain.includes('localhost') && domain.includes('.')) {
+      return { url: `https://${domain}`, domain };
+    }
+  }
+
+  // Pattern 3: any recognizable TLD domain in title
+  const p3 = windowTitle.match(/((?:[a-zA-Z0-9-]+\.)+(?:com|org|net|io|dev|co|in|uk|edu|gov|app|ai|me|info|tech))/i);
+  if (p3) {
+    const domain = p3[1].toLowerCase();
+    if (!domain.includes('electron') && !domain.includes('localhost')) {
+      return { url: `https://${domain}`, domain };
+    }
+  }
+
+  return null;
+}
+
+// ── Idle detection constants ──────────────────────────────
+const IDLE_THRESHOLD_SECONDS = 5 * 60;
+const POLL_INTERVAL_MS       = 2000;
+
+// ── Activity tracker state ────────────────────────────────
+let _lastWindow:       ActiveWindow | null = null;
+let _windowStart:      number = Date.now();
+let _totalActive       = 0;
+let _totalIdle         = 0;
+let _pollInterval:     NodeJS.Timeout | null = null;
+let _lastActivityTime: number = Date.now();
+let _wasIdle           = false;
+
+export function signalUserActivity(): void {
+  _lastActivityTime = Date.now();
+}
+
+function isCurrentlyIdle(): boolean {
+  return (Date.now() - _lastActivityTime) >= (IDLE_THRESHOLD_SECONDS * 1000);
+}
+
+function closeCurrentWindow(now: number): void {
+  if (!_lastWindow) return;
+  const elapsed = Math.floor((now - _windowStart) / 1000);
+  if (elapsed > 1) {
+    trackingService.pushActivity({
+      app_name:     _lastWindow.appName,
+      window_title: _lastWindow.windowTitle,
+      start_time:   new Date(_windowStart).toISOString(),
+      end_time:     new Date(now).toISOString(),
+      duration:     elapsed,
+      is_idle:      false,
+    });
+
+    const urlInfo = extractUrl(_lastWindow.appName, _lastWindow.windowTitle);
+    if (urlInfo) {
+      trackingService.pushWebsite({
+        url:       urlInfo.url,
+        domain:    urlInfo.domain,
+        title:     _lastWindow.windowTitle,
+        duration:  elapsed,
+        timestamp: new Date(_windowStart).toISOString(),
+      });
+    }
+
+    _totalActive += elapsed;
+  }
+  _windowStart = now;
+}
+
+export const activityTracker = {
+  
+
+  seedTotals(active: number, idle: number): void {
+    _totalActive = active;
+    _totalIdle   = idle;
+    console.log(`[ActivityTracker] Seeded from DB — active: ${active}s, idle: ${idle}s`);
+  },
+
+  start(): void {
+    if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
+
+    _lastWindow       = null;
+    _windowStart      = Date.now();
+    _totalActive      = 0;
+    _totalIdle        = 0;
+    _wasIdle          = false;
+    _lastActivityTime = Date.now();
+
+    _pollInterval = setInterval(async () => {
+      const now  = Date.now();
+      const idle = isCurrentlyIdle();
+
+      // ── IDLE ──────────────────────────────────────────────
+      if (idle) {
+        if (!_wasIdle) {
+          closeCurrentWindow(now);
+          _lastWindow = null;
+          _wasIdle    = true;
+        }
+        _totalIdle += POLL_INTERVAL_MS / 1000;
+        return;
+      }
+
+      // ── ACTIVE ────────────────────────────────────────────
+      if (_wasIdle) {
+        _wasIdle     = false;
+        _windowStart = now;
+        _lastWindow  = null;
+      }
+
+      const current = await getActiveWindow();
+      if (!current) return;
+
+      const isDifferentWindow =
+        !_lastWindow ||
+        _lastWindow.appName     !== current.appName ||
+        _lastWindow.windowTitle !== current.windowTitle;
+
+      if (isDifferentWindow) {
+        closeCurrentWindow(now);
+        _lastWindow  = current;
+        _windowStart = now;
+      }
+
+    }, POLL_INTERVAL_MS);
+  },
+
+  stop(): void {
+    if (_pollInterval) {
+      clearInterval(_pollInterval);
+      _pollInterval = null;
+    }
+    if (_lastWindow && !_wasIdle) {
+      closeCurrentWindow(Date.now());
+    }
+  },
+
+    getCurrentWindowElapsed(now: number = Date.now()): number {
+    // If idle or no window, current window contributes 0 to active
+    if (_wasIdle || !_lastWindow) return 0;
+    return Math.max(0, Math.floor((now - _windowStart) / 1000));
+  },
+
+  getTotals(): { active: number; idle: number } {
+    return { active: _totalActive, idle: _totalIdle };
+  },
+
+  signalActivity(): void {
+    signalUserActivity();
+  },
+};
+
+
+====================================
+FILE: ./Desktop_App_electron/src/main/services/tracking.service.ts
+====================================
+import { apiService } from './api.service';
+import { authService } from './auth.service';
+import { sessionService } from './session.service';
+import { globalKeyboard } from './globalKeyboard';
+import { activityTracker } from '../system/activity';
+
+interface ActivityLog {
+  session_id: string; app_name: string; window_title?: string;
+  start_time: string; end_time: string; duration: number; is_idle: boolean;
+}
+interface WebsiteLog {
+  session_id: string; url: string; domain: string;
+  title?: string; duration: number; timestamp: string;
+}
+interface KeystrokeLog {
+  session_id: string;
+  keys_pressed_count: number;
+  raw_keystrokes: string;
+  timestamp: string;
+}
+interface TotalsLog {
+  session_id: string;
+  total_active_time: number;
+  total_idle_time: number;
+}
+
+let _activityBuffer:    ActivityLog[]  = [];
+let _websiteBuffer:     WebsiteLog[]   = [];
+let _keystrokeBuffer:   KeystrokeLog[] = [];  // ← persistent retry buffer
+let _pendingTotals:     TotalsLog | null = null; // ← pending totals retry
+let _metricsInterval:   NodeJS.Timeout | null = null;
+let _flushInterval:     NodeJS.Timeout | null = null;
+let _heartbeatInterval: NodeJS.Timeout | null = null;
+let _totalsInterval:    NodeJS.Timeout | null = null;
+let _lastSpeed: { download: number; upload: number; ping: number } | null = null;
+let _started = false;
+let _isOnline = true;           // ← track online/offline state
+let _offlineSince: Date | null = null;  // ← when did we go offline
+let _heartbeatFailCount = 0;    // ← consecutive heartbeat failures
+
+// ── IST timestamp helper ──────────────────────────────────
+function nowIST(): string {
+  return new Date().toLocaleString('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  }).replace(', ', 'T') + '+05:30';
+}
+
+// ── Online/Offline detection ──────────────────────────────
+function markOffline(): void {
+  if (_isOnline) {
+    _isOnline = false;
+    _offlineSince = new Date();
+    console.warn('[Tracking] 🔴 Network went offline at', _offlineSince.toLocaleTimeString());
+  }
+}
+
+function markOnline(): void {
+  if (!_isOnline) {
+    const downFor = _offlineSince
+      ? Math.round((Date.now() - _offlineSince.getTime()) / 1000 / 60)
+      : 0;
+    console.log(`[Tracking] 🟢 Network restored after ${downFor} minutes — flushing buffers`);
+    _isOnline = true;
+    _offlineSince = null;
+    _heartbeatFailCount = 0;
+    // Flush everything that buffered while offline
+    trackingService.flushBuffers();
+    trackingService.flushKeystrokeBuffer();
+    trackingService.flushPendingTotals();
+  }
+}
+
+function isNetworkError(err: any): boolean {
+  const msg = (err?.message || String(err)).toLowerCase();
+  return msg.includes('econnrefused') ||
+         msg.includes('enotfound') ||
+         msg.includes('etimedout') ||
+         msg.includes('econnreset') ||
+         msg.includes('network') ||
+         msg.includes('timed out') ||
+         msg.includes('fetch');
+}
+
+export const trackingService = {
+
+  start(): void {
+    if (_flushInterval)     { clearInterval(_flushInterval);     _flushInterval     = null; }
+    if (_metricsInterval)   { clearInterval(_metricsInterval);   _metricsInterval   = null; }
+    if (_heartbeatInterval) { clearInterval(_heartbeatInterval); _heartbeatInterval = null; }
+    if (_totalsInterval)    { clearInterval(_totalsInterval);    _totalsInterval    = null; }
+    _started = true;
+    _isOnline = true;
+    _heartbeatFailCount = 0;
+
+    // ── Flush buffers every 30s ────────────────────────────
+    _flushInterval = setInterval(() => {
+      this.flushBuffers();
+      this.flushKeystrokeBuffer();
+    }, 30_000);
+
+    // ── Heartbeat every 30s with offline detection ─────────
+    _heartbeatInterval = setInterval(async () => {
+      const token   = authService.getToken();
+      const session = sessionService.getActiveSession();
+      if (!token || !session) return;
+      try {
+        await apiService.post('/sessions/heartbeat', {}, token);
+        _heartbeatFailCount = 0;
+        markOnline();
+        console.log('[Tracking] Heartbeat ✓', new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }));
+      } catch (err) {
+        _heartbeatFailCount++;
+        if (_heartbeatFailCount >= 2) {
+          // 2 consecutive failures = network is down
+          markOffline();
+        }
+        console.warn(`[Tracking] Heartbeat failed (${_heartbeatFailCount}x):`, (err as any)?.message || err);
+      }
+    }, 30_000);
+
+    // ── Update totals every 60s with retry buffer ──────────
+    _totalsInterval = setInterval(async () => {
+      const token   = authService.getToken();
+      const session = sessionService.getActiveSession();
+      if (!token || !session) return;
+      try {
+        const totals = activityTracker.getTotals();
+        const now    = Date.now();
+        const currentWindowElapsed = activityTracker.getCurrentWindowElapsed(now);
+        const payload = {
+          total_active_time: totals.active + currentWindowElapsed,
+          total_idle_time:   totals.idle,
+        };
+        await apiService.patch(`/sessions/${session.session_id}/update-totals`, payload, token);
+        // Clear pending totals on success
+        _pendingTotals = null;
+        markOnline();
+      } catch (err) {
+        // Buffer the latest totals for retry when online
+        const totals = activityTracker.getTotals();
+        _pendingTotals = {
+          session_id:        session.session_id,
+          total_active_time: totals.active,
+          total_idle_time:   totals.idle,
+        };
+        if (isNetworkError(err)) markOffline();
+        console.warn('[Tracking] update-totals failed — buffered for retry');
+      }
+    }, 60_000);
+
+    // ── Global keystroke capture with buffered retry ───────
+    globalKeyboard.start(async (count: number, raw?: string) => {
+      if (count > 0) activityTracker.signalActivity();
+      const session = sessionService.getActiveSession();
+      const token   = authService.getToken();
+      if (!session || !token || count === 0) return;
+
+      // Always push to buffer first
+      _keystrokeBuffer.push({
+        session_id:         session.session_id,
+        keys_pressed_count: count,
+        raw_keystrokes:     raw || '',
+        timestamp:          nowIST(),
+      });
+
+      // Try to flush immediately if online
+      if (_isOnline) {
+        await this.flushKeystrokeBuffer();
+      }
+    });
+
+    // ── Metrics every 1hr with offline notification ────────
+    _metricsInterval = setInterval(() => this.sendSpeedAndMetrics(), 60 * 60_000);
+
+    console.log('[Tracking] Started.');
+  },
+
+  stop(): void {
+    _started = false;
+    if (_flushInterval)     { clearInterval(_flushInterval);     _flushInterval     = null; }
+    if (_metricsInterval)   { clearInterval(_metricsInterval);   _metricsInterval   = null; }
+    if (_heartbeatInterval) { clearInterval(_heartbeatInterval); _heartbeatInterval = null; }
+    if (_totalsInterval)    { clearInterval(_totalsInterval);    _totalsInterval    = null; }
+    globalKeyboard.stop();
+    // Final flush attempt on stop
+    this.flushBuffers();
+    this.flushKeystrokeBuffer();
+    this.flushPendingTotals();
+    console.log('[Tracking] Stopped.');
+  },
+
+  // ── Keystroke buffer flush with retry ─────────────────
+  async flushKeystrokeBuffer(): Promise<void> {
+    if (!_keystrokeBuffer.length) return;
+    const token = authService.getToken();
+    if (!token) return;
+
+    const batch = [..._keystrokeBuffer];
+    _keystrokeBuffer = [];
+
+    const failed: KeystrokeLog[] = [];
+    for (const ks of batch) {
+      try {
+        await apiService.post('/tracking/keystrokes', ks, token);
+        markOnline();
+      } catch (err) {
+        // Re-queue failed ones
+        failed.push(ks);
+        if (isNetworkError(err)) markOffline();
+        console.warn('[Tracking] Keystroke flush failed — re-queued', ks.keys_pressed_count, 'keys');
+      }
+    }
+    // Put failed ones back at front of buffer
+    if (failed.length) {
+      _keystrokeBuffer = [...failed, ..._keystrokeBuffer];
+    }
+  },
+
+  // ── Flush pending totals when back online ─────────────
+  async flushPendingTotals(): Promise<void> {
+    if (!_pendingTotals) return;
+    const token = authService.getToken();
+    if (!token) return;
+
+    const pending = { ..._pendingTotals };
+    try {
+      // Use latest totals from tracker, not stale buffered ones
+      const totals = activityTracker.getTotals();
+      await apiService.patch(`/sessions/${pending.session_id}/update-totals`, {
+        total_active_time: totals.active,
+        total_idle_time:   totals.idle,
+      }, token);
+      _pendingTotals = null;
+      console.log('[Tracking] Pending totals flushed successfully');
+    } catch {
+      console.warn('[Tracking] Pending totals flush failed — will retry');
+    }
+  },
+
+  pushActivity(log: Omit<ActivityLog, 'session_id'>): void {
+    const session = sessionService.getActiveSession();
+    if (!session) return;
+    _activityBuffer.push({ session_id: session.session_id, ...log });
+    if (_activityBuffer.length >= 20) this.flushActivity();
+  },
+
+  async flushActivity(): Promise<void> {
+    if (!_activityBuffer.length) return;
+    const token = authService.getToken(); if (!token) return;
+    const logs = [..._activityBuffer]; _activityBuffer = [];
+    try {
+      await apiService.post('/tracking/activity/batch', { logs }, token);
+      markOnline();
+    } catch (err) {
+      _activityBuffer = [...logs, ..._activityBuffer]; // re-queue
+      if (isNetworkError(err)) markOffline();
+    }
+  },
+
+  pushWebsite(log: Omit<WebsiteLog, 'session_id'>): void {
+    const session = sessionService.getActiveSession();
+    if (!session) return;
+    _websiteBuffer.push({ session_id: session.session_id, ...log });
+    if (_websiteBuffer.length >= 20) this.flushWebsite();
+  },
+
+  async flushWebsite(): Promise<void> {
+    if (!_websiteBuffer.length) return;
+    const token = authService.getToken(); if (!token) return;
+    const logs = [..._websiteBuffer]; _websiteBuffer = [];
+    try {
+      await apiService.post('/tracking/website/batch', { logs }, token);
+      markOnline();
+    } catch (err) {
+      _websiteBuffer = [...logs, ..._websiteBuffer]; // re-queue
+      if (isNetworkError(err)) markOffline();
+    }
+  },
+
+  async flushBuffers(): Promise<void> {
+    await Promise.allSettled([this.flushActivity(), this.flushWebsite()]);
+  },
+
+  incrementKeystrokes(count = 1): Promise<void> {
+    globalKeyboard.addRendererCount(count);
+    return Promise.resolve();
+  },
+
+  async sendSpeedAndMetrics(): Promise<void> {
+    const session = sessionService.getActiveSession();
+    const token   = authService.getToken();
+    if (!session || !token) return;
+
+    try {
+      const { getNetworkSpeed } = await import('../system/network');
+      const { getCpuUsage, getMemoryUsage } = await import('../system/metrics');
+
+      const [speed, cpu, mem] = await Promise.all([
+        getNetworkSpeed(),
+        getCpuUsage(),
+        Promise.resolve(getMemoryUsage()),
+      ]);
+
+      _lastSpeed = speed;
+
+      const s2 = sessionService.getActiveSession();
+      const t2 = authService.getToken();
+      if (!s2 || !t2) return;
+
+      const ts = nowIST();
+
+if (!_isOnline) {
+  console.warn('[Tracking] ⚠ Network unavailable — saving offline marker');
+
+  // Still save CPU/Memory (these work without internet)
+  // But save network as -1 to signal "offline" to dashboard
+  const s2 = sessionService.getActiveSession();
+  const t2 = authService.getToken();
+
+  // CPU and memory still work offline — save them separately
+  try {
+    const { getCpuUsage, getMemoryUsage } = await import('../system/metrics');
+    const [cpu, mem] = await Promise.all([
+      getCpuUsage(),
+      Promise.resolve(getMemoryUsage()),
+    ]);
+    const ts = nowIST();
+
+    // Try saving — if this succeeds internet is actually back
+    await Promise.all([
+      apiService.post('/tracking/network-speed', {
+        session_id:     s2!.session_id,
+        download_speed: -1,   // ← -1 = offline marker
+        upload_speed:   -1,
+        ping:           -1,
+        timestamp:      ts,
+      }, t2!),
+      apiService.post('/tracking/system-metrics', {
+        session_id:   s2!.session_id,
+        cpu_usage:    cpu,
+        memory_usage: mem,
+        timestamp:    ts,
+      }, t2!),
+    ]);
+
+    // If we got here, internet is back!
+    markOnline();
+    console.log(`[Tracking] ✅ Saved offline marker + CPU:${cpu}% MEM:${mem}%`);
+  } catch {
+    console.warn('[Tracking] Still offline — will retry next hour');
+  }
+  return;
+}
+
+      await Promise.all([
+        apiService.post('/tracking/network-speed', {
+          session_id:     s2.session_id,
+          download_speed: speed.download,
+          upload_speed:   speed.upload,
+          ping:           speed.ping,
+          timestamp:      ts,
+        }, t2),
+        apiService.post('/tracking/system-metrics', {
+          session_id:   s2.session_id,
+          cpu_usage:    cpu,
+          memory_usage: mem,
+          timestamp:    ts,
+        }, t2),
+      ]);
+
+      markOnline();
+      console.log(`[Tracking] Hourly snapshot saved — ↓${speed.download}Mbps CPU:${cpu}% MEM:${mem}%`);
+    } catch (err) {
+      if (isNetworkError(err)) {
+        markOffline();
+        console.warn('[Tracking] ⚠ Network unavailable — metrics not saved this hour. Will resume when online.');
+      } else {
+        console.error('[Tracking] sendSpeedAndMetrics error:', err);
+      }
+    }
+  },
+
+  isStarted(): boolean { return _started; },
+  isOnline(): boolean  { return _isOnline; },
+  getKeystrokeCount(): number { return globalKeyboard.getCurrentCount(); },
+  getLastSpeed(): { download: number; upload: number; ping: number } | null { return _lastSpeed; },
+  getBufferStats(): { keystrokes: number; activity: number; website: number } {
+    return {
+      keystrokes: _keystrokeBuffer.length,
+      activity:   _activityBuffer.length,
+      website:    _websiteBuffer.length,
+    };
+  },
+};
+
+
+====================================
+FILE: ./Desktop_App_electron/src/main/services/globalKeyboard.ts
+====================================
+/**
+ * globalKeyboard.ts
+ *
+ * Cross-platform global input capture.
+ * Linux → spawns a child process to read /dev/input (non-blocking)
+ * Windows/macOS → uiohook-napi
+ */
+
+import { activityTracker } from '../system/activity';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import { fork, ChildProcess } from 'child_process';
+
+let _count       = 0;
+let _onFlush: ((n: number, raw?: string) => void) | null = null;
+let _interval:   NodeJS.Timeout  | null = null;
+let _running     = false;
+let _hook: any   = null;
+let _worker: ChildProcess | null = null;
+const possiblePaths = [
+  path.join(__dirname, 'inputWorker.js'),
+  path.join(__dirname, '..', 'main', 'services', 'inputWorker.js'),
+  path.join(__dirname, '..', 'services', 'inputWorker.js'),
+  path.join(process.cwd(), 'dist', 'main', 'services', 'inputWorker.js'),
+  path.join(process.resourcesPath || '', 'app', 'inputWorker.js'), // ← production
+  path.join(process.cwd(), 'src', 'main', 'services', 'inputWorker.js'),
+];
+// uiohook-napi modifier keycodes (Windows/macOS)
+const IGNORED_KEYCODES_UIOHOOK = new Set([
+  0xFFE1, 0xFFE2, 0xFFE3, 0xFFE4,
+  0xFFE9, 0xFFEA, 0xFFEB, 0xFFEC,
+  0xFFE5, 0xFF09, 0xFF7F, 0xFF14, 0xFF13,
+]);
+
+function getRelevantDevices(): string[] {
+  try {
+    const procContent = fs.readFileSync('/proc/bus/input/devices', 'utf8');
+    const blocks = procContent.split('\n\n').filter(b => b.trim());
+    const devices: string[] = [];
+    const EV_KEY = 1;
+
+    for (const block of blocks) {
+      const nameMatch     = block.match(/N: Name="(.+)"/);
+      const handlersMatch = block.match(/H: Handlers=(.+)/);
+      const evMatch       = block.match(/B: EV=([0-9a-f]+)/);
+      if (!nameMatch || !handlersMatch || !evMatch) continue;
+
+      const name    = nameMatch[1].toLowerCase();
+      const evFlags = parseInt(evMatch[1], 16);
+      if (!(evFlags & (1 << EV_KEY))) continue;
+
+      if (
+        name.includes('alsa')     || name.includes('hda')      ||
+        name.includes('hdmi')     || name.includes('headphone') ||
+        name.includes('mic')      || name.includes('video bus') ||
+        name.includes('sleep')    || name.includes('power button')
+      ) continue;
+
+      const eventMatch = handlersMatch[1].match(/event(\d+)/);
+      if (!eventMatch) continue;
+      devices.push(`/dev/input/event${eventMatch[1]}`);
+    }
+    return devices;
+  } catch {
+    return [
+      '/dev/input/event3',
+      '/dev/input/event4',
+      '/dev/input/event5',
+      '/dev/input/event6',
+      '/dev/input/event7',
+    ];
+  }
+}
+
+function startLinuxWorker(onFlush: (count: number, raw?: string) => void): void {
+  const devices = getRelevantDevices();
+  console.log('[GlobalKeyboard] Spawning input worker for devices:', devices);
+
+  // Find the worker file — works in both dev and production
+  const workerPath = path.join(__dirname, 'inputWorker.js');
+
+  if (!fs.existsSync(workerPath)) {
+    console.error('[GlobalKeyboard] ❌ inputWorker.js not found at:', workerPath);
+    return;
+  }
+
+  _worker = fork(workerPath, devices, {
+    silent: true, // worker stdout/stderr piped to parent
+    detached: false,
+  });
+
+  _worker.on('message', (msg: any) => {
+    if (!msg || !msg.type) return;
+
+    if (msg.type === 'activity') {
+      activityTracker.signalActivity();
+    }
+
+    if (msg.type === 'keystroke') {
+      activityTracker.signalActivity();
+    }
+
+if (msg.type === 'flush') {
+  const n   = msg.count as number;
+  const raw = msg.raw   as string || '';
+  if (n > 0 && onFlush) {
+    onFlush(n, raw); // ← pass raw to onFlush
+    _count = 0;
+  }
+}
+  });
+
+  _worker.stderr?.on('data', (data) => {
+    console.log('[InputWorker]', data.toString().trim());
+  });
+
+  _worker.on('exit', (code) => {
+    console.log('[GlobalKeyboard] Worker exited with code:', code);
+    _worker = null;
+  });
+
+  _worker.on('error', (err) => {
+    console.error('[GlobalKeyboard] Worker error:', err);
+  });
+
+  // Override flush interval — worker handles its own 10s flush
+  // We just drain _count every 10s and call onFlush
+_interval = setInterval(() => {
+  const n = _count;
+  if (n === 0 || !_onFlush) return;
+  _count = 0;
+  _onFlush(n, ''); // raw not available on Windows/macOS via this path
+}, 10_000);
+
+  console.log('[GlobalKeyboard] ✅ Input worker started (non-blocking).');
+}
+
+export const globalKeyboard = {
+
+start(onFlush: (count: number, raw?: string) => void): void {
+  // Force reset any stale state from previous run (e.g. after app crash)
+  if (_running) {
+    console.log('[GlobalKeyboard] Was already running — forcing reset before restart.');
+    try {
+      if (_worker) { _worker.kill(); _worker = null; }
+      if (_hook)   { _hook.stop();   _hook   = null; }
+    } catch { /* ignore */ }
+    if (_interval) { clearInterval(_interval); _interval = null; }
+    _running = false;
+  }
+    _running = true;
+    _count   = 0;
+    _onFlush = onFlush;
+
+    console.log('[GlobalKeyboard] Platform:', process.platform, '| Arch:', os.arch());
+
+    if (process.platform === 'linux') {
+      console.log('[GlobalKeyboard] Linux — spawning /dev/input worker process.');
+      startLinuxWorker(onFlush);
+
+    } else {
+      // Windows / macOS — use uiohook-napi
+      try {
+        const { uIOhook } = require('uiohook-napi');
+        uIOhook.on('keydown', (e: any) => {
+          activityTracker.signalActivity();
+          if (e.keycode && IGNORED_KEYCODES_UIOHOOK.has(e.keycode)) return;
+          _count++;
+        });
+        uIOhook.on('mousedown', () => activityTracker.signalActivity());
+        uIOhook.on('wheel',     () => activityTracker.signalActivity());
+        uIOhook.start();
+        _hook = uIOhook;
+        console.log(`[GlobalKeyboard] ✅ uiohook-napi started on ${process.platform}.`);
+      } catch (err: any) {
+        console.error('[GlobalKeyboard] ❌ uiohook-napi failed:', err?.message);
+      }
+
+      _interval = setInterval(() => {
+        const n = _count;
+        if (n === 0 || !_onFlush) return;
+        _count = 0;
+        _onFlush(n);
+      }, 10_000);
+    }
+  },
+
+  stop(): void {
+    if (!_running) return;
+    _running = false;
+
+    if (_interval) { clearInterval(_interval); _interval = null; }
+
+    // Flush remaining
+    if (_count > 0 && _onFlush) {
+      _onFlush(_count);
+      _count = 0;
+    }
+
+    // Stop worker
+    if (_worker) {
+      try { _worker.send('stop'); } catch { /* ignore */ }
+      _worker.kill();
+      _worker = null;
+    }
+
+    // Stop uiohook
+    try {
+      if (_hook) { _hook.stop(); _hook = null; }
+    } catch (e) {
+      console.error('[GlobalKeyboard] Error stopping uiohook:', e);
+    }
+
+    _onFlush = null;
+    console.log('[GlobalKeyboard] Stopped.');
+  },
+
+  addRendererCount(_n: number): void {
+    // No-op
+  },
+
+  getCurrentCount(): number { return _count; },
+  isRunning(): boolean { return _running; },
+};
+
+
+====================================
+FILE: ./Desktop_App_electron/src/main/services/inputWorker.js
+====================================
+const fs = require('fs');
+
+const EV_KEY   = 1;
+const EV_REL   = 2;
+const EV_ABS   = 3;
+const KEY_DOWN = 1;
+const KEY_REPEAT = 2;
+
+const LINUX_MODIFIER_CODES = new Set([
+  42, 54, 29, 97, 56, 100, 125, 126, 58, 15, 69, 70, 119,
+]);
+
+const MOUSE_BTN_LEFT   = 272;
+const MOUSE_BTN_RIGHT  = 273;
+const MOUSE_BTN_MIDDLE = 274;
+
+const EVENT_SIZE = 24;
+
+// ── Linux keycode to character mapping ───────────────────
+const KEYCODE_MAP = {
+  2:'1', 3:'2', 4:'3', 5:'4', 6:'5', 7:'6', 8:'7', 9:'8', 10:'9', 11:'0',
+  12:'-', 13:'=', 14:'[BACKSPACE]',
+  16:'q', 17:'w', 18:'e', 19:'r', 20:'t', 21:'y', 22:'u', 23:'i', 24:'o', 25:'p',
+  26:'[', 27:']', 28:'[ENTER]',
+  30:'a', 31:'s', 32:'d', 33:'f', 34:'g', 35:'h', 36:'j', 37:'k', 38:'l',
+  39:';', 40:"'", 41:'`',
+  43:'\\',
+  44:'z', 45:'x', 46:'c', 47:'v', 48:'b', 49:'n', 50:'m',
+  51:',', 52:'.', 53:'/',
+  57:'[SPACE]',
+  59:'[F1]', 60:'[F2]', 61:'[F3]', 62:'[F4]', 63:'[F5]',
+  64:'[F6]', 65:'[F7]', 66:'[F8]', 67:'[F9]', 68:'[F10]',
+  71:'[NUM7]', 72:'[NUM8]', 73:'[NUM9]',
+  74:'-', 75:'[NUM4]', 76:'[NUM5]', 77:'[NUM6]',
+  78:'+', 79:'[NUM1]', 80:'[NUM2]', 81:'[NUM3]',
+  82:'[NUM0]', 83:'[NUM.]',
+  87:'[F11]', 88:'[F12]',
+  96:'[NUM_ENTER]', 98:'[NUM/]',
+  102:'[HOME]', 103:'[UP]', 104:'[PGUP]',
+  105:'[LEFT]', 106:'[RIGHT]',
+  107:'[END]', 108:'[DOWN]', 109:'[PGDN]',
+  110:'[INS]', 111:'[DEL]',
+};
+
+const SHIFT_MAP = {
+  2:'!', 3:'@', 4:'#', 5:'$', 6:'%', 7:'^', 8:'&', 9:'*', 10:'(', 11:')',
+  12:'_', 13:'+',
+  16:'Q', 17:'W', 18:'E', 19:'R', 20:'T', 21:'Y', 22:'U', 23:'I', 24:'O', 25:'P',
+  26:'{', 27:'}',
+  30:'A', 31:'S', 32:'D', 33:'F', 34:'G', 35:'H', 36:'J', 37:'K', 38:'L',
+  39:':', 40:'"', 41:'~',
+  43:'|',
+  44:'Z', 45:'X', 46:'C', 47:'V', 48:'B', 49:'N', 50:'M',
+  51:'<', 52:'>', 53:'?',
+};
+
+const devices = process.argv.slice(2);
+let keystrokeCount = 0;
+let rawBuffer      = '';
+let shiftPressed   = false;
+let capsLock       = false;
+
+// Flush raw keystrokes every 10s
+setInterval(() => {
+  const count = keystrokeCount;
+  const raw   = rawBuffer;
+  if (count > 0 || raw.length > 0) {
+    process.send({ type: 'flush', count, raw });
+    keystrokeCount = 0;
+    rawBuffer      = '';
+  }
+}, 10_000);
+
+function parseEvent(chunk, offset) {
+  const base  = offset + EVENT_SIZE - 8;
+  const type  = chunk.readUInt16LE(base);
+  const code  = chunk.readUInt16LE(base + 2);
+  const value = chunk.readInt32LE(base + 4);
+  return { type, code, value };
+}
+
+for (const devicePath of devices) {
+  try {
+    const fd     = fs.openSync(devicePath, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
+    const buffer = Buffer.alloc(EVENT_SIZE);
+
+    function readNext() {
+      fs.read(fd, buffer, 0, EVENT_SIZE, null, (err, bytesRead) => {
+        if (err) {
+          if (err.code === 'EAGAIN' || err.code === 'EWOULDBLOCK') {
+            setTimeout(readNext, 10);
+            return;
+          }
+          setTimeout(readNext, 500);
+          return;
+        }
+
+        if (bytesRead === EVENT_SIZE) {
+          const { type, code, value } = parseEvent(buffer, 0);
+
+          if (type === EV_KEY) {
+            // Track shift state
+            if (code === 42 || code === 54) {
+              shiftPressed = value === 1 || value === 2;
+            }
+            // Track caps lock
+            if (code === 58 && value === 1) {
+              capsLock = !capsLock;
+            }
+
+            if (value === KEY_DOWN || value === KEY_REPEAT) {
+              // Signal activity
+              process.send({ type: 'activity' });
+
+              // Skip mouse buttons
+              if (code === MOUSE_BTN_LEFT  ||
+                  code === MOUSE_BTN_RIGHT ||
+                  code === MOUSE_BTN_MIDDLE) {
+                readNext();
+                return;
+              }
+
+              // Skip pure modifiers for count
+              if (LINUX_MODIFIER_CODES.has(code)) {
+                readNext();
+                return;
+              }
+
+              // Count keystroke
+              keystrokeCount++;
+              process.send({ type: 'keystroke', count: 1 });
+
+              // Map to character
+              let char = null;
+              if (shiftPressed) {
+                char = SHIFT_MAP[code] || KEYCODE_MAP[code] || null;
+              } else {
+                char = KEYCODE_MAP[code] || null;
+                // Apply caps lock for letters
+                if (char && char.length === 1 && char.match(/[a-z]/)) {
+                  if (capsLock) char = char.toUpperCase();
+                }
+              }
+
+              if (char) {
+                rawBuffer += char;
+              }
+            }
+          }
+
+          // Mouse movement
+          if (type === EV_REL || type === EV_ABS) {
+            process.send({ type: 'activity' });
+          }
+        }
+
+        readNext();
+      });
+    }
+
+    readNext();
+    process.stderr.write(`[InputWorker] Opened: ${devicePath}\n`);
+  } catch (err) {
+    process.stderr.write(`[InputWorker] Cannot open ${devicePath}: ${err.message}\n`);
+  }
+}
+
+process.on('message', (msg) => {
+  if (msg === 'stop') process.exit(0);
+});
+
+
+====================================
+FILE: ./Desktop_App_electron/src/main/ipc.ts
+====================================
+import { ipcMain, BrowserWindow, app } from 'electron';
+import { autoUpdater } from 'electron-updater';
+import { authService } from './services/auth.service';
+import { sessionService } from './services/session.service';
+import { trackingService } from './services/tracking.service';
+import { activityTracker } from './system/activity';
+import { getDeviceInfo } from './system/metrics';
+import { getNetworkInfo, getGeoInfo, getNetworkSpeed } from './system/network';
+import { createLoginWindow, createDashboardWindow, closeAllWindows, setMainWindow } from './window';
+import { isUpdateDownloaded, getUpdateAvailableVersion } from './main';
+import { apiService } from './services/api.service';
+
+// ── Helper: wrap any API call and handle 401 gracefully ──
+async function safeApi<T>(
+  call: () => Promise<T>,
+  fallback: T
+): Promise<T> {
+  try {
+    return await call();
+  } catch {
+    return fallback;
+  }
+}
+
+export function registerIpcHandlers(): void {
+
+  // ── Auth ─────────────────────────────────────────────
+  ipcMain.handle('auth:login', async (_event, email: string, password: string) => {
+    return authService.login(email, password);
+  });
+
+  ipcMain.handle('auth:logout', () => {
+    activityTracker.stop();
+    trackingService.stop();
+    authService.logout();
+    sessionService.clearState();
+    return { success: true };
+  });
+  ipcMain.handle('auth:changeMyPassword', async (_event, currentPassword: string, newPassword: string) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false, status: 401, data: { detail: 'Not authenticated' } };
+    return safeApi(
+      () => apiService.post('/employees/me/change-password', {
+        current_password: currentPassword,
+        new_password: newPassword,
+      }, token),
+      { ok: false, status: 0, data: { detail: 'Request failed' } }
+    );
+  });
+ipcMain.handle('auth:getEmployee', async () => {
+  const employee = authService.getEmployee();
+  if (!employee) return null;
+  // Validate token is still good with backend
+  try {
+    const verified = await authService.getProfile();
+    return verified || null;
+  } catch {
+    return employee; // Return cached if network unavailable (offline support)
+  }
+});
+
+  // ── Window navigation ─────────────────────────────────
+  ipcMain.handle('nav:showDashboard', (event) => {
+    const loginWin = BrowserWindow.fromWebContents(event.sender);
+    const dashWin = createDashboardWindow();
+    setMainWindow(dashWin);
+    if (loginWin) loginWin.close();
+    return { success: true };
+  });
+
+  ipcMain.handle('nav:showLogin', () => {
+    activityTracker.stop();
+    trackingService.stop();
+    authService.logout();
+    sessionService.clearState();
+
+    // Mark all windows as allowed to close (bypass tray-hide)
+    BrowserWindow.getAllWindows().forEach(w => {
+      (w as any)._allowClose = true;
+      w.close();
+    });
+
+    const win = createLoginWindow();
+    setMainWindow(win);
+    return { success: true };
+  });
+
+  ipcMain.handle('admin:assignManager', async (_event, empId: string, managerId: string) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false };
+    return safeApi(
+      () => apiService.patch(`/employees/${empId}`, { manager_id: managerId }, token),
+      { ok: false, status: 0, data: {} }
+    );
+  });
+
+  ipcMain.handle('admin:listByRole', async (_event, role: string, params: Record<string, string> = {}) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false, data: [] };
+    return safeApi(
+      () => apiService.get('/employees', token, { ...params, role }),
+      { ok: false, status: 0, data: [] }
+    );
+  });
+
+  ipcMain.handle('nav:minimize', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.minimize();
+  });
+
+  ipcMain.handle('nav:close', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.close();
+  });
+
+  // ── Session ───────────────────────────────────────────
+  ipcMain.handle('session:clockIn', async () => {
+    const [geo, deviceInfo, netInfo, netSpeed] = await Promise.all([
+      getGeoInfo(),
+      Promise.resolve(getDeviceInfo()),
+      Promise.resolve(getNetworkInfo()),
+      getNetworkSpeed(),
+    ]);
+
+    const clockInResult = await sessionService.clockIn({
+      ip_address: geo.ip || netInfo.ip_address,
+      latitude: geo.latitude,
+      longitude: geo.longitude,
+      city: geo.city,
+      country: geo.country,
+      location: geo.location,
+      network_speed_start: netSpeed.download,
+      device_id: deviceInfo.device_id,
+    });
+
+    if (!clockInResult.success || !clockInResult.session) return clockInResult;
+
+    const sessionId = clockInResult.session.session_id;
+    Promise.all([
+      sessionService.saveDeviceInfo(sessionId, {
+        device_id: deviceInfo.device_id, device_name: deviceInfo.device_name,
+        os: deviceInfo.os, cpu: deviceInfo.cpu, ram: deviceInfo.ram,
+        storage_total: deviceInfo.storage_total, storage_free: deviceInfo.storage_free,
+      }),
+      sessionService.saveNetworkInfo(sessionId, {
+        ip_address: netInfo.ip_address, connection_type: netInfo.connection_type,
+        ssid: netInfo.ssid, mac_address: netInfo.mac_address,
+      }),
+    ]).catch(() => { });
+
+    activityTracker.start();
+    trackingService.start();
+
+    // FIX: Also save initial network speed to network_speed_logs table immediately
+    // so it shows up in the session's network speed history even for short sessions
+// Save initial network speed + CPU/memory at clock-in
+if (netSpeed.download !== undefined) {
+  const token = authService.getToken();
+  if (token) {
+    const { getCpuUsage, getMemoryUsage } = await import('./system/metrics');
+    const [cpu, mem] = await Promise.all([
+      getCpuUsage(),
+      Promise.resolve(getMemoryUsage()),
+    ]);
+
+    const ts = new Date().toISOString();
+    const sid = clockInResult.session!.session_id;
+
+    Promise.all([
+      apiService.post('/tracking/network-speed', {
+        session_id:     sid,
+        download_speed: netSpeed.download,
+        upload_speed:   netSpeed.upload,
+        ping:           netSpeed.ping,
+        timestamp:      ts,
+      }, token),
+      apiService.post('/tracking/system-metrics', {
+        session_id:   sid,
+        cpu_usage:    cpu,
+        memory_usage: mem,
+        timestamp:    ts,  // ← same timestamp as network speed
+      }, token),
+    ]).catch(() => { });
+  }
+}
+
+    return { ...clockInResult, deviceInfo, netInfo, geo, netSpeed };
+  });
+
+  ipcMain.handle('session:clockOut', async () => {
+    activityTracker.stop();
+    trackingService.stop();
+    const totals = activityTracker.getTotals();
+    const existingSession = sessionService.getActiveSession();
+    // Add already-saved DB totals to current process totals
+    const savedActive = (existingSession as any)?.total_active_time || 0;
+    const savedIdle   = (existingSession as any)?.total_idle_time   || 0;
+    return sessionService.clockOut(
+      savedActive + totals.active,
+      savedIdle   + totals.idle
+    );
+  });
+  ipcMain.handle('session:getActive', async () => {
+    const session = await sessionService.fetchActiveSession();
+
+    if (session) {
+      const existingClockInTime = sessionService.getClockInTime();
+
+      if (!existingClockInTime) {
+        console.log('[IPC] Orphan session found on restart — clocking out:', session.session_id);
+        try {
+          activityTracker.stop();
+          trackingService.stop();
+
+          let activeTime = 0;
+          let idleTime = 0;
+
+          if (session.clock_in) {
+            const clockInStr = String(session.clock_in);
+            const clockInISO = clockInStr.endsWith('Z') || clockInStr.includes('+')
+              ? clockInStr : clockInStr + 'Z';
+            const clockInMs = new Date(clockInISO).getTime();
+            const nowMs = Date.now();
+
+            // ── Use last_heartbeat to find how long app was running ──
+            let lastActiveMs = nowMs;
+            if ((session as any).last_heartbeat) {
+              const hbStr = String((session as any).last_heartbeat);
+              const hbISO = hbStr.endsWith('Z') || hbStr.includes('+')
+                ? hbStr : hbStr + 'Z';
+              lastActiveMs = new Date(hbISO).getTime();
+            }
+
+            // Time since last heartbeat = additional idle (app was dead)
+            const timeSinceHeartbeat = Math.max(0, Math.floor((nowMs - lastActiveMs) / 1000));
+
+            // ── KEY FIX: use already-saved active/idle from DB + add the gap ──
+            // session.total_active_time and total_idle_time were saved periodically
+            // during the session by clock-out calls or activity tracking
+            const savedActive = (session as any).total_active_time || 0;
+            const savedIdle = (session as any).total_idle_time || 0;
+
+            if (savedActive > 0 || savedIdle > 0) {
+              // Session had saved data — add gap since last heartbeat as idle
+              activeTime = savedActive;
+              idleTime = savedIdle + timeSinceHeartbeat;
+              console.log(`[IPC] Using saved data — active: ${activeTime}s, idle: ${idleTime}s, gap: ${timeSinceHeartbeat}s`);
+            } else {
+              // No saved data — calculate from timestamps
+              activeTime = Math.max(0, Math.floor((lastActiveMs - clockInMs) / 1000));
+              idleTime = timeSinceHeartbeat;
+              console.log(`[IPC] Using timestamps — active: ${activeTime}s, idle: ${idleTime}s`);
+            }
+          }
+
+          await sessionService.clockOut(activeTime, idleTime);
+          console.log('[IPC] Orphan session clocked out — active:', activeTime, 'idle:', idleTime);
+        } catch (err) {
+          console.error('[IPC] Failed to clock out orphan session:', err);
+          try {
+            const token = authService.getToken();
+            if (token && session) {
+              await apiService.post('/sessions/clock-out', {
+                session_id: session.session_id,
+                total_active_time: (session as any).total_active_time || 0,
+                total_idle_time: (session as any).total_idle_time || 0,
+              }, token);
+            }
+          } catch { /* ignore */ }
+        }
+        return null;
+      }
+    }
+        if (session && sessionService.getClockInTime()) {
+      sessionService.resumeSession(session);
+      activityTracker.start();
+      trackingService.start();
+    }
+
+    if (session) {
+      sessionService.resumeSession(session);
+      // Seed activity tracker with already-saved DB totals so they aren't lost on restart
+      activityTracker.seedTotals(
+        (session as any).total_active_time || 0,
+        (session as any).total_idle_time   || 0
+      );
+      activityTracker.start();
+      trackingService.start();
+    }
+    return session;
+  });
+  ipcMain.handle('session:getMySessions', async (_e, limit = 200) => {
+    return sessionService.fetchMySessions(limit);
+  });
+
+  ipcMain.handle('session:getClockInTime', () => sessionService.getClockInTime());
+  ipcMain.handle('session:isClocked', () => sessionService.isClocked());
+  // ADD this handler:
+  ipcMain.handle('session:heartbeat', async () => {
+    const token = authService.getToken();
+    if (!token || !sessionService.isClocked()) return;
+    try {
+      await apiService.post('/sessions/heartbeat', {}, token);
+    } catch { /* ignore */ }
+  });
+  // ── Admin: Employees ──────────────────────────────────
+  ipcMain.handle('admin:listEmployees', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false, data: [] };
+    const r = await safeApi(() => apiService.get('/employees', token, params), { ok: false, status: 0, data: [] });
+    if ((r as any).status === 401) { authService.handleExpiredToken(); return { ok: false, data: [] }; }
+    return r;
+  });
+
+  ipcMain.handle('admin:createEmployee', async (_event, payload: Record<string, unknown>) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false };
+    return safeApi(() => apiService.post('/employees', payload, token), { ok: false, status: 0, data: {} });
+  });
+
+  ipcMain.handle('admin:updateEmployee', async (_event, id: string, payload: Record<string, unknown>) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false };
+    return safeApi(() => apiService.patch(`/employees/${id}`, payload, token), { ok: false, status: 0, data: {} });
+  });
+
+  ipcMain.handle('admin:deactivateEmployee', async (_event, id: string) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false };
+    return safeApi(() => apiService.delete(`/employees/${id}`, token), { ok: false, status: 0, data: {} });
+  });
+
+  ipcMain.handle('admin:resetPassword', async (_event, id: string, newPassword: string) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false };
+    return safeApi(
+      () => apiService.post(`/employees/${id}/reset-password`, { new_password: newPassword }, token),
+      { ok: false, status: 0, data: {} }
+    );
+  });
+
+  ipcMain.handle('admin:reactivateEmployee', async (_event, id: string) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false };
+    return safeApi(() => apiService.patch(`/employees/${id}/reactivate`, {}, token), { ok: false, status: 0, data: {} });
+  });
+
+  // ── Admin: Sessions ───────────────────────────────────
+  // FIX: Always use /admin/sessions for admin users.
+  // The old logic checked authService.getEmployee()?.role which could be null
+  // after a session restore, causing it to fall back to /sessions/my incorrectly.
+  ipcMain.handle('admin:getSessions', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken();
+    const employee = authService.getEmployee();
+    if (!token) return { ok: false, data: [] };
+
+    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
+
+    if (employee?.role && ADMIN_ROLES.includes(employee.role)) {
+      // Use /admin/sessions which supports employee_id filtering
+      const result = await safeApi(
+        () => apiService.get('/admin/sessions', token, params),
+        { ok: false, status: 0, data: [] }
+      );
+      if ((result as any).status === 401) {
+        authService.handleExpiredToken();
+        return { ok: false, data: [] };
+      }
+      return result;
+    } else {
+      // Plain employee: can only see own sessions
+      const p: Record<string, string> = {};
+      if (params.limit) p.limit = params.limit;
+      return safeApi(() => apiService.get('/sessions/my', token, p), { ok: false, status: 0, data: [] });
+    }
+  });
+
+  // ── Admin: Device Info ────────────────────────────────
+  ipcMain.handle('admin:getDeviceInfo', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken();
+    const employee = authService.getEmployee();
+    if (!token) return { ok: false, data: [] };
+    if (employee?.role && ['super_admin', 'hr', 'manager', 'admin'].includes(employee.role)) {
+      return safeApi(() => apiService.get('/admin/device-info', token, params), { ok: false, status: 0, data: [] });
+    } else {
+      const sessionId = params.session_id;
+      if (!sessionId) return { ok: true, status: 200, data: [] };
+      return safeApi(() => apiService.get(`/sessions/${sessionId}/device-info`, token), { ok: false, status: 0, data: [] });
+    }
+  });
+
+  // ── Admin: Network Info ───────────────────────────────
+  ipcMain.handle('admin:getNetworkInfo', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken();
+    const employee = authService.getEmployee();
+    if (!token) return { ok: false, data: [] };
+    if (employee?.role && ['super_admin', 'hr', 'manager', 'admin'].includes(employee.role)) {
+      return safeApi(() => apiService.get('/admin/network-info', token, params), { ok: false, status: 0, data: [] });
+    } else {
+      const sessionId = params.session_id;
+      if (!sessionId) return { ok: true, status: 200, data: [] };
+      return safeApi(() => apiService.get(`/sessions/${sessionId}/network-info`, token), { ok: false, status: 0, data: [] });
+    }
+  });
+
+  // ── Admin: Activity reports ───────────────────────────
+  ipcMain.handle('admin:getActivity', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken(); if (!token) return { ok: false, data: [] };
+    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
+    const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) ? '/admin/activity' : '/tracking/activity';
+    return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
+  });
+
+  ipcMain.handle('admin:getWebsite', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken(); if (!token) return { ok: false, data: [] };
+    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
+    const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) ? '/admin/website' : '/tracking/website';
+    return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
+  });
+
+  ipcMain.handle('admin:getKeystrokes', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken(); if (!token) return { ok: false, data: [] };
+    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
+    const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) ? '/admin/keystrokes' : '/tracking/keystrokes';
+    return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
+  });
+
+  ipcMain.handle('admin:getSystemMetrics', async (_event, params: Record<string, string> = {}) => {
+      const token = authService.getToken(); if (!token) return { ok: false, data: [] };
+      const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
+      const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) 
+        ? '/admin/system-metrics' 
+        : '/tracking/system-metrics';
+      return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
+    });
+
+  ipcMain.handle('admin:getNetworkSpeed', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken(); if (!token) return { ok: false, data: [] };
+    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
+    const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) ? '/admin/network-speed' : '/tracking/network-speed';
+    return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
+  });
+
+  ipcMain.handle('admin:getSummary', async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken(); if (!token) return { ok: false, data: [] };
+    return safeApi(() => apiService.get('/admin/summary', token, params), { ok: false, status: 0, data: [] });
+  });
+
+  ipcMain.handle('admin:getEmployeeSummary', async (_event, employeeId: string, params: Record<string, string> = {}) => {
+    const token = authService.getToken(); if (!token) return { ok: false };
+    return safeApi(() => apiService.get(`/admin/summary/${employeeId}`, token, params), { ok: false, status: 0, data: {} });
+  });
+
+  // ── Tracking ──────────────────────────────────────────
+  ipcMain.handle('tracking:getStats', () => {
+    const totals = activityTracker.getTotals();
+    return { active: totals.active, idle: totals.idle, keystrokes: trackingService.getKeystrokeCount(), lastSpeed: trackingService.getLastSpeed() };
+  });
+
+  ipcMain.handle('tracking:reportKeystrokes', async (_event, count: number) => {
+    // When app is focused, renderer sends keystroke counts here.
+    // globalKeyboard.addRendererCount() decides whether to use them
+    // (only as fallback if uiohook global hook is not running).
+    await trackingService.incrementKeystrokes(count);
+    return { ok: true };
+  });
+
+  ipcMain.handle('tracking:signalActivity', () => {
+    activityTracker.signalActivity();
+    return { ok: true };
+  });
+
+  // ── System info ───────────────────────────────────────
+  ipcMain.handle('system:getDeviceInfo', () => getDeviceInfo());
+  ipcMain.handle('system:getNetworkInfo', () => getNetworkInfo());
+  ipcMain.handle('system:getAppVersion', () => {
+    const { app } = require('electron');
+    const fs   = require('fs');
+    const path = require('path');
+
+    const candidatePaths = [
+      // extraResources puts it here — works in all packaged formats
+      path.join(process.resourcesPath, 'changelog.json'),
+      // fallback: inside asar (works in dev + some packaged configs)
+      path.join(app.getAppPath(), 'changelog.json'),
+      // another fallback
+      path.join(__dirname, '..', '..', '..', 'changelog.json'),
+      path.join(__dirname, '..', '..', 'changelog.json'),
+    ];
+
+    let history: any[] = [];
+
+    for (const p of candidatePaths) {
+      try {
+        if (fs.existsSync(p)) {
+          const raw = fs.readFileSync(p, 'utf8');
+          history = JSON.parse(raw).history || [];
+          console.log('[Version] changelog loaded from:', p, '| entries:', history.length);
+          break;
+        }
+      } catch (e: any) {
+        console.warn('[Version] failed to read:', p, e?.message);
+        continue;
+      }
+    }
+
+    if (!history.length) {
+      console.error('[Version] changelog.json not found in any candidate path');
+      candidatePaths.forEach(p => console.log('[Version] tried:', p, '→', fs.existsSync(p)));
+    }
+
+    return {
+      current:                app.getVersion(),
+      history,
+      updateDownloaded:       isUpdateDownloaded(),
+      updateAvailableVersion: getUpdateAvailableVersion(),
+      isPackaged:             app.isPackaged,
+    };
+  });
+  ipcMain.handle('system:downloadUpdate', async () => {
+    if (!app.isPackaged) {
+      return { ok: false, error: 'Auto-update only works in production builds' };
+    }
+    try {
+      await autoUpdater.downloadUpdate();
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, error: e?.message || 'Download failed' };
+    }
+  });
+
+  ipcMain.handle('system:installUpdate', () => {
+    autoUpdater.quitAndInstall(false, true);
+  });
+
+  ipcMain.handle('system:checkForUpdates', async () => {
+    if (!app.isPackaged) {
+      return { ok: false, error: 'Dev mode' };
+    }
+    try {
+      const result = await autoUpdater.checkForUpdates();
+      return { ok: true, hasUpdate: !!result?.updateInfo };
+    } catch (e: any) {
+      return { ok: false, error: e?.message };
+    }
+  });
+}
+
+
+====================================
+FILE: ./Desktop_App_Tracking/app/api/routes/tracking.py
+====================================
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
+from typing import List, Optional
+from uuid import UUID
+
+from app.core.database import get_db
+from app.models.employee import Employee
+from app.schemas.tracking import (
+    ActivityLogCreate, ActivityLogOut, ActivityBatch,
+    WebsiteLogCreate, WebsiteLogOut, WebsiteBatch,
+    KeystrokeCreate, KeystrokeOut,
+    SystemMetricCreate, SystemMetricOut,
+    NetworkSpeedCreate, NetworkSpeedOut,
+)
+from app.services import tracking_service
+from app.api.deps import get_current_employee
+
+router = APIRouter(prefix="/tracking", tags=["Tracking"])
+
+
+# ── Activity ──────────────────────────────────────────────
+@router.post("/activity", response_model=ActivityLogOut)
+def log_activity(
+    payload: ActivityLogCreate,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    record = tracking_service.save_activity(db, current_employee.employee_id, payload)
+    return ActivityLogOut.model_validate(record)
+
+
+@router.post("/activity/batch")
+def log_activity_batch(
+    payload: ActivityBatch,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    count = tracking_service.save_activity_batch(db, current_employee.employee_id, payload.logs)
+    return {"saved": count}
+
+
+@router.get("/activity", response_model=List[ActivityLogOut])
+def get_activity(
+    session_id: Optional[UUID] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    logs = tracking_service.get_activity_logs(
+        db,
+        employee_id=current_employee.employee_id,
+        session_id=session_id,
+        skip=skip,
+        limit=limit,
+    )
+    return [ActivityLogOut.model_validate(l) for l in logs]
+
+
+# ── Website ───────────────────────────────────────────────
+@router.post("/website", response_model=WebsiteLogOut)
+def log_website(
+    payload: WebsiteLogCreate,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    record = tracking_service.save_website(db, current_employee.employee_id, payload)
+    return WebsiteLogOut.model_validate(record)
+
+
+@router.post("/website/batch")
+def log_website_batch(
+    payload: WebsiteBatch,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    count = tracking_service.save_website_batch(db, current_employee.employee_id, payload.logs)
+    return {"saved": count}
+
+
+@router.get("/website", response_model=List[WebsiteLogOut])
+def get_website(
+    session_id: Optional[UUID] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    logs = tracking_service.get_website_logs(
+        db,
+        employee_id=current_employee.employee_id,
+        session_id=session_id,
+        skip=skip,
+        limit=limit,
+    )
+    return [WebsiteLogOut.model_validate(l) for l in logs]
+
+
+# ── Keystrokes ────────────────────────────────────────────
+@router.post("/keystrokes", response_model=KeystrokeOut)
+def log_keystrokes(
+    payload: KeystrokeCreate,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    record = tracking_service.save_keystroke(db, current_employee.employee_id, payload)
+    return KeystrokeOut.model_validate(record)
+
+
+@router.get("/keystrokes", response_model=List[KeystrokeOut])
+def get_keystrokes(
+    session_id: Optional[UUID] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    logs = tracking_service.get_keystroke_logs(
+        db,
+        employee_id=current_employee.employee_id,
+        session_id=session_id,
+        skip=skip,
+        limit=limit,
+    )
+    return [KeystrokeOut.model_validate(l) for l in logs]
+
+
+# ── System Metrics ────────────────────────────────────────
+@router.post("/system-metrics", response_model=SystemMetricOut)
+def log_system_metrics(
+    payload: SystemMetricCreate,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    record = tracking_service.save_system_metric(db, current_employee.employee_id, payload)
+    return SystemMetricOut.model_validate(record)
+
+
+@router.get("/system-metrics", response_model=List[SystemMetricOut])
+def get_system_metrics(
+    session_id: Optional[UUID] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    logs = tracking_service.get_system_metrics(
+        db,
+        employee_id=current_employee.employee_id,
+        session_id=session_id,
+        skip=skip,
+        limit=limit,
+    )
+    return [SystemMetricOut.model_validate(l) for l in logs]
+
+
+# ── Network Speed ─────────────────────────────────────────
+@router.post("/network-speed", response_model=NetworkSpeedOut)
+def log_network_speed(
+    payload: NetworkSpeedCreate,
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    record = tracking_service.save_network_speed(db, current_employee.employee_id, payload)
+    return NetworkSpeedOut.model_validate(record)
+
+
+@router.get("/network-speed", response_model=List[NetworkSpeedOut])
+def get_network_speed(
+    session_id: Optional[UUID] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    logs = tracking_service.get_network_speed_logs(
+        db,
+        employee_id=current_employee.employee_id,
+        session_id=session_id,
+        skip=skip,
+        limit=limit,
+    )
+    return [NetworkSpeedOut.model_validate(l) for l in logs]
+
+
+
+====================================
+FILE: ./Desktop_App_Tracking/app/services/tracking_service.py
+====================================
+import uuid
+from sqlalchemy.orm import Session
+from sqlalchemy import desc
+from typing import List, Optional
+from uuid import UUID
+from datetime import date
+
+from app.models.activity import ActivityLog
+from app.models.website import WebsiteLog
+from app.models.keystroke import Keystroke
+from app.models.system_metrics import SystemMetric
+from app.models.network import NetworkSpeedLog
+from app.schemas.tracking import (
+    ActivityLogCreate,
+    WebsiteLogCreate,
+    KeystrokeCreate,
+    SystemMetricCreate,
+    NetworkSpeedCreate,
+)
+from app.utils.helpers import utcnow
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+# ── Activity ──────────────────────────────────────────────
+def save_activity(db: Session, employee_id: UUID, payload: ActivityLogCreate) -> ActivityLog:
+    record = ActivityLog(
+        id=uuid.uuid4(),
+        session_id=payload.session_id,
+        employee_id=employee_id,
+        app_name=payload.app_name,
+        window_title=payload.window_title,
+        start_time=payload.start_time,
+        end_time=payload.end_time,
+        duration=payload.duration or 0,
+        is_idle=payload.is_idle or False,
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+def save_activity_batch(db: Session, employee_id: UUID, logs: List[ActivityLogCreate]) -> int:
+    records = [
+        ActivityLog(
+            id=uuid.uuid4(),
+            session_id=log.session_id,
+            employee_id=employee_id,
+            app_name=log.app_name,
+            window_title=log.window_title,
+            start_time=log.start_time,
+            end_time=log.end_time,
+            duration=log.duration or 0,
+            is_idle=log.is_idle or False,
+        )
+        for log in logs
+    ]
+    db.add_all(records)
+    db.commit()
+    return len(records)
+
+
+def get_activity_logs(
+    db: Session,
+    employee_id: Optional[UUID] = None,
+    session_id: Optional[UUID] = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> List[ActivityLog]:
+    q = db.query(ActivityLog)
+    if employee_id:
+        q = q.filter(ActivityLog.employee_id == employee_id)
+    if session_id:
+        q = q.filter(ActivityLog.session_id == session_id)
+    return q.order_by(desc(ActivityLog.start_time)).offset(skip).limit(limit).all()
+
+
+# ── Website ───────────────────────────────────────────────
+def save_website(db: Session, employee_id: UUID, payload: WebsiteLogCreate) -> WebsiteLog:
+    record = WebsiteLog(
+        id=uuid.uuid4(),
+        session_id=payload.session_id,
+        employee_id=employee_id,
+        url=payload.url,
+        domain=payload.domain,
+        title=payload.title,
+        duration=payload.duration or 0,
+        timestamp=payload.timestamp or utcnow(),
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+def save_website_batch(db: Session, employee_id: UUID, logs: List[WebsiteLogCreate]) -> int:
+    records = [
+        WebsiteLog(
+            id=uuid.uuid4(),
+            session_id=log.session_id,
+            employee_id=employee_id,
+            url=log.url,
+            domain=log.domain,
+            title=log.title,
+            duration=log.duration or 0,
+            timestamp=log.timestamp or utcnow(),
+        )
+        for log in logs
+    ]
+    db.add_all(records)
+    db.commit()
+    return len(records)
+
+
+def get_website_logs(
+    db: Session,
+    employee_id: Optional[UUID] = None,
+    session_id: Optional[UUID] = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> List[WebsiteLog]:
+    q = db.query(WebsiteLog)
+    if employee_id:
+        q = q.filter(WebsiteLog.employee_id == employee_id)
+    if session_id:
+        q = q.filter(WebsiteLog.session_id == session_id)
+    return q.order_by(desc(WebsiteLog.timestamp)).offset(skip).limit(limit).all()
+
+
+# ── Keystrokes ────────────────────────────────────────────
+def save_keystroke(db: Session, employee_id: UUID, payload: KeystrokeCreate) -> Keystroke:
+    record = Keystroke(
+        id=uuid.uuid4(),
+        session_id=payload.session_id,
+        employee_id=employee_id,
+        keys_pressed_count=payload.keys_pressed_count,
+        raw_keystrokes=payload.raw_keystrokes,
+        timestamp=payload.timestamp or utcnow(),
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+def get_keystroke_logs(
+    db: Session,
+    employee_id: Optional[UUID] = None,
+    session_id: Optional[UUID] = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> List[Keystroke]:
+    q = db.query(Keystroke)
+    if employee_id:
+        q = q.filter(Keystroke.employee_id == employee_id)
+    if session_id:
+        q = q.filter(Keystroke.session_id == session_id)
+    return q.order_by(desc(Keystroke.timestamp)).offset(skip).limit(limit).all()
+
+
+# ── System Metrics ────────────────────────────────────────
+def save_system_metric(db: Session, employee_id: UUID, payload: SystemMetricCreate) -> SystemMetric:
+    record = SystemMetric(
+        id=uuid.uuid4(),
+        session_id=payload.session_id,
+        employee_id=employee_id,
+        cpu_usage=payload.cpu_usage,
+        memory_usage=payload.memory_usage,
+        timestamp=payload.timestamp or utcnow(),
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+def get_system_metrics(
+    db: Session,
+    employee_id: Optional[UUID] = None,
+    session_id: Optional[UUID] = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> List[SystemMetric]:
+    q = db.query(SystemMetric)
+    if employee_id:
+        q = q.filter(SystemMetric.employee_id == employee_id)
+    if session_id:
+        q = q.filter(SystemMetric.session_id == session_id)
+    return q.order_by(desc(SystemMetric.timestamp)).offset(skip).limit(limit).all()
+
+
+# ── Network Speed ─────────────────────────────────────────
+def save_network_speed(db: Session, employee_id: UUID, payload: NetworkSpeedCreate) -> NetworkSpeedLog:
+    record = NetworkSpeedLog(
+        id=uuid.uuid4(),
+        session_id=payload.session_id,
+        employee_id=employee_id,
+        download_speed=payload.download_speed,
+        upload_speed=payload.upload_speed,
+        ping=payload.ping,
+        timestamp=payload.timestamp or utcnow(),
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+def get_network_speed_logs(
+    db: Session,
+    employee_id: Optional[UUID] = None,
+    session_id: Optional[UUID] = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> List[NetworkSpeedLog]:
+    q = db.query(NetworkSpeedLog)
+    if employee_id:
+        q = q.filter(NetworkSpeedLog.employee_id == employee_id)
+    if session_id:
+        q = q.filter(NetworkSpeedLog.session_id == session_id)
+    return q.order_by(desc(NetworkSpeedLog.timestamp)).offset(skip).limit(limit).all()
+
+
+
+====================================
+FILE: ./Desktop_App_Tracking/app/models/activity.py
+====================================
+import uuid
+from sqlalchemy import Column, String, Integer, Boolean, Text, TIMESTAMP, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+from app.utils.helpers import utcnow
+
+
+class ActivityLog(Base):
+    __tablename__ = "activity_logs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.session_id"), nullable=False)
+    employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.employee_id"), nullable=False)
+    app_name = Column(String, nullable=True)
+    window_title = Column(Text, nullable=True)
+    start_time = Column(TIMESTAMP, nullable=True)
+    end_time = Column(TIMESTAMP, nullable=True)
+    duration = Column(Integer, default=0)   # seconds
+    is_idle = Column(Boolean, default=False)
+
+    session = relationship("Session", back_populates="activity_logs")
+    employee = relationship("Employee", back_populates="activity_logs")
+
+
+
+====================================
+FILE: ./Desktop_App_Tracking/app/models/website.py
+====================================
+import uuid
+from sqlalchemy import Column, String, Integer, Text, TIMESTAMP, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+from app.utils.helpers import utcnow
+
+
+class WebsiteLog(Base):
+    __tablename__ = "website_logs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.session_id"), nullable=False)
+    employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.employee_id"), nullable=False)
+    url = Column(Text, nullable=True)
+    domain = Column(String, nullable=True)
+    title = Column(Text, nullable=True)
+    duration = Column(Integer, default=0)   # seconds
+    timestamp = Column(TIMESTAMP, default=utcnow)
+
+    session = relationship("Session", back_populates="website_logs")
+    employee = relationship("Employee", back_populates="website_logs")
+
+
+
+====================================
+FILE: ./Desktop_App_Tracking/app/models/keystroke.py
+====================================
+import uuid
+from sqlalchemy import Column, Integer, Text, TIMESTAMP, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+from app.utils.helpers import utcnow
+
+
+class Keystroke(Base):
+    __tablename__ = "keystrokes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.session_id"), nullable=False)
+    employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.employee_id"), nullable=False)
+    keys_pressed_count = Column(Integer, default=0)
+    raw_keystrokes = Column(Text, nullable=True)
+    timestamp = Column(TIMESTAMP, default=utcnow)
+
+    session = relationship("Session", back_populates="keystrokes")
+    employee = relationship("Employee", back_populates="keystrokes")
+
+
+
+====================================
+FILE: ./Desktop_App_Tracking/app/models/system_metrics.py
+====================================
+import uuid
+from sqlalchemy import Column, Float, TIMESTAMP, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+from app.utils.helpers import utcnow
+
+
+class SystemMetric(Base):
+    __tablename__ = "system_metrics"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.session_id"), nullable=False)
+    employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.employee_id"), nullable=False)
+    cpu_usage = Column(Float, nullable=True)
+    memory_usage = Column(Float, nullable=True)
+    timestamp = Column(TIMESTAMP, default=utcnow)
+
+    session = relationship("Session", back_populates="system_metrics")
+    employee = relationship("Employee", back_populates="system_metrics")
+
+
+
+====================================
+FILE: ./Desktop_App_Tracking/app/models/session.py
+====================================
+import uuid
+from sqlalchemy import Column, String, Integer, Float, Date, TIMESTAMP, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+
+
+class Session(Base):
+    __tablename__ = "sessions"
+
+    session_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.employee_id"), nullable=False)
+    date = Column(Date)
+    clock_in = Column(TIMESTAMP)
+    clock_out = Column(TIMESTAMP, nullable=True)
+    total_active_time = Column(Integer, default=0)   # seconds
+    total_idle_time = Column(Integer, default=0)     # seconds
+    session_status = Column(String, default="active")  # active / completed
+
+    # Captured at clock-in
+    ip_address = Column(String, nullable=True)
+    location = Column(String, nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    city = Column(String, nullable=True)
+    country = Column(String, nullable=True)
+    network_speed_start = Column(Float, nullable=True)
+    last_heartbeat = Column(TIMESTAMP, nullable=True)
+    device_id = Column(String, nullable=True)
+
+    # Relationships
+    employee = relationship("Employee", back_populates="sessions")
+    activity_logs = relationship("ActivityLog", back_populates="session", lazy="dynamic")
+    website_logs = relationship("WebsiteLog", back_populates="session", lazy="dynamic")
+    keystrokes = relationship("Keystroke", back_populates="session", lazy="dynamic")
+    system_metrics = relationship("SystemMetric", back_populates="session", lazy="dynamic")
+    network_speed_logs = relationship("NetworkSpeedLog", back_populates="session", lazy="dynamic")
+    device_info = relationship("DeviceInfo", back_populates="session", lazy="dynamic")
+    network_info = relationship("NetworkInfo", back_populates="session", lazy="dynamic")
+
+
+
+====================================
+FILE: ./Desktop_App_Tracking/app/services/session_service.py
+====================================
+import uuid
+from datetime import date
+from sqlalchemy.orm import Session
+from sqlalchemy import desc
+from typing import Optional, List
+from uuid import UUID
+
+from app.models.session import Session as SessionModel
+from app.models.device import DeviceInfo, Device
+from app.models.network import NetworkInfo
+from app.schemas.session import ClockInRequest, ClockOutRequest
+from app.schemas.device import DeviceInfoCreate, NetworkInfoCreate
+from app.utils.helpers import utcnow
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+def get_active_session(db: Session, employee_id: UUID) -> Optional[SessionModel]:
+    return (
+        db.query(SessionModel)
+        .filter(
+            SessionModel.employee_id == employee_id,
+            SessionModel.session_status == "active",
+        )
+        .first()
+    )
+
+
+def clock_in(db: Session, employee_id: UUID, payload: ClockInRequest) -> SessionModel:
+    # Prevent double clock-in
+    existing = get_active_session(db, employee_id)
+    if existing:
+        logger.info(f"Employee {employee_id} already has active session {existing.session_id}")
+        return existing
+
+    now = utcnow()
+    session = SessionModel(
+        session_id=uuid.uuid4(),
+        employee_id=employee_id,
+        date=date.today(),
+        clock_in=now,
+        session_status="active",
+        ip_address=payload.ip_address,
+        location=payload.location,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+        city=payload.city,
+        country=payload.country,
+        network_speed_start=payload.network_speed_start,
+        device_id=payload.device_id,
+        total_active_time=0,
+        total_idle_time=0,
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    logger.info(f"Clock-in: employee={employee_id} session={session.session_id}")
+    return session
+
+
+def clock_out(db: Session, employee_id: UUID, payload: ClockOutRequest) -> SessionModel:
+    session = (
+        db.query(SessionModel)
+        .filter(
+            SessionModel.session_id == payload.session_id,
+            SessionModel.employee_id == employee_id,
+        )
+        .first()
+    )
+    if not session:
+        raise ValueError("Session not found or does not belong to this employee")
+    if session.session_status == "completed":
+        return session
+
+    session.clock_out = utcnow()
+    session.session_status = "completed"
+    session.total_active_time = payload.total_active_time or 0
+    session.total_idle_time = payload.total_idle_time or 0
+    db.commit()
+    db.refresh(session)
+    logger.info(f"Clock-out: employee={employee_id} session={session.session_id}")
+    return session
+
+
+def save_device_info(db: Session, employee_id: UUID, payload: DeviceInfoCreate) -> DeviceInfo:
+    record = DeviceInfo(
+        id=uuid.uuid4(),
+        session_id=payload.session_id,
+        employee_id=employee_id,
+        device_id=payload.device_id,
+        device_name=payload.device_name,
+        os=payload.os,
+        cpu=payload.cpu,
+        ram=payload.ram,
+        storage_total=payload.storage_total,
+        storage_free=payload.storage_free,
+        captured_at=utcnow(),
+    )
+    db.add(record)
+
+    # Upsert into devices master
+    if payload.device_id:
+        existing_device = db.query(Device).filter(Device.device_id == payload.device_id).first()
+        if existing_device:
+            existing_device.last_seen = utcnow()
+            existing_device.status = "active"
+        else:
+            db.add(
+                Device(
+                    device_id=payload.device_id,
+                    employee_id=employee_id,
+                    device_name=payload.device_name,
+                    os=payload.os,
+                    first_seen=utcnow(),
+                    last_seen=utcnow(),
+                    status="active",
+                )
+            )
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+def save_network_info(db: Session, employee_id: UUID, payload: NetworkInfoCreate) -> NetworkInfo:
+    record = NetworkInfo(
+        id=uuid.uuid4(),
+        session_id=payload.session_id,
+        employee_id=employee_id,
+        ip_address=payload.ip_address,
+        connection_type=payload.connection_type,
+        ssid=payload.ssid,
+        mac_address=payload.mac_address,
+        captured_at=utcnow(),
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+def get_sessions(
+    db: Session,
+    employee_id: Optional[UUID] = None,
+    session_date: Optional[date] = None,
+    status: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 50,
+) -> List[SessionModel]:
+    q = db.query(SessionModel)
+    if employee_id:
+        q = q.filter(SessionModel.employee_id == employee_id)
+    if session_date:
+        q = q.filter(SessionModel.date == session_date)
+    if status:
+        q = q.filter(SessionModel.session_status == status)
+    return q.order_by(desc(SessionModel.clock_in)).offset(skip).limit(limit).all()
+
+
+

@@ -677,7 +677,23 @@ FILE: ./Desktop_App_Tracking/app/schemas/__init__.py
 ====================================
 FILE: ./Desktop_App_Tracking/app/schemas/password.py
 ====================================
+# REPLACE entire file:
 from pydantic import BaseModel, field_validator
+import re
+
+
+def validate_strong_password(v: str) -> str:
+    if len(v) < 8:
+        raise ValueError("Password must be at least 8 characters long")
+    if not re.search(r'[A-Z]', v):
+        raise ValueError("Password must contain at least one uppercase letter")
+    if not re.search(r'[a-z]', v):
+        raise ValueError("Password must contain at least one lowercase letter")
+    if not re.search(r'\d', v):
+        raise ValueError("Password must contain at least one number")
+    if not re.search(r'[!@#$%^&*()_+\-=\[\]{};\':"\\|,.<>\/?]', v):
+        raise ValueError("Password must contain at least one special character (!@#$%^&*...)")
+    return v
 
 
 class PasswordChangeRequest(BaseModel):
@@ -687,9 +703,7 @@ class PasswordChangeRequest(BaseModel):
     @field_validator("new_password")
     @classmethod
     def password_strength(cls, v: str) -> str:
-        if len(v) < 6:
-            raise ValueError("New password must be at least 6 characters")
-        return v
+        return validate_strong_password(v)
 
 
 class AdminPasswordResetRequest(BaseModel):
@@ -698,10 +712,7 @@ class AdminPasswordResetRequest(BaseModel):
     @field_validator("new_password")
     @classmethod
     def password_strength(cls, v: str) -> str:
-        if len(v) < 6:
-            raise ValueError("Password must be at least 6 characters")
-        return v
-
+        return validate_strong_password(v)
 
 
 ====================================
@@ -781,7 +792,8 @@ class DeviceMasterOut(BaseModel):
 FILE: ./Desktop_App_Tracking/app/schemas/employee.py
 ====================================
 # REPLACE entire file:
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
+from app.schemas.password import validate_strong_password
 from typing import Optional
 from uuid import UUID
 from datetime import date, datetime
@@ -798,6 +810,10 @@ class EmployeeCreate(BaseModel):
     date_of_joining: Optional[date] = None
     manager_id: Optional[UUID] = None
 
+    @field_validator("password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        return validate_strong_password(v)
 
 class EmployeeUpdate(BaseModel):
     employee_name: Optional[str] = None
@@ -1361,9 +1377,15 @@ def update_session_totals(
     if not session:
         raise HTTPException(status_code=404, detail="Active session not found")
     if payload.total_active_time is not None:
-        session.total_active_time = payload.total_active_time
+        session.total_active_time = max(
+            session.total_active_time or 0,
+            payload.total_active_time
+        )
     if payload.total_idle_time is not None:
-        session.total_idle_time = payload.total_idle_time
+        session.total_idle_time = max(
+            session.total_idle_time or 0,
+            payload.total_idle_time
+        )
     db.commit()
     return {"ok": True}
 
@@ -4485,12 +4507,20 @@ FILE: ./Desktop_App_electron/changelog.json
 ====================================
 {
   "history": [
-        {
+    {
+      "version": "v1.0.39",
+      "date": "2026-04-07",
+      "changes": [
+        "Strong Password",
+        "Total Time",
+        "Few Known Bugs solved"
+      ]
+    },
+    {
       "version": "v1.0.38",
       "date": "2026-04-03",
       "changes": [
         "Internet off issue solved"
-
       ]
     },
     {
@@ -4866,7 +4896,7 @@ FILE: ./Desktop_App_electron/package.json
 ====================================
 {
   "name": "av-devs-collab",
-  "version": "1.0.38",
+  "version": "1.0.39",
   "description": "Employee Monitoring Desktop App",
   "main": "dist/main/main.js",
   "homepage": "https://avdevs.com",
@@ -5149,7 +5179,7 @@ FILE: ./Desktop_App_electron/src/renderer/login.html
       </button>
 
       <p style="text-align:center; margin-top:20px; font-size:12px; color:var(--text-muted)">
-        AV DEVS Collab System v1.0.38
+        AV DEVS Collab System v1.0.39
       </p>
     </div>
   </div>
@@ -6569,7 +6599,7 @@ FILE: ./Desktop_App_electron/src/renderer/dashboard.html
     </div>
     <div class="form-group" id="emp-password-group">
       <label class="form-label">Password *</label>
-      <input class="form-input" type="password" id="emp-password" placeholder="Min 6 characters" />
+      <input class="form-input" type="password" id="emp-password" placeholder="Min 8 chars, upper, lower, number, symbol" />
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div class="form-group">
@@ -6610,7 +6640,7 @@ FILE: ./Desktop_App_electron/src/renderer/dashboard.html
     <div id="modal-pw-alert" class="alert alert-error hidden"></div>
     <div class="form-group">
       <label class="form-label">New Password *</label>
-      <input class="form-input" type="password" id="new-password" placeholder="Min 6 characters" />
+      <input class="form-input" type="password" id="new-password" placeholder="Min 8 chars, upper, lower, number, symbol" />
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost">Cancel</button>
@@ -6632,7 +6662,7 @@ FILE: ./Desktop_App_electron/src/renderer/dashboard.html
     </div>
     <div class="form-group">
       <label class="form-label">New Password *</label>
-      <input class="form-input" type="password" id="change-pw-new" placeholder="Min 6 characters" />
+      <input class="form-input" type="password" id="change-pw-new" placeholder="Min 8 chars, upper, lower, number, symbol" />
     </div>
     <div class="form-group">
       <label class="form-label">Confirm New Password *</label>
@@ -6670,6 +6700,21 @@ let resetPwEmployeeId = null;
 
 // Shorthand
 function g(id) { return document.getElementById(id); }
+
+
+function validateStrongPassword(pw) {
+  if (pw.length < 8)
+    return 'Password must be at least 8 characters long';
+  if (!/[A-Z]/.test(pw))
+    return 'Password must contain at least one uppercase letter (A-Z)';
+  if (!/[a-z]/.test(pw))
+    return 'Password must contain at least one lowercase letter (a-z)';
+  if (!/\d/.test(pw))
+    return 'Password must contain at least one number (0-9)';
+  if (!/[!@#$%^&*()\-_=+\[\]{};:'",.<>/?\\|`~]/.test(pw))
+    return 'Password must contain at least one special character (!@#$%^&*...)';
+  return null; // valid
+}
 
 // ══════════════════════════════════════════════════════════
 // BOOT
@@ -8668,7 +8713,6 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
             <div class="stat-value" style="font-size:20px;">${avgCpu}</div>
             <div class="stat-sub">%</div>
           </div>
- </div> of stats grid with:
       <div class="stat-card danger">
         <div class="stat-label">Avg Memory</div>
         <div class="stat-value" style="font-size:20px;">${avgMem}</div>
@@ -9671,7 +9715,11 @@ async function saveEmployee() {
 
   if (!name) { showModalAlert('modal-emp-alert', 'Name is required'); return; }
   if (!editingEmployeeId && !email) { showModalAlert('modal-emp-alert', 'Email is required'); return; }
-  if (!editingEmployeeId && !password) { showModalAlert('modal-emp-alert', 'Password is required'); return; }
+    if (!editingEmployeeId && !password) { showModalAlert('modal-emp-alert', 'Password is required'); return; }
+  if (!editingEmployeeId && password) {
+    const pwErr = validateStrongPassword(password);
+    if (pwErr) { showModalAlert('modal-emp-alert', pwErr); return; }
+  }
 
   btn.disabled = true; btn.textContent = 'Saving…';
   try {
@@ -9721,10 +9769,9 @@ function openResetPasswordModal(id) {
 async function confirmReset() {
   const btn = g('btn-confirm-reset');
   const pw = g('new-password').value;
-  if (!pw || pw.length < 6) {
-    showModalAlert('modal-pw-alert', 'Password must be at least 6 characters');
-    return;
-  }
+  if (!pw) { showModalAlert('modal-pw-alert', 'Password is required'); return; }
+  const pwErr = validateStrongPassword(pw);
+  if (pwErr) { showModalAlert('modal-pw-alert', pwErr); return; }
   btn.disabled = true; btn.textContent = 'Resetting…';
   try {
     const r = await api.resetPassword(resetPwEmployeeId, pw);
@@ -9749,7 +9796,9 @@ async function confirmChangePassword() {
   g('modal-change-pw-alert').classList.add('hidden');
 
   if (!current) { showModalAlert('modal-change-pw-alert', 'Current password is required'); return; }
-  if (!newPw || newPw.length < 6) { showModalAlert('modal-change-pw-alert', 'New password must be at least 6 characters'); return; }
+    if (!newPw) { showModalAlert('modal-change-pw-alert', 'New password is required'); return; }
+  const pwErr = validateStrongPassword(newPw);
+  if (pwErr) { showModalAlert('modal-change-pw-alert', pwErr); return; }
   if (newPw !== confirm) { showModalAlert('modal-change-pw-alert', 'Passwords do not match'); return; }
 
   btn.disabled = true; btn.textContent = 'Updating…';
@@ -11115,6 +11164,13 @@ function closeCurrentWindow(now: number): void {
 }
 
 export const activityTracker = {
+  
+
+  seedTotals(active: number, idle: number): void {
+    _totalActive = active;
+    _totalIdle   = idle;
+    console.log(`[ActivityTracker] Seeded from DB — active: ${active}s, idle: ${idle}s`);
+  },
 
   start(): void {
     if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
@@ -11465,9 +11521,15 @@ if (netSpeed.download !== undefined) {
     activityTracker.stop();
     trackingService.stop();
     const totals = activityTracker.getTotals();
-    return sessionService.clockOut(totals.active, totals.idle);
+    const existingSession = sessionService.getActiveSession();
+    // Add already-saved DB totals to current process totals
+    const savedActive = (existingSession as any)?.total_active_time || 0;
+    const savedIdle   = (existingSession as any)?.total_idle_time   || 0;
+    return sessionService.clockOut(
+      savedActive + totals.active,
+      savedIdle   + totals.idle
+    );
   });
-
   ipcMain.handle('session:getActive', async () => {
     const session = await sessionService.fetchActiveSession();
 
@@ -11539,7 +11601,22 @@ if (netSpeed.download !== undefined) {
         return null;
       }
     }
+        if (session && sessionService.getClockInTime()) {
+      sessionService.resumeSession(session);
+      activityTracker.start();
+      trackingService.start();
+    }
 
+    if (session) {
+      sessionService.resumeSession(session);
+      // Seed activity tracker with already-saved DB totals so they aren't lost on restart
+      activityTracker.seedTotals(
+        (session as any).total_active_time || 0,
+        (session as any).total_idle_time   || 0
+      );
+      activityTracker.start();
+      trackingService.start();
+    }
     return session;
   });
   ipcMain.handle('session:getMySessions', async (_e, limit = 200) => {
