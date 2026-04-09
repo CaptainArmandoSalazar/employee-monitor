@@ -1,6 +1,13 @@
 {
   "history": [
     {
+      "version": "v1.0.41",
+      "date": "2026-04-08",
+      "changes": [
+        "Api Calling fail issue solved"
+      ]
+    },
+    {
       "version": "v1.0.40",
       "date": "2026-04-08",
       "changes": [

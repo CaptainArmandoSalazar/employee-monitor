@@ -106,15 +106,23 @@ async fetchActiveSession(): Promise<SessionData | null> {
   } catch { return null; }
 },
 
-  async fetchMySessions(limit = 30): Promise<SessionData[]> {
-    const token = authService.getToken();
-    if (!token) return [];
-    try {
-      const res = await apiService.get<SessionData[]>('/sessions/my', token, { limit: String(limit) });
-      if (res.status === 401) { authService.handleExpiredToken(); return []; }
-      return res.ok ? res.data : [];
-    } catch { return []; }
-  },
+async fetchMySessions(limit = 30): Promise<SessionData[]> {
+  const token = authService.getToken();
+  if (!token) return [];
+  try {
+    const res = await apiService.get<SessionData[]>('/sessions/my', token, { limit: String(limit) });
+    if (res.status === 401) { 
+      // Don't clear token just for My Sessions — could be a transient 401
+      // Only truly expire if getProfile() also fails
+      console.warn('[SessionService] 401 on fetchMySessions — not clearing token');
+      return []; 
+    }
+    return res.ok ? res.data : [];
+  } catch (err) { 
+    console.warn('[SessionService] fetchMySessions failed:', (err as any)?.message);
+    return []; 
+  }
+},
 
   async saveDeviceInfo(sessionId: string, info: Record<string, unknown>): Promise<void> {
     const token = authService.getToken();

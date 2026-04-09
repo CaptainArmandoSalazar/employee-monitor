@@ -422,12 +422,23 @@ async function loadOverview() {
         orgStatsContainer.style.display = '';
         orgStatsContainer.innerHTML = `<div style="padding:20px;text-align:center;"><span class="spinner"></span></div>`;
         try {
-          const [saRes, hrRes, mgrRes, empRes] = await Promise.all([
-            api.listEmployees({ role: 'super_admin', active_only: 'false' }),
-            api.listEmployees({ role: 'hr', active_only: 'false' }),
-            api.listEmployees({ role: 'manager', active_only: 'false' }),
-            api.listEmployees({ role: 'employee', active_only: 'false' }),
-          ]);
+          async function fetchWithRetry(fn, retries = 2) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const r = await fn();
+      if (r && r.ok) return r;
+      if (i < retries) await new Promise(res => setTimeout(res, 1500));
+    } catch { if (i < retries) await new Promise(res => setTimeout(res, 1500)); }
+  }
+  return { ok: false, data: [] };
+}
+
+const [saRes, hrRes, mgrRes, empRes] = await Promise.all([
+  fetchWithRetry(() => api.listEmployees({ role: 'super_admin', active_only: 'false' })),
+  fetchWithRetry(() => api.listEmployees({ role: 'hr', active_only: 'false' })),
+  fetchWithRetry(() => api.listEmployees({ role: 'manager', active_only: 'false' })),
+  fetchWithRetry(() => api.listEmployees({ role: 'employee', active_only: 'false' })),
+]);
 
           const saCount = (saRes && saRes.ok && Array.isArray(saRes.data)) ? saRes.data.length : 0;
           const hrCount = (hrRes && hrRes.ok && Array.isArray(hrRes.data)) ? hrRes.data.length : 0;

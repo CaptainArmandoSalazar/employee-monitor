@@ -77,7 +77,63 @@ async function ensureX11Session(): Promise<void> {
     });
   }
 }
+// ── Mac: Check Accessibility permission ───────────────────
+async function ensureMacAccessibility(): Promise<void> {
+  if (process.platform !== 'darwin') return;
 
+  // Check if we already have permission
+  const { systemPreferences } = require('electron');
+  const hasPermission = systemPreferences.isTrustedAccessibilityClient(false);
+
+  if (!hasPermission) {
+    console.warn('[Setup] Mac accessibility permission missing.');
+
+    const { response } = await dialog.showMessageBox({
+      type: 'warning',
+      title: 'Permission Required',
+      message: 'Employee Monitor needs Accessibility access.',
+      detail: 'Without this, activity tracking will not work.\n\nClick "Open Settings" → unlock the padlock → check "Employee Monitor" in the list.',
+      buttons: ['Open Settings', 'Later (tracking disabled)'],
+      defaultId: 0,
+    });
+
+    if (response === 0) {
+      // This opens System Preferences → Accessibility directly
+      exec('open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"');
+
+      // Prompt accessibility check (shows system dialog)
+      systemPreferences.isTrustedAccessibilityClient(true);
+
+      await dialog.showMessageBox({
+        type: 'info',
+        title: 'Restart Required',
+        message: 'Please grant permission in Settings, then restart Employee Monitor.',
+        buttons: ['Quit & Restart'],
+      });
+
+      app.relaunch();
+      app.quit();
+    }
+  } else {
+    console.log('[Setup] Mac accessibility permission OK.');
+  }
+}
+
+
+// ── Mac: Check Input Monitoring permission ─────────────────
+async function ensureMacInputMonitoring(): Promise<void> {
+  if (process.platform !== 'darwin') return;
+
+  const { systemPreferences } = require('electron');
+
+  // Request microphone as proxy check — input monitoring
+  // is auto-prompted by uiohook when it starts
+  const status = systemPreferences.getMediaAccessStatus('microphone');
+  console.log('[Setup] Mac input monitoring — will be prompted by uiohook on first run.');
+
+  // uiohook-napi handles this automatically on Mac
+  // Just log it for debugging
+}
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) { app.quit(); process.exit(0); }
@@ -86,7 +142,13 @@ app.on('second-instance', () => {
   const win = getMainWindow();
   if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
 });
-
+function setupAutoLaunch(): void {
+  app.setLoginItemSettings({
+    openAtLogin: true,
+    openAsHidden: true,   // starts minimized to tray
+  });
+  console.log('[Setup] Auto-launch enabled.');
+}
 // ── Auto Updater Setup ────────────────────────────────────
 function setupAutoUpdater(): void {
   // Disable auto download — we'll control when to install
@@ -280,8 +342,9 @@ app.whenReady().then(async () => {
   registerIpcHandlers();
 
   // ── Auto-fix Wayland on Linux ─────────────────────────
-  await ensureX11Session();
-
+  await ensureX11Session();          // Linux: fix Wayland
+  await ensureMacAccessibility();    // Mac: accessibility permission
+  setupAutoLaunch();    
   // ── Check for saved session ───────────────────────────
   const savedEmployee = authService.getEmployee();
   const savedToken    = authService.getToken();

@@ -201,10 +201,32 @@ if (netSpeed.download !== undefined) {
   ipcMain.handle('session:getActive', async () => {
     const session = await sessionService.fetchActiveSession();
 
-    if (session) {
+if (session) {
       const existingClockInTime = sessionService.getClockInTime();
 
       if (!existingClockInTime) {
+        // Only treat as orphan if the session is genuinely stale (no heartbeat for 10+ minutes)
+        const lastHb = (session as any).last_heartbeat;
+        const refTime = lastHb || session.clock_in;
+
+        if (refTime) {
+          const refStr = String(refTime);
+          const refISO = refStr.endsWith('Z') || refStr.includes('+') ? refStr : refStr + 'Z';
+          const gapMinutes = (Date.now() - new Date(refISO).getTime()) / 1000 / 60;
+
+          if (gapMinutes < 10) {
+            console.log(`[IPC] Session gap is only ${gapMinutes.toFixed(1)}min — resuming, not clocking out`);
+            sessionService.resumeSession(session);
+            activityTracker.seedTotals(
+              (session as any).total_active_time || 0,
+              (session as any).total_idle_time || 0
+            );
+            activityTracker.start();
+            trackingService.start();
+            return session;
+          }
+        }
+
         console.log('[IPC] Orphan session found on restart — clocking out:', session.session_id);
         try {
           activityTracker.stop();
