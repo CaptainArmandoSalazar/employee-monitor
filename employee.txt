@@ -4510,6 +4510,13 @@ FILE: ./Desktop_App_electron/changelog.json
 {
   "history": [
     {
+      "version": "v1.0.41",
+      "date": "2026-04-08",
+      "changes": [
+        "Api Calling fail issue solved"
+      ]
+    },
+    {
       "version": "v1.0.40",
       "date": "2026-04-08",
       "changes": [
@@ -4905,7 +4912,7 @@ FILE: ./Desktop_App_electron/package.json
 ====================================
 {
   "name": "av-devs-collab",
-  "version": "1.0.40",
+  "version": "1.0.41",
   "description": "Employee Monitoring Desktop App",
   "main": "dist/main/main.js",
   "homepage": "https://avdevs.com",
@@ -5188,7 +5195,7 @@ FILE: ./Desktop_App_electron/src/renderer/login.html
       </button>
 
       <p style="text-align:center; margin-top:20px; font-size:12px; color:var(--text-muted)">
-        AV DEVS Collab System v1.0.40
+        AV DEVS Collab System v1.0.41
       </p>
     </div>
   </div>
@@ -7116,12 +7123,23 @@ async function loadOverview() {
         orgStatsContainer.style.display = '';
         orgStatsContainer.innerHTML = `<div style="padding:20px;text-align:center;"><span class="spinner"></span></div>`;
         try {
-          const [saRes, hrRes, mgrRes, empRes] = await Promise.all([
-            api.listEmployees({ role: 'super_admin', active_only: 'false' }),
-            api.listEmployees({ role: 'hr', active_only: 'false' }),
-            api.listEmployees({ role: 'manager', active_only: 'false' }),
-            api.listEmployees({ role: 'employee', active_only: 'false' }),
-          ]);
+          async function fetchWithRetry(fn, retries = 2) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const r = await fn();
+      if (r && r.ok) return r;
+      if (i < retries) await new Promise(res => setTimeout(res, 1500));
+    } catch { if (i < retries) await new Promise(res => setTimeout(res, 1500)); }
+  }
+  return { ok: false, data: [] };
+}
+
+const [saRes, hrRes, mgrRes, empRes] = await Promise.all([
+  fetchWithRetry(() => api.listEmployees({ role: 'super_admin', active_only: 'false' })),
+  fetchWithRetry(() => api.listEmployees({ role: 'hr', active_only: 'false' })),
+  fetchWithRetry(() => api.listEmployees({ role: 'manager', active_only: 'false' })),
+  fetchWithRetry(() => api.listEmployees({ role: 'employee', active_only: 'false' })),
+]);
 
           const saCount = (saRes && saRes.ok && Array.isArray(saRes.data)) ? saRes.data.length : 0;
           const hrCount = (hrRes && hrRes.ok && Array.isArray(hrRes.data)) ? hrRes.data.length : 0;
@@ -11678,10 +11696,32 @@ if (netSpeed.download !== undefined) {
   ipcMain.handle('session:getActive', async () => {
     const session = await sessionService.fetchActiveSession();
 
-    if (session) {
+if (session) {
       const existingClockInTime = sessionService.getClockInTime();
 
       if (!existingClockInTime) {
+        // Only treat as orphan if the session is genuinely stale (no heartbeat for 10+ minutes)
+        const lastHb = (session as any).last_heartbeat;
+        const refTime = lastHb || session.clock_in;
+
+        if (refTime) {
+          const refStr = String(refTime);
+          const refISO = refStr.endsWith('Z') || refStr.includes('+') ? refStr : refStr + 'Z';
+          const gapMinutes = (Date.now() - new Date(refISO).getTime()) / 1000 / 60;
+
+          if (gapMinutes < 10) {
+            console.log(`[IPC] Session gap is only ${gapMinutes.toFixed(1)}min — resuming, not clocking out`);
+            sessionService.resumeSession(session);
+            activityTracker.seedTotals(
+              (session as any).total_active_time || 0,
+              (session as any).total_idle_time || 0
+            );
+            activityTracker.start();
+            trackingService.start();
+            return session;
+          }
+        }
+
         console.log('[IPC] Orphan session found on restart — clocking out:', session.session_id);
         try {
           activityTracker.stop();
@@ -12244,15 +12284,23 @@ async fetchActiveSession(): Promise<SessionData | null> {
   } catch { return null; }
 },
 
-  async fetchMySessions(limit = 30): Promise<SessionData[]> {
-    const token = authService.getToken();
-    if (!token) return [];
-    try {
-      const res = await apiService.get<SessionData[]>('/sessions/my', token, { limit: String(limit) });
-      if (res.status === 401) { authService.handleExpiredToken(); return []; }
-      return res.ok ? res.data : [];
-    } catch { return []; }
-  },
+async fetchMySessions(limit = 30): Promise<SessionData[]> {
+  const token = authService.getToken();
+  if (!token) return [];
+  try {
+    const res = await apiService.get<SessionData[]>('/sessions/my', token, { limit: String(limit) });
+    if (res.status === 401) { 
+      // Don't clear token just for My Sessions — could be a transient 401
+      // Only truly expire if getProfile() also fails
+      console.warn('[SessionService] 401 on fetchMySessions — not clearing token');
+      return []; 
+    }
+    return res.ok ? res.data : [];
+  } catch (err) { 
+    console.warn('[SessionService] fetchMySessions failed:', (err as any)?.message);
+    return []; 
+  }
+},
 
   async saveDeviceInfo(sessionId: string, info: Record<string, unknown>): Promise<void> {
     const token = authService.getToken();
