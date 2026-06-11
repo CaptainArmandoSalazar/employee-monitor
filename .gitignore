@@ -81,4 +81,6 @@ logs/
 *.suo
 *.ntvs*
 *.njsproj
-*.sln*.txt
+*.sln
+*.txt
+
