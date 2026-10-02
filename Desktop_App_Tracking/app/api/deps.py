@@ -19,10 +19,17 @@ def get_current_employee(
     payload = decode_token(token)
     if not payload:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+
     employee_id = payload.get("sub")
     if not employee_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
-    employee = db.query(Employee).filter(Employee.employee_id == UUID(employee_id)).first()
+
+    try:
+        employee_uuid = UUID(str(employee_id))
+    except (TypeError, ValueError, AttributeError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
+
+    employee = db.query(Employee).filter(Employee.employee_id == employee_uuid).first()
     if not employee or not employee.status:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Employee not found or inactive")
     return employee
@@ -43,13 +50,6 @@ def require_hr_or_above(employee: Employee = Depends(get_current_employee)) -> E
 def require_manager_or_above(employee: Employee = Depends(get_current_employee)) -> Employee:
     if employee.role not in ("super_admin", "hr", "manager"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Manager or above access required")
-    return employee
-
-
-# Keep old name as alias so existing imports don't break during migration
-def require_admin(employee: Employee = Depends(get_current_employee)) -> Employee:
-    if employee.role not in ("super_admin", "hr"):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return employee
 
 

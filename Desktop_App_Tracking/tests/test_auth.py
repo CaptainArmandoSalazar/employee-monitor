@@ -6,7 +6,7 @@ def test_login_success(client):
     assert resp.status_code == 200
     data = resp.json()
     assert "access_token" in data
-    assert data["employee"]["role"] == "admin"
+    assert data["employee"]["role"] == "super_admin"
 
 
 def test_login_wrong_password(client):
@@ -34,3 +34,15 @@ def test_me(client, admin_headers):
 def test_me_no_token(client):
     resp = client.get("/api/v1/auth/me")
     assert resp.status_code == 403  # HTTPBearer returns 403 when header missing
+
+
+def test_me_invalid_uuid_subject(client):
+    from app.core.security import create_access_token
+
+    token = create_access_token({"sub": "not-a-uuid"})
+    resp = client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Invalid token payload"

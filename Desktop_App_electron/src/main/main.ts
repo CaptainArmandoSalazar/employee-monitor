@@ -452,10 +452,14 @@ app.whenReady().then(async () => {
   }
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      const w = createLoginWindow();
-      setMainWindow(w);
+    const win = getMainWindow();
+    if (win) {
+      showMainWindow();
+      return;
     }
+
+    const w = createLoginWindow();
+    setMainWindow(w);
   });
 });
 

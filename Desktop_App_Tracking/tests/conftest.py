@@ -8,7 +8,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base, get_db
+from app.core.config import settings
 from app.main import app
+from app.services.auth_service import seed_default_admin
+from app.core.permissions import seed_permissions
 
 SQLITE_URL = "sqlite:///./test.db"
 
@@ -27,6 +30,13 @@ def override_get_db():
 @pytest.fixture(scope="session", autouse=True)
 def setup_db():
     Base.metadata.create_all(bind=engine_test)
+    db = TestingSessionLocal()
+    try:
+        seed_default_admin(db, settings)
+        seed_permissions(db)
+        db.commit()
+    finally:
+        db.close()
     yield
     Base.metadata.drop_all(bind=engine_test)
 

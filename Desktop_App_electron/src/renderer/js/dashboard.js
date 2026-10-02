@@ -1067,9 +1067,13 @@ async function handleManualUpdateCheck(btn) {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> Checking…';
   btn.style.cursor = 'not-allowed';
+  btn.className = 'btn btn-ghost btn-sm';
 
   try {
-    const result = await api.checkForUpdates();
+    const result = await Promise.race([
+      api.checkForUpdates(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Update check timed out')), 15000))
+    ]);
     const hasUpdate = !!result?.hasUpdate;
 
     if (hasUpdate) {

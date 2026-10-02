@@ -1,6 +1,16 @@
 {
   "history": [
     {
+      "version": "v1.0.48",
+      "date": "2026-10-02",
+      "changes": [
+        "Fixed the app reopening issue when a user was still clocked in and closed the window by accident",
+        "Restored the hidden dashboard/window lifecycle so the app reopens correctly instead of staying stuck behind the tray",
+        "Removed stale legacy admin-role checks and aligned the auth test setup to the actual super_admin role model",
+        "Kept the Linux packaging, backend port fixes, update-check flow, and release metadata aligned for the latest GitHub release"
+      ]
+    },
+    {
       "version": "v1.0.47",
       "date": "2026-10-02",
       "changes": [

@@ -119,7 +119,7 @@ def get_session(
     session = db.query(SessionModel).filter(SessionModel.session_id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    if current_employee.role != "admin" and session.employee_id != current_employee.employee_id:
+    if current_employee.role != "super_admin" and session.employee_id != current_employee.employee_id:
         raise HTTPException(status_code=403, detail="Access denied")
     return SessionOut.model_validate(session)
 
@@ -154,7 +154,7 @@ def get_session_device_info(
     session = db.query(SessionModel).filter(SessionModel.session_id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    if current_employee.role != "admin" and session.employee_id != current_employee.employee_id:
+    if current_employee.role != "super_admin" and session.employee_id != current_employee.employee_id:
         raise HTTPException(status_code=403, detail="Access denied")
     records = db.query(DeviceInfo).filter(DeviceInfo.session_id == session_id).all()
     return [DeviceInfoOut.model_validate(r) for r in records]
@@ -170,7 +170,7 @@ def get_session_network_info(
     session = db.query(SessionModel).filter(SessionModel.session_id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    if current_employee.role != "admin" and session.employee_id != current_employee.employee_id:
+    if current_employee.role != "super_admin" and session.employee_id != current_employee.employee_id:
         raise HTTPException(status_code=403, detail="Access denied")
     records = db.query(NetworkInfo).filter(NetworkInfo.session_id == session_id).all()
     return [NetworkInfoOut.model_validate(r) for r in records]

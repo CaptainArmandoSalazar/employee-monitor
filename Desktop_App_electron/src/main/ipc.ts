@@ -29,6 +29,24 @@ function compareVersions(current: string, target: string): number {
   return 0;
 }
 
+function timeoutPromise<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+
+  return new Promise<T>((resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer!);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer!);
+        reject(error);
+      }
+    );
+  });
+}
+
 // ── Helper: wrap any API call and handle 401 gracefully ──
 async function safeApi<T>(
   call: () => Promise<T>,
@@ -582,7 +600,11 @@ if (session) {
       return { ok: false, error: 'Dev mode' };
     }
     try {
-      const result = await autoUpdater.checkForUpdates();
+      const result = await timeoutPromise(
+        autoUpdater.checkForUpdates(),
+        15000,
+        'Update check timed out'
+      );
       const updateInfo = result?.updateInfo || null;
       const currentVersion = String(app.getVersion()).replace(/^v/i, '');
       const remoteVersion = String(updateInfo?.version || '').replace(/^v/i, '');
@@ -598,7 +620,7 @@ if (session) {
       };
     } catch (e: any) {
       setUpdateAvailableVersion(null);
-      return { ok: false, error: e?.message };
+      return { ok: false, error: e?.message || 'Update check failed' };
     }
   });
 }
