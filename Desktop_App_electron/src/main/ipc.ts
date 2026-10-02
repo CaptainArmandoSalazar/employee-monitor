@@ -6,8 +6,16 @@ import { trackingService } from './services/tracking.service';
 import { activityTracker } from './system/activity';
 import { getDeviceInfo } from './system/metrics';
 import { getNetworkInfo, getGeoInfo, getNetworkSpeed } from './system/network';
-import { createLoginWindow, createDashboardWindow, closeAllWindows, setMainWindow } from './window';
-import { isUpdateDownloaded, getUpdateAvailableVersion, setUpdateAvailableVersion, setUpdateDownloaded } from './main';
+import { createLoginWindow, createDashboardWindow, closeAllWindows, setMainWindow, setQuitting } from './window';
+import {
+  isUpdateDownloaded,
+  isUpdateDownloading,
+  getUpdateAvailableVersion,
+  setUpdateAvailableVersion,
+  setUpdateDownloaded,
+  setUpdateDownloading,
+  setInstallingUpdate,
+} from './main';
 import { apiService } from './services/api.service';
 
 function compareVersions(current: string, target: string): number {
@@ -573,6 +581,7 @@ if (session) {
       current:                app.getVersion(),
       history,
       updateDownloaded:       isUpdateDownloaded(),
+      updateDownloading:      isUpdateDownloading(),
       updateAvailableVersion: getUpdateAvailableVersion(),
       isPackaged:             app.isPackaged,
     };
@@ -583,15 +592,19 @@ if (session) {
     }
     try {
       setUpdateDownloaded(false);
+      setUpdateDownloading(true);
       await autoUpdater.downloadUpdate();
       return { ok: true };
     } catch (e: any) {
       setUpdateDownloaded(false);
+      setUpdateDownloading(false);
       return { ok: false, error: e?.message || 'Download failed' };
     }
   });
 
   ipcMain.handle('system:installUpdate', () => {
+    setInstallingUpdate(true);
+    setQuitting(true);
     autoUpdater.quitAndInstall(false, true);
   });
 
@@ -611,6 +624,7 @@ if (session) {
       const hasUpdate = !!updateInfo && compareVersions(currentVersion, remoteVersion) < 0;
 
       setUpdateAvailableVersion(hasUpdate ? updateInfo.version : null);
+      setUpdateDownloading(false);
 
       return {
         ok: true,
@@ -620,6 +634,7 @@ if (session) {
       };
     } catch (e: any) {
       setUpdateAvailableVersion(null);
+      setUpdateDownloading(false);
       return { ok: false, error: e?.message || 'Update check failed' };
     }
   });

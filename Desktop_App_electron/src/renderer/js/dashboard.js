@@ -941,6 +941,7 @@ async function loadSettings() {
       ? info.updateAvailableVersion
       : (latest.version || '').replace('v', '');
     const isOutdated = latestClean && current !== latestClean;
+    const isDownloading = !!info.updateDownloading;
 
     // ── CARD VIEW (default) ────────────────────────────────
     container.innerHTML = `
@@ -980,12 +981,14 @@ async function loadSettings() {
               background:rgba(245,158,11,.15);border:1px solid var(--warning);
                 border-radius:var(--radius);padding:8px 14px;text-align:center;
               ">
-                <div style="font-size:10px;color:var(--warning);font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Update Available</div>
+                <div style="font-size:10px;color:var(--warning);font-weight:700;text-transform:uppercase;letter-spacing:.06em;">${isDownloading ? 'Downloading' : 'Update Available'}</div>
                 <div style="font-size:15px;font-weight:700;font-family:var(--font-mono);color:var(--text-primary);margin-top:2px;">v${esc(latestClean)}</div>
                 <div style="margin-top:8px;">
                   ${info.updateDownloaded
           ? `<button id="btn-install-now-card" class="btn btn-success btn-sm" style="width:100%;">⚡ Install Now</button>`
-          : `<button id="btn-download-card" class="btn btn-primary btn-sm" style="width:100%;">⬇ Download</button>`
+          : isDownloading
+            ? `<button id="btn-download-card" class="btn btn-ghost btn-sm" style="width:100%;" disabled>⏳ Downloading…</button>`
+            : `<button id="btn-download-card" class="btn btn-primary btn-sm" style="width:100%;">⬇ Download</button>`
         }
                 </div>
               </div>
@@ -1426,24 +1429,36 @@ async function handleDownloadUpdate(btn) {
   try {
     const r = await api.downloadUpdate();
     if (r && r.ok) {
-      btn.innerHTML = '✅ Downloaded — preparing install';
+      btn.innerHTML = '⏳ Downloading…';
       btn.disabled = true;
       btn.style.cursor = 'default';
-      btn.className = 'btn btn-success btn-sm';
+      btn.className = 'btn btn-ghost btn-sm';
       btn.style.width = '100%';
 
-      setTimeout(async () => {
-        const refreshed = await api.getAppVersion();
-        if (refreshed?.updateDownloaded) {
-          loadSettings();
-          return;
+      const pollDownloadState = async () => {
+        try {
+          const refreshed = await api.getAppVersion();
+          if (refreshed?.updateDownloaded) {
+            loadSettings();
+            return;
+          }
+          if (refreshed?.updateDownloading) {
+            loadSettings();
+            setTimeout(pollDownloadState, 1000);
+            return;
+          }
+        } catch (e) {
+          console.warn('[Settings] update-state poll failed:', e);
         }
 
         btn.innerHTML = '⚡ Install & Restart';
         btn.disabled = false;
         btn.style.cursor = 'pointer';
+        btn.className = 'btn btn-success btn-sm';
         btn.onclick = () => api.installUpdate();
-      }, 1200);
+      };
+
+      setTimeout(pollDownloadState, 1200);
     } else {
       btn.innerHTML = '❌ ' + (r?.error || 'Failed');
       btn.disabled = false;

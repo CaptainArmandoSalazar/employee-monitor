@@ -171,6 +171,7 @@ function setupAutoUpdater(): void {
     console.log('[Updater] Update available:', info.version);
     _updateAvailableVersion = info.version;
     _updateDownloaded = false;
+    _updateDownloading = false;
     const win = getMainWindow();
     if (!win) return;
 
@@ -192,11 +193,15 @@ function setupAutoUpdater(): void {
   // ── No update ──────────────────────────────────────────
   autoUpdater.on('update-not-available', () => {
     _updateAvailableVersion = null;
+    _updateDownloaded = false;
+    _updateDownloading = false;
     console.log('[Updater] App is up to date.');
   });
 
   // ── Download progress ──────────────────────────────────
   autoUpdater.on('download-progress', (progress) => {
+    _updateDownloading = true;
+    _updateDownloaded = false;
     const win = getMainWindow();
     if (win) {
       win.setProgressBar(progress.percent / 100);
@@ -207,6 +212,7 @@ function setupAutoUpdater(): void {
 
   // ── Downloaded — ready to install ─────────────────────
   autoUpdater.on('update-downloaded', (info) => {
+    _updateDownloading = false;
     _updateDownloaded = true;
     console.log('[Updater] Update downloaded:', info.version);
     const win = getMainWindow();
@@ -237,6 +243,7 @@ function setupAutoUpdater(): void {
 
   // ── Error ──────────────────────────────────────────────
   autoUpdater.on('error', (err) => {
+    _updateDownloading = false;
     console.error('[Updater] Error:', err?.message || err);
     // Don't show dialog for update errors — just log silently
   });
@@ -259,16 +266,25 @@ function setupAutoUpdater(): void {
 // ── Force clock-out ───────────────────────────────────────
 let _clockOutDone = false;
 let _updateDownloaded = false;
+let _updateDownloading = false;
 let _updateAvailableVersion: string | null = null;
+let _installingUpdate = false;
 
 // Export so ipc.ts can check it
 export function isUpdateDownloaded(): boolean { return _updateDownloaded; }
+export function isUpdateDownloading(): boolean { return _updateDownloading; }
 export function getUpdateAvailableVersion(): string | null { return _updateAvailableVersion; }
 export function setUpdateDownloaded(value: boolean): void {
   _updateDownloaded = value;
 }
+export function setUpdateDownloading(value: boolean): void {
+  _updateDownloading = value;
+}
 export function setUpdateAvailableVersion(version: string | null): void {
   _updateAvailableVersion = version;
+}
+export function setInstallingUpdate(value: boolean): void {
+  _installingUpdate = value;
 }
 
 async function forceClockOut(): Promise<void> {
@@ -466,6 +482,7 @@ app.whenReady().then(async () => {
 // ── X button / app.quit() ────────────────────────────────
 app.on('before-quit', (event) => {
   setQuitting(true);   // lets windows close for real from now on
+  if (_installingUpdate) return;
   if (_exiting || _clockOutDone || !sessionService.isClocked()) return;
   event.preventDefault();
   handleExit(0);
@@ -473,6 +490,10 @@ app.on('before-quit', (event) => {
 // ── All windows closed ────────────────────────────────────
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
+    if (_installingUpdate) {
+      app.quit();
+      return;
+    }
     if (sessionService.isClocked() && !_clockOutDone) {
       handleExit(0);
     } else {
