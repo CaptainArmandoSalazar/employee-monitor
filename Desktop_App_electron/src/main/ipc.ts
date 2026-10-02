@@ -7,8 +7,27 @@ import { activityTracker } from './system/activity';
 import { getDeviceInfo } from './system/metrics';
 import { getNetworkInfo, getGeoInfo, getNetworkSpeed } from './system/network';
 import { createLoginWindow, createDashboardWindow, closeAllWindows, setMainWindow } from './window';
-import { isUpdateDownloaded, getUpdateAvailableVersion, setUpdateAvailableVersion } from './main';
+import { isUpdateDownloaded, getUpdateAvailableVersion, setUpdateAvailableVersion, setUpdateDownloaded } from './main';
 import { apiService } from './services/api.service';
+
+function compareVersions(current: string, target: string): number {
+  const toParts = (value: string): number[] => {
+    const clean = String(value || '0').replace(/^[vV]/, '').replace(/[^0-9.]/g, '');
+    const parts = clean.split('.').filter(Boolean).map(p => Number.parseInt(p, 10) || 0);
+    while (parts.length < 3) parts.push(0);
+    return parts;
+  };
+
+  const a = toParts(current);
+  const b = toParts(target);
+
+  for (let i = 0; i < 3; i += 1) {
+    if (a[i] > b[i]) return 1;
+    if (a[i] < b[i]) return -1;
+  }
+
+  return 0;
+}
 
 // ── Helper: wrap any API call and handle 401 gracefully ──
 async function safeApi<T>(
@@ -545,9 +564,11 @@ if (session) {
       return { ok: false, error: 'Auto-update only works in production builds' };
     }
     try {
+      setUpdateDownloaded(false);
       await autoUpdater.downloadUpdate();
       return { ok: true };
     } catch (e: any) {
+      setUpdateDownloaded(false);
       return { ok: false, error: e?.message || 'Download failed' };
     }
   });
@@ -563,12 +584,17 @@ if (session) {
     try {
       const result = await autoUpdater.checkForUpdates();
       const updateInfo = result?.updateInfo || null;
-      setUpdateAvailableVersion(updateInfo?.version || null);
+      const currentVersion = String(app.getVersion()).replace(/^v/i, '');
+      const remoteVersion = String(updateInfo?.version || '').replace(/^v/i, '');
+      const hasUpdate = !!updateInfo && compareVersions(currentVersion, remoteVersion) < 0;
+
+      setUpdateAvailableVersion(hasUpdate ? updateInfo.version : null);
+
       return {
         ok: true,
-        hasUpdate: !!updateInfo,
+        hasUpdate,
         version: updateInfo?.version || null,
-        currentVersion: app.getVersion(),
+        currentVersion,
       };
     } catch (e: any) {
       setUpdateAvailableVersion(null);

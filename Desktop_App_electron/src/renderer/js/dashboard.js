@@ -1422,12 +1422,24 @@ async function handleDownloadUpdate(btn) {
   try {
     const r = await api.downloadUpdate();
     if (r && r.ok) {
-      btn.innerHTML = '⚡ Install & Restart';
-      btn.disabled = false;
-      btn.style.cursor = 'pointer';
+      btn.innerHTML = '✅ Downloaded — preparing install';
+      btn.disabled = true;
+      btn.style.cursor = 'default';
       btn.className = 'btn btn-success btn-sm';
       btn.style.width = '100%';
-      btn.onclick = () => api.installUpdate();
+
+      setTimeout(async () => {
+        const refreshed = await api.getAppVersion();
+        if (refreshed?.updateDownloaded) {
+          loadSettings();
+          return;
+        }
+
+        btn.innerHTML = '⚡ Install & Restart';
+        btn.disabled = false;
+        btn.style.cursor = 'pointer';
+        btn.onclick = () => api.installUpdate();
+      }, 1200);
     } else {
       btn.innerHTML = '❌ ' + (r?.error || 'Failed');
       btn.disabled = false;

@@ -170,6 +170,7 @@ function setupAutoUpdater(): void {
   autoUpdater.on('update-available', (info) => {
     console.log('[Updater] Update available:', info.version);
     _updateAvailableVersion = info.version;
+    _updateDownloaded = false;
     const win = getMainWindow();
     if (!win) return;
 
@@ -206,7 +207,7 @@ function setupAutoUpdater(): void {
 
   // ── Downloaded — ready to install ─────────────────────
   autoUpdater.on('update-downloaded', (info) => {
-    _updateDownloaded = true;  // ← ADD THIS
+    _updateDownloaded = true;
     console.log('[Updater] Update downloaded:', info.version);
     const win = getMainWindow();
 
@@ -263,6 +264,9 @@ let _updateAvailableVersion: string | null = null;
 // Export so ipc.ts can check it
 export function isUpdateDownloaded(): boolean { return _updateDownloaded; }
 export function getUpdateAvailableVersion(): string | null { return _updateAvailableVersion; }
+export function setUpdateDownloaded(value: boolean): void {
+  _updateDownloaded = value;
+}
 export function setUpdateAvailableVersion(version: string | null): void {
   _updateAvailableVersion = version;
 }

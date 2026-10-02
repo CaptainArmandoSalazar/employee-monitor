@@ -1,6 +1,16 @@
 {
   "history": [
     {
+      "version": "v1.0.47",
+      "date": "2026-10-02",
+      "changes": [
+        "Updated the app version and release notes to the latest 1.0.47 build",
+        "Confirmed the manual Check for Updates flow only shows Download Update when a newer GitHub release actually exists",
+        "Kept the updater state aligned with the current installed version to avoid stale download prompts",
+        "Preserved the Linux packaging, backend port fix, and release automation improvements from the earlier releases"
+      ]
+    },
+    {
       "version": "v1.0.46",
       "date": "2026-10-02",
       "changes": [
