@@ -1,6 +1,16 @@
 {
   "history": [
     {
+      "version": "v1.0.45",
+      "date": "2026-10-02",
+      "changes": [
+        "Added a manual Check for Updates button in the Settings section for quick version validation",
+        "Improved the updater flow so it clearly shows Download Update when a newer release is available and Already latest version when it is not",
+        "Kept the 30-minute auto-check behavior active while allowing users to trigger an immediate version refresh manually",
+        "Maintained the Linux packaging and release fixes from the previous versions"
+      ]
+    },
+    {
       "version": "v1.0.44",
       "date": "2026-10-02",
       "changes": [

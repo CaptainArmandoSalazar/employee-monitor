@@ -998,6 +998,9 @@ async function loadSettings() {
                 <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-top:2px;">✅ Up to date</div>
               </div>
               `}
+              <button id="btn-check-updates" class="btn btn-ghost btn-sm" style="min-width:190px;">
+                🔄 Check for Updates
+              </button>
               <div style="font-size:11px;color:var(--accent);display:flex;align-items:center;gap:4px;">
                 View full changelog <span style="font-size:14px;">→</span>
               </div>
@@ -1045,8 +1048,47 @@ async function loadSettings() {
       api.installUpdate();
     });
 
+    const checkUpdatesBtn = g('btn-check-updates');
+    if (checkUpdatesBtn) {
+      checkUpdatesBtn.addEventListener('click', () => handleManualUpdateCheck(checkUpdatesBtn));
+    }
+
   } catch (e) {
     container.innerHTML = `<p class="text-muted" style="padding:20px;">Error loading version info: ${esc(e.message)}</p>`;
+  }
+}
+
+async function handleManualUpdateCheck(btn) {
+  if (!btn) return;
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Checking…';
+  btn.style.cursor = 'not-allowed';
+
+  try {
+    const result = await api.checkForUpdates();
+    const hasUpdate = !!result?.hasUpdate;
+
+    if (hasUpdate) {
+      btn.className = 'btn btn-primary btn-sm';
+      btn.innerHTML = '⬇ Download Update';
+      btn.disabled = false;
+      btn.style.cursor = 'pointer';
+      btn.onclick = () => handleDownloadUpdate(btn);
+      return;
+    }
+
+    btn.className = 'btn btn-success btn-sm';
+    btn.innerHTML = '✅ Already latest version';
+    btn.disabled = true;
+    btn.style.cursor = 'default';
+    btn.onclick = null;
+  } catch (e) {
+    btn.className = 'btn btn-danger btn-sm';
+    btn.innerHTML = '❌ Check failed';
+    btn.disabled = false;
+    btn.style.cursor = 'pointer';
+    btn.onclick = () => handleManualUpdateCheck(btn);
   }
 }
 

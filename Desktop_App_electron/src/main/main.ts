@@ -190,6 +190,7 @@ function setupAutoUpdater(): void {
 
   // ── No update ──────────────────────────────────────────
   autoUpdater.on('update-not-available', () => {
+    _updateAvailableVersion = null;
     console.log('[Updater] App is up to date.');
   });
 
@@ -262,6 +263,9 @@ let _updateAvailableVersion: string | null = null;
 // Export so ipc.ts can check it
 export function isUpdateDownloaded(): boolean { return _updateDownloaded; }
 export function getUpdateAvailableVersion(): string | null { return _updateAvailableVersion; }
+export function setUpdateAvailableVersion(version: string | null): void {
+  _updateAvailableVersion = version;
+}
 
 async function forceClockOut(): Promise<void> {
   if (_clockOutDone) return;

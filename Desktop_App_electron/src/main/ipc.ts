@@ -7,7 +7,7 @@ import { activityTracker } from './system/activity';
 import { getDeviceInfo } from './system/metrics';
 import { getNetworkInfo, getGeoInfo, getNetworkSpeed } from './system/network';
 import { createLoginWindow, createDashboardWindow, closeAllWindows, setMainWindow } from './window';
-import { isUpdateDownloaded, getUpdateAvailableVersion } from './main';
+import { isUpdateDownloaded, getUpdateAvailableVersion, setUpdateAvailableVersion } from './main';
 import { apiService } from './services/api.service';
 
 // ── Helper: wrap any API call and handle 401 gracefully ──
@@ -562,8 +562,16 @@ if (session) {
     }
     try {
       const result = await autoUpdater.checkForUpdates();
-      return { ok: true, hasUpdate: !!result?.updateInfo };
+      const updateInfo = result?.updateInfo || null;
+      setUpdateAvailableVersion(updateInfo?.version || null);
+      return {
+        ok: true,
+        hasUpdate: !!updateInfo,
+        version: updateInfo?.version || null,
+        currentVersion: app.getVersion(),
+      };
     } catch (e: any) {
+      setUpdateAvailableVersion(null);
       return { ok: false, error: e?.message };
     }
   });
