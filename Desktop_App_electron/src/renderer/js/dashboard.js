@@ -1050,7 +1050,10 @@ async function loadSettings() {
 
     const checkUpdatesBtn = g('btn-check-updates');
     if (checkUpdatesBtn) {
-      checkUpdatesBtn.addEventListener('click', () => handleManualUpdateCheck(checkUpdatesBtn));
+      checkUpdatesBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handleManualUpdateCheck(checkUpdatesBtn);
+      });
     }
 
   } catch (e) {
