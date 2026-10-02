@@ -1,6 +1,16 @@
 {
   "history": [
     {
+      "version": "v1.0.46",
+      "date": "2026-10-02",
+      "changes": [
+        "Fixed the duplicate release upload problem by aligning the app version with the tag release flow",
+        "Corrected the Settings update-check button so it no longer opens the changelog page by mistake",
+        "Kept the manual Check for Updates action and the 30-minute background updater behavior intact",
+        "Preserved the previous Linux packaging and updater fixes from the 1.0.45 release"
+      ]
+    },
+    {
       "version": "v1.0.45",
       "date": "2026-10-02",
       "changes": [

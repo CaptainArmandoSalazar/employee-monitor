@@ -79,7 +79,17 @@ jobs:
                 "https://api.github.com/repos/$REPO_SLUG/assets/$ASSET_ID"
             done
 
-            sleep 8
+            ASSETS_JSON_AFTER=$(curl -sS \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO_SLUG/releases/$RELEASE_ID/assets?per_page=100")
+
+            if echo "$ASSETS_JSON_AFTER" | jq -e ".[] | select(.name == \"$FILENAME\")" >/dev/null 2>&1; then
+              echo "⚠️ Asset $FILENAME still exists after delete; skipping duplicate upload to avoid GitHub 422."
+              return 0
+            fi
+
+            sleep 4
 
             echo "⬆️ Uploading $FILENAME..."
             HTTP_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
@@ -209,7 +219,17 @@ jobs:
                 "https://api.github.com/repos/$REPO_SLUG/assets/$ASSET_ID"
             done
 
-            sleep 8
+            ASSETS_JSON_AFTER=$(curl -sS \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO_SLUG/releases/$RELEASE_ID/assets?per_page=100")
+
+            if echo "$ASSETS_JSON_AFTER" | jq -e ".[] | select(.name == \"$FILENAME\")" >/dev/null 2>&1; then
+              echo "⚠️ Asset $FILENAME still exists after delete; skipping duplicate upload to avoid GitHub 422."
+              return 0
+            fi
+
+            sleep 4
 
             echo "⬆️ Uploading $FILENAME..."
             HTTP_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
@@ -323,7 +343,17 @@ jobs:
                 "https://api.github.com/repos/$REPO_SLUG/assets/$ASSET_ID"
             done
 
-            sleep 8
+            ASSETS_JSON_AFTER=$(curl -sS \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO_SLUG/releases/$RELEASE_ID/assets?per_page=100")
+
+            if echo "$ASSETS_JSON_AFTER" | jq -e ".[] | select(.name == \"$FILENAME\")" >/dev/null 2>&1; then
+              echo "⚠️ Asset $FILENAME still exists after delete; skipping duplicate upload to avoid GitHub 422."
+              return 0
+            fi
+
+            sleep 4
 
             echo "⬆️ Uploading $FILENAME..."
             HTTP_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
