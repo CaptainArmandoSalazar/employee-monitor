@@ -1,11 +1,21 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from typing import Optional, List
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 
+
+class UtcModel(BaseModel):
+    """Turns any timezone-aware datetime into plain UTC so every row is stored the same way."""
+
+    @model_validator(mode="after")
+    def _to_naive_utc(self):
+        for name, value in list(self.__dict__.items()):
+            if isinstance(value, datetime) and value.tzinfo is not None:
+                setattr(self, name, value.astimezone(timezone.utc).replace(tzinfo=None))
+        return self
 
 # ── Activity ──────────────────────────────────────────────
-class ActivityLogCreate(BaseModel):
+class ActivityLogCreate(UtcModel):
     session_id: UUID
     app_name: Optional[str] = None
     window_title: Optional[str] = None
@@ -31,7 +41,7 @@ class ActivityLogOut(BaseModel):
 
 
 # ── Website ───────────────────────────────────────────────
-class WebsiteLogCreate(BaseModel):
+class WebsiteLogCreate(UtcModel):
     session_id: UUID
     url: Optional[str] = None
     domain: Optional[str] = None
@@ -55,7 +65,7 @@ class WebsiteLogOut(BaseModel):
 
 
 # ── Keystrokes ────────────────────────────────────────────
-class KeystrokeCreate(BaseModel):
+class KeystrokeCreate(UtcModel):
     session_id: UUID
     keys_pressed_count: int = 0
     raw_keystrokes: Optional[str] = None
@@ -75,7 +85,7 @@ class KeystrokeOut(BaseModel):
 
 
 # ── System Metrics ────────────────────────────────────────
-class SystemMetricCreate(BaseModel):
+class SystemMetricCreate(UtcModel):
     session_id: UUID
     cpu_usage: Optional[float] = None
     memory_usage: Optional[float] = None
@@ -95,7 +105,7 @@ class SystemMetricOut(BaseModel):
 
 
 # ── Network Speed ─────────────────────────────────────────
-class NetworkSpeedCreate(BaseModel):
+class NetworkSpeedCreate(UtcModel):
     session_id: UUID
     download_speed: Optional[float] = None
     upload_speed: Optional[float] = None

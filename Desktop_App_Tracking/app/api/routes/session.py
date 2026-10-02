@@ -11,7 +11,9 @@ from app.models.network import NetworkInfo
 from app.schemas.session import ClockInRequest, ClockOutRequest, SessionOut
 from app.schemas.device import DeviceInfoCreate, DeviceInfoOut, NetworkInfoCreate, NetworkInfoOut
 from app.services import session_service
-from app.api.deps import get_current_employee, require_admin
+from sqlalchemy import desc
+from app.api.deps import get_current_employee, require_permission
+from app.services.access_service import scope_condition
 from app.utils.helpers import utcnow
 
 router = APIRouter(prefix="/sessions", tags=["Sessions"])
@@ -93,16 +95,17 @@ def list_all_sessions(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-    _: Employee = Depends(require_admin),
+    current: Employee = Depends(require_permission("session.view")),
 ):
-    sessions = session_service.get_sessions(
-        db,
-        employee_id=employee_id,
-        session_date=session_date,
-        status=status,
-        skip=skip,
-        limit=limit,
-    )
+    from app.models.session import Session as SessionModel
+    q = db.query(SessionModel).filter(scope_condition(current, SessionModel.employee_id))
+    if employee_id:
+        q = q.filter(SessionModel.employee_id == employee_id)
+    if session_date:
+        q = q.filter(SessionModel.date == session_date)
+    if status:
+        q = q.filter(SessionModel.session_status == status)
+    sessions = q.order_by(desc(SessionModel.clock_in)).offset(skip).limit(limit).all()
     return [SessionOut.model_validate(s) for s in sessions]
 
 

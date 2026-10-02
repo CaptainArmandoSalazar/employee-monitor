@@ -14,6 +14,7 @@ from app.core.middleware import RequestLoggingMiddleware
 from app.models import (  # noqa: F401
     employee, session, device, network,
     activity, system_metrics, keystroke, website,
+    permission,
 )
 
 from app.api.routes import (
@@ -22,8 +23,10 @@ from app.api.routes import (
     session as session_router,
     tracking,
     admin,
+    permissions as permissions_router,
 )
 from app.services.auth_service import seed_default_admin
+from app.core.permissions import seed_permissions
 from app.workers.background_tasks import run_background_tasks
 from app.utils.logger import get_logger
 
@@ -47,6 +50,7 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         seed_default_admin(db, settings)
+        seed_permissions(db)
     finally:
         db.close()
 
@@ -112,6 +116,7 @@ app.include_router(emp_router.router,           prefix=PREFIX)
 app.include_router(session_router.router,       prefix=PREFIX)
 app.include_router(tracking.router,             prefix=PREFIX)
 app.include_router(admin.router,                prefix=PREFIX)
+app.include_router(permissions_router.router,   prefix=PREFIX)
 
 
 # ── Health ─────────────────────────────────────────────────

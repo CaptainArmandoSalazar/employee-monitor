@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     DEFAULT_ADMIN_NAME: str = "Super Admin"
     DEFAULT_ADMIN_DEPARTMENT: str = "IT"
 
+    APP_TIMEZONE: str = "Asia/Kolkata"   # used to decide which calendar day a session belongs to
+
     class Config:
         env_file = ".env"
         extra = "ignore"

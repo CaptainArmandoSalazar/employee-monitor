@@ -119,13 +119,15 @@ def create_employee(
 
 def update_employee(db: Session, employee_id: UUID, payload: EmployeeUpdate) -> Employee:
     emp = get_by_id(db, employee_id)
-    for field, value in payload.model_dump(exclude_none=True).items():
+    # exclude_unset lets the app clear the manager (manager_id = null) on purpose
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        if value is None and field != "manager_id":
+            continue
         setattr(emp, field, value)
     db.commit()
     db.refresh(emp)
     logger.info(f"Updated employee {emp.email}")
     return emp
-
 
 def change_password(db: Session, employee_id: UUID, new_password: str) -> None:
     emp = get_by_id(db, employee_id)

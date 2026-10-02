@@ -26,7 +26,7 @@ pipelines:
                 - apt-get install -y curl jq
                 - VERSION=$(node -p "require('./package.json').version")
                 - GITHUB_OWNER="CaptainArmandoSalazar"
-                - GITHUB_REPO="employee-monitor-releases"
+                - GITHUB_REPO="employee-monitor"
                 - GITHUB_TOKEN=$GH_TOKEN
                 - echo "Creating GitHub release v$VERSION..."
                 - |
@@ -82,7 +82,7 @@ pipelines:
                 # ── Upload to GitHub Releases ──────────────
                 - VERSION=$(node -p "require('./package.json').version")
                 - GITHUB_OWNER="CaptainArmandoSalazar"
-                - GITHUB_REPO="employee-monitor-releases"
+                - GITHUB_REPO="employee-monitor"
                 - GITHUB_TOKEN=$GH_TOKEN
                 - echo "Creating/finding GitHub release v$VERSION..."
                 - |

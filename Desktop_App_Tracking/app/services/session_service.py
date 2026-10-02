@@ -10,7 +10,7 @@ from app.models.device import DeviceInfo, Device
 from app.models.network import NetworkInfo
 from app.schemas.session import ClockInRequest, ClockOutRequest
 from app.schemas.device import DeviceInfoCreate, NetworkInfoCreate
-from app.utils.helpers import utcnow
+from app.utils.helpers import utcnow, local_today
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -38,7 +38,7 @@ def clock_in(db: Session, employee_id: UUID, payload: ClockInRequest) -> Session
     session = SessionModel(
         session_id=uuid.uuid4(),
         employee_id=employee_id,
-        date=date.today(),
+        date=local_today(),
         clock_in=now,
         session_status="active",
         ip_address=payload.ip_address,

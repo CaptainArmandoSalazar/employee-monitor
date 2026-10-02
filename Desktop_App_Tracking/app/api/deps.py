@@ -7,7 +7,7 @@ from uuid import UUID
 from app.core.database import get_db
 from app.core.security import decode_token
 from app.models.employee import Employee
-
+from app.core.permissions import has_permission
 bearer_scheme = HTTPBearer()
 
 
@@ -51,3 +51,18 @@ def require_admin(employee: Employee = Depends(get_current_employee)) -> Employe
     if employee.role not in ("super_admin", "hr"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return employee
+
+
+def require_permission(permission_key: str):
+    """Dependency factory: allows the request only if the user's role has this permission."""
+    def checker(
+        employee: Employee = Depends(get_current_employee),
+        db: Session = Depends(get_db),
+    ) -> Employee:
+        if not has_permission(db, employee, permission_key):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permission required: {permission_key}",
+            )
+        return employee
+    return checker

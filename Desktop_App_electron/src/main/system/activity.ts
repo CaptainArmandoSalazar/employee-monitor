@@ -149,39 +149,77 @@ const BROWSER_NAMES = [
   'safari', 'microsoft edge', 'edge', 'opera', 'brave', 'vivaldi',
 ];
 
+// Removes the trailing "- Google Chrome" (and an optional profile name after it)
+const BROWSER_SUFFIX =
+  /\s+[-–—]\s+(google chrome|chromium|mozilla firefox|firefox|microsoft edge|brave|opera|vivaldi|safari)(\s+[-–—]\s+.*)?$/i;
+
+// Only real, common TLDs. Blocks file names such as main.py, app.js, notes.txt
+const VALID_TLDS = new Set([
+  'com', 'org', 'net', 'io', 'dev', 'co', 'in', 'uk', 'edu', 'gov', 'app', 'ai',
+  'me', 'info', 'tech', 'us', 'ca', 'au', 'de', 'fr', 'nl', 'jp', 'tv', 'xyz',
+  'cloud', 'online', 'site', 'store', 'blog',
+]);
+
+// Sites whose page titles end with the site name instead of the domain
+const KNOWN_SITES: Record<string, string> = {
+  'youtube': 'youtube.com',
+  'github': 'github.com',
+  'gitlab': 'gitlab.com',
+  'bitbucket': 'bitbucket.org',
+  'gmail': 'mail.google.com',
+  'google docs': 'docs.google.com',
+  'google sheets': 'docs.google.com',
+  'google slides': 'docs.google.com',
+  'google drive': 'drive.google.com',
+  'google meet': 'meet.google.com',
+  'google calendar': 'calendar.google.com',
+  'google search': 'google.com',
+  'linkedin': 'linkedin.com',
+  'stack overflow': 'stackoverflow.com',
+  'reddit': 'reddit.com',
+  'facebook': 'facebook.com',
+  'instagram': 'instagram.com',
+  'whatsapp': 'web.whatsapp.com',
+  'chatgpt': 'chatgpt.com',
+  'claude': 'claude.ai',
+  'jira': 'atlassian.net',
+  'notion': 'notion.so',
+  'figma': 'figma.com',
+  'netflix': 'netflix.com',
+  'wikipedia': 'wikipedia.org',
+};
+
+function cleanDomain(raw: string): string | null {
+  const d = raw.trim().toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .split('/')[0];
+  if (!/^(?:[a-z0-9-]+\.)+[a-z]{2,}$/.test(d)) return null;
+  const tld = d.slice(d.lastIndexOf('.') + 1);
+  if (!VALID_TLDS.has(tld)) return null;
+  if (d.includes('localhost') || d.includes('electron')) return null;
+  return d;
+}
+
 function extractUrl(appName: string, windowTitle: string): { url: string; domain: string } | null {
   const app = appName.toLowerCase();
   if (!BROWSER_NAMES.some(b => app.includes(b))) return null;
   if (!windowTitle) return null;
 
-  // Pattern 1: "Page Title - domain.com - Google Chrome"
-  const p1 = windowTitle.match(/[-–—]\s*((?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})\s*[-–—]/);
-  if (p1) {
-    const domain = p1[1].toLowerCase();
-    if (!domain.includes('electron') && !domain.includes('localhost') && domain.includes('.')) {
-      return { url: `https://${domain}`, domain };
-    }
-  }
+  const title = windowTitle.replace(BROWSER_SUFFIX, '').trim();
+  if (!title) return null;
 
-  // Pattern 2: "Page Title - domain.com" at end
-  const p2 = windowTitle.match(/[-–—]\s*((?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})\s*$/);
-  if (p2) {
-    const domain = p2[1].toLowerCase();
-    if (!domain.includes('electron') && !domain.includes('localhost') && domain.includes('.')) {
-      return { url: `https://${domain}`, domain };
-    }
-  }
+  // The site name / domain is normally the LAST part: "Page title - youtube.com"
+  const parts = title.split(/\s+[-–—|·]\s+/);
+  const last  = parts[parts.length - 1].trim();
 
-  // Pattern 3: any recognizable TLD domain in title
-  const p3 = windowTitle.match(/((?:[a-zA-Z0-9-]+\.)+(?:com|org|net|io|dev|co|in|uk|edu|gov|app|ai|me|info|tech))/i);
-  if (p3) {
-    const domain = p3[1].toLowerCase();
-    if (!domain.includes('electron') && !domain.includes('localhost')) {
-      return { url: `https://${domain}`, domain };
-    }
-  }
+  const domain = cleanDomain(last);
+  if (domain) return { url: `https://${domain}`, domain };
 
-  return null;
+  const known = KNOWN_SITES[last.toLowerCase()];
+  if (known) return { url: `https://${known}`, domain: known };
+
+  return null;   // not sure, so we log nothing instead of a wrong domain
 }
 
 // ── Idle detection constants ──────────────────────────────
@@ -243,13 +281,13 @@ export const activityTracker = {
     console.log(`[ActivityTracker] Seeded from DB — active: ${active}s, idle: ${idle}s`);
   },
 
-  start(): void {
+  start(seed?: { active: number; idle: number }): void {
     if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
 
     _lastWindow       = null;
     _windowStart      = Date.now();
-    _totalActive      = 0;
-    _totalIdle        = 0;
+    _totalActive      = seed?.active ?? 0;   // after a restart, continue from the saved totals
+    _totalIdle        = seed?.idle   ?? 0;
     _wasIdle          = false;
     _lastActivityTime = Date.now();
 
@@ -260,7 +298,10 @@ export const activityTracker = {
       // ── IDLE ──────────────────────────────────────────────
       if (idle) {
         if (!_wasIdle) {
-          closeCurrentWindow(now);
+          // End the window when the user last did anything, and count the waiting period
+          // (the 5 minutes that already passed) as idle instead of active.
+          closeCurrentWindow(Math.max(_windowStart, _lastActivityTime));
+          _totalIdle += IDLE_THRESHOLD_SECONDS;
           _lastWindow = null;
           _wasIdle    = true;
         }

@@ -79,12 +79,15 @@ npm run start
 
 ---
 
-## Environment
+## Backend address
 
-Edit `.env` if your backend runs on a different port or host:
+The app does not read a `.env` file. The default address is set once in
+`src/main/services/api.service.ts` (`BACKEND_PORT`, default 8000).
 
-```env
-API_BASE_URL=http://localhost:8000/api/v1
+For local development you can override it without editing code:
+
+```bash
+API_BASE_URL=http://localhost:8000/api/v1 npm run dev
 ```
 
 ---

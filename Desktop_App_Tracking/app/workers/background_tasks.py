@@ -38,15 +38,15 @@ async def close_stale_sessions():
 # FIND:
 # REPLACE WITH:
         for s in stale:
-            # Only auto-close if truly abandoned (8+ hours no heartbeat)
-            # For shorter gaps, just log — network may have been down
-            gap_minutes = (utcnow() - (s.last_heartbeat or s.clock_in)).total_seconds() / 60
-            if gap_minutes > 480:
-                s.session_status = "stale"
-                s.clock_out      = utcnow()
-                logger.warning(f"Auto-closed stale session {s.session_id} for employee {s.employee_id}")
-            else:
-                logger.info(f"Session {s.session_id} has heartbeat gap of {gap_minutes:.1f}min — keeping active (possible network issue)")
+            # The query above already selected only sessions with no heartbeat for the full wait.
+            # End the session at the last moment the app was known to be alive.
+            last_seen = s.last_heartbeat or s.clock_in
+            s.session_status = "stale"
+            s.clock_out = last_seen
+            logger.warning(
+                f"Auto-closed stale session {s.session_id} for employee {s.employee_id} "
+                f"(ended at last heartbeat {last_seen})"
+            )
         if stale:
             db.commit()
     except Exception as e:

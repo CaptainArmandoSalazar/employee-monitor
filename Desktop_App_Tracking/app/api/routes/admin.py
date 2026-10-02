@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from uuid import UUID
@@ -6,45 +7,49 @@ from datetime import date
 
 from app.core.database import get_db
 from app.models.employee import Employee
+from app.models.session import Session as SessionModel
+from app.models.activity import ActivityLog
+from app.models.website import WebsiteLog
+from app.models.keystroke import Keystroke
+from app.models.system_metrics import SystemMetric
 from app.models.device import DeviceInfo, Device
-from app.models.network import NetworkInfo
+from app.models.network import NetworkInfo, NetworkSpeedLog
 from app.schemas.tracking import (
     ActivityLogOut, WebsiteLogOut, KeystrokeOut,
     SystemMetricOut, NetworkSpeedOut,
 )
 from app.schemas.device import DeviceInfoOut, NetworkInfoOut, DeviceMasterOut
 from app.schemas.session import SessionOut
-from app.services import tracking_service, session_service, analytics_service
-from app.api.deps import require_admin
-from app.api.deps import require_super_admin, require_hr_or_above, require_manager_or_above
-from app.services import employee_service as emp_svc
+from app.services import analytics_service
+from app.services.access_service import scope_condition, can_access_employee_data
+from app.api.deps import require_permission
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
 
-# ── Overview ──────────────────────────────────────────────
+def _scoped_list(db, current, model, order_col, employee_id, session_id, skip, limit):
+    """Shared query: only rows belonging to people the user may see, newest first."""
+    q = db.query(model).filter(scope_condition(current, model.employee_id))
+    if employee_id:
+        q = q.filter(model.employee_id == employee_id)
+    if session_id:
+        q = q.filter(model.session_id == session_id)
+    return q.order_by(desc(order_col)).offset(skip).limit(limit).all()
+
+
+# ── Summaries ─────────────────────────────────────────────
 @router.get("/summary")
 def team_summary(
     target_date: Optional[date] = Query(None),
     db: Session = Depends(get_db),
-    current: Employee = Depends(require_manager_or_above),
+    current: Employee = Depends(require_permission("summary.view")),
 ):
-    if current.role == "manager":
-        # Only their employees + themselves
-        ids = emp_svc.get_manageable_employee_ids(db, current)
-        employees = [db.query(Employee).filter(Employee.employee_id == eid).first() for eid in ids]
-        employees = [e for e in employees if e]
-        return [analytics_service.get_employee_summary(db, e.employee_id, target_date) for e in employees]
-    elif current.role == "hr":
-        # All except super_admin
-        all_emps = db.query(Employee).filter(
-            Employee.status == True,
-            Employee.role != "super_admin"
-        ).all()
-        return [analytics_service.get_employee_summary(db, e.employee_id, target_date) for e in all_emps]
-    else:
-        # super_admin: all
-        return analytics_service.get_all_employees_summary(db, target_date)
+    employees = (
+        db.query(Employee)
+        .filter(Employee.status == True, scope_condition(current, Employee.employee_id))  # noqa: E712
+        .all()
+    )
+    return [analytics_service.get_employee_summary(db, e.employee_id, target_date) for e in employees]
 
 
 @router.get("/summary/{employee_id}")
@@ -52,30 +57,27 @@ def employee_summary(
     employee_id: UUID,
     target_date: Optional[date] = Query(None),
     db: Session = Depends(get_db),
-    current: Employee = Depends(require_manager_or_above),
+    current: Employee = Depends(require_permission("summary.view")),
 ):
     target = db.query(Employee).filter(Employee.employee_id == employee_id).first()
     if not target:
         raise HTTPException(status_code=404, detail="Employee not found")
-
-    # Access checks
-    if current.role == "hr" and target.role == "super_admin":
-        raise HTTPException(status_code=403, detail="HR cannot view super admin activity")
-    if current.role == "manager":
-        ids = emp_svc.get_manageable_employee_ids(db, current)
-        if employee_id not in ids:
-            raise HTTPException(status_code=403, detail="Access denied")
-
+    if not can_access_employee_data(db, current, employee_id):
+        raise HTTPException(status_code=403, detail="Access denied")
     return analytics_service.get_employee_summary(db, employee_id, target_date)
-
 
 
 @router.get("/session-metrics/{session_id}")
 def session_metrics(
     session_id: UUID,
     db: Session = Depends(get_db),
-    _: Employee = Depends(require_admin),
+    current: Employee = Depends(require_permission("metrics.view")),
 ):
+    session = db.query(SessionModel).filter(SessionModel.session_id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if not can_access_employee_data(db, current, session.employee_id):
+        raise HTTPException(status_code=403, detail="Access denied")
     return analytics_service.get_avg_system_metrics(db, session_id)
 
 
@@ -88,42 +90,23 @@ def admin_sessions(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-    current: Employee = Depends(require_manager_or_above),
+    current: Employee = Depends(require_permission("session.view")),
 ):
-    # Determine visible employee ids
-    if current.role in ("super_admin", "hr"):
-        if current.role == "hr" and employee_id:
-            # HR cannot see super_admin sessions
-            target = db.query(Employee).filter(Employee.employee_id == employee_id).first()
-            if target and target.role == "super_admin":
-                raise HTTPException(status_code=403, detail="Access denied")
-        sessions = session_service.get_sessions(
-            db, employee_id=employee_id, session_date=session_date,
-            status=status, skip=skip, limit=limit,
-        )
-        if current.role == "hr":
-            # Filter out super_admin sessions
-            super_admin_ids = {
-                e.employee_id for e in
-                db.query(Employee).filter(Employee.role == "super_admin").all()
-            }
-            sessions = [s for s in sessions if s.employee_id not in super_admin_ids]
-    else:
-        # Manager: only their employees
-        visible_ids = emp_svc.get_manageable_employee_ids(db, current)
-        if employee_id and employee_id not in visible_ids:
-            raise HTTPException(status_code=403, detail="Access denied")
-        filter_id = employee_id if employee_id else None
-        sessions = session_service.get_sessions(
-            db, employee_id=filter_id, session_date=session_date,
-            status=status, skip=skip, limit=limit,
-        )
-        sessions = [s for s in sessions if s.employee_id in visible_ids]
+    if employee_id and not can_access_employee_data(db, current, employee_id):
+        raise HTTPException(status_code=403, detail="Access denied")
 
+    q = db.query(SessionModel).filter(scope_condition(current, SessionModel.employee_id))
+    if employee_id:
+        q = q.filter(SessionModel.employee_id == employee_id)
+    if session_date:
+        q = q.filter(SessionModel.date == session_date)
+    if status:
+        q = q.filter(SessionModel.session_status == status)
+    sessions = q.order_by(desc(SessionModel.clock_in)).offset(skip).limit(limit).all()
     return [SessionOut.model_validate(s) for s in sessions]
 
 
-# ── Activity Logs ─────────────────────────────────────────
+# ── Monitoring data ───────────────────────────────────────
 @router.get("/activity", response_model=List[ActivityLogOut])
 def admin_activity(
     employee_id: Optional[UUID] = Query(None),
@@ -131,13 +114,12 @@ def admin_activity(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
-    _: Employee = Depends(require_admin),
+    current: Employee = Depends(require_permission("activity.view")),
 ):
-    logs = tracking_service.get_activity_logs(db, employee_id, session_id, skip, limit)
-    return [ActivityLogOut.model_validate(l) for l in logs]
+    rows = _scoped_list(db, current, ActivityLog, ActivityLog.start_time, employee_id, session_id, skip, limit)
+    return [ActivityLogOut.model_validate(r) for r in rows]
 
 
-# ── Website Logs ──────────────────────────────────────────
 @router.get("/website", response_model=List[WebsiteLogOut])
 def admin_website(
     employee_id: Optional[UUID] = Query(None),
@@ -145,27 +127,45 @@ def admin_website(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
-    _: Employee = Depends(require_admin),
+    current: Employee = Depends(require_permission("website.view")),
 ):
-    logs = tracking_service.get_website_logs(db, employee_id, session_id, skip, limit)
-    return [WebsiteLogOut.model_validate(l) for l in logs]
+    rows = _scoped_list(db, current, WebsiteLog, WebsiteLog.timestamp, employee_id, session_id, skip, limit)
+    return [WebsiteLogOut.model_validate(r) for r in rows]
 
 
-# ── Keystroke Logs ────────────────────────────────────────
 @router.get("/keystrokes", response_model=List[KeystrokeOut])
 def admin_keystrokes(
     employee_id: Optional[UUID] = Query(None),
     session_id: Optional[UUID] = Query(None),
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(100, ge=1, le=5000),
     db: Session = Depends(get_db),
-    _: Employee = Depends(require_admin),
+    current: Employee = Depends(require_permission("keystroke.view")),
 ):
-    logs = tracking_service.get_keystroke_logs(db, employee_id, session_id, skip, limit)
-    return [KeystrokeOut.model_validate(l) for l in logs]
+    rows = _scoped_list(db, current, Keystroke, Keystroke.timestamp, employee_id, session_id, skip, limit)
+    return [KeystrokeOut.model_validate(r) for r in rows]
 
 
-# ── System Metrics ────────────────────────────────────────
+@router.get("/keystroke-totals")
+def admin_keystroke_totals(
+    employee_id: Optional[UUID] = Query(None),
+    session_id: Optional[UUID] = Query(None),
+    db: Session = Depends(get_db),
+    current: Employee = Depends(require_permission("keystroke.view")),
+):
+    """Total keystrokes per session, calculated in the database (no row limit)."""
+    q = (
+        db.query(Keystroke.session_id, func.coalesce(func.sum(Keystroke.keys_pressed_count), 0))
+        .filter(scope_condition(current, Keystroke.employee_id))
+    )
+    if employee_id:
+        q = q.filter(Keystroke.employee_id == employee_id)
+    if session_id:
+        q = q.filter(Keystroke.session_id == session_id)
+    rows = q.group_by(Keystroke.session_id).all()
+    return [{"session_id": str(r[0]), "total_keys": int(r[1])} for r in rows]
+
+
 @router.get("/system-metrics", response_model=List[SystemMetricOut])
 def admin_system_metrics(
     employee_id: Optional[UUID] = Query(None),
@@ -173,13 +173,12 @@ def admin_system_metrics(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
-    _: Employee = Depends(require_admin),
+    current: Employee = Depends(require_permission("metrics.view")),
 ):
-    logs = tracking_service.get_system_metrics(db, employee_id, session_id, skip, limit)
-    return [SystemMetricOut.model_validate(l) for l in logs]
+    rows = _scoped_list(db, current, SystemMetric, SystemMetric.timestamp, employee_id, session_id, skip, limit)
+    return [SystemMetricOut.model_validate(r) for r in rows]
 
 
-# ── Network Speed ─────────────────────────────────────────
 @router.get("/network-speed", response_model=List[NetworkSpeedOut])
 def admin_network_speed(
     employee_id: Optional[UUID] = Query(None),
@@ -187,13 +186,12 @@ def admin_network_speed(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
-    _: Employee = Depends(require_admin),
+    current: Employee = Depends(require_permission("metrics.view")),
 ):
-    logs = tracking_service.get_network_speed_logs(db, employee_id, session_id, skip, limit)
-    return [NetworkSpeedOut.model_validate(l) for l in logs]
+    rows = _scoped_list(db, current, NetworkSpeedLog, NetworkSpeedLog.timestamp, employee_id, session_id, skip, limit)
+    return [NetworkSpeedOut.model_validate(r) for r in rows]
 
 
-# ── Device Info ───────────────────────────────────────────
 @router.get("/device-info", response_model=List[DeviceInfoOut])
 def admin_device_info(
     employee_id: Optional[UUID] = Query(None),
@@ -201,17 +199,12 @@ def admin_device_info(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-    _: Employee = Depends(require_admin),
+    current: Employee = Depends(require_permission("device.view")),
 ):
-    q = db.query(DeviceInfo)
-    if employee_id:
-        q = q.filter(DeviceInfo.employee_id == employee_id)
-    if session_id:
-        q = q.filter(DeviceInfo.session_id == session_id)
-    return [DeviceInfoOut.model_validate(d) for d in q.offset(skip).limit(limit).all()]
+    rows = _scoped_list(db, current, DeviceInfo, DeviceInfo.captured_at, employee_id, session_id, skip, limit)
+    return [DeviceInfoOut.model_validate(r) for r in rows]
 
 
-# ── Network Info ──────────────────────────────────────────
 @router.get("/network-info", response_model=List[NetworkInfoOut])
 def admin_network_info(
     employee_id: Optional[UUID] = Query(None),
@@ -219,26 +212,21 @@ def admin_network_info(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-    _: Employee = Depends(require_admin),
+    current: Employee = Depends(require_permission("device.view")),
 ):
-    q = db.query(NetworkInfo)
-    if employee_id:
-        q = q.filter(NetworkInfo.employee_id == employee_id)
-    if session_id:
-        q = q.filter(NetworkInfo.session_id == session_id)
-    return [NetworkInfoOut.model_validate(n) for n in q.offset(skip).limit(limit).all()]
+    rows = _scoped_list(db, current, NetworkInfo, NetworkInfo.captured_at, employee_id, session_id, skip, limit)
+    return [NetworkInfoOut.model_validate(r) for r in rows]
 
 
-# ── Devices Master ────────────────────────────────────────
 @router.get("/devices", response_model=List[DeviceMasterOut])
 def admin_devices(
     employee_id: Optional[UUID] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-    _: Employee = Depends(require_admin),
+    current: Employee = Depends(require_permission("device.view")),
 ):
-    q = db.query(Device)
+    q = db.query(Device).filter(scope_condition(current, Device.employee_id))
     if employee_id:
         q = q.filter(Device.employee_id == employee_id)
     return [DeviceMasterOut.model_validate(d) for d in q.offset(skip).limit(limit).all()]

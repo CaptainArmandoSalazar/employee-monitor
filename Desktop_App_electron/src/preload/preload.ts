@@ -35,6 +35,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAdminActivity:       (p: Record<string,string>) => ipcRenderer.invoke('admin:getActivity', p),
   getAdminWebsite:        (p: Record<string,string>) => ipcRenderer.invoke('admin:getWebsite', p),
   getAdminKeystrokes:     (p: Record<string,string>) => ipcRenderer.invoke('admin:getKeystrokes', p),
+  getKeystrokeTotals:     (p: Record<string,string>) => ipcRenderer.invoke('admin:getKeystrokeTotals', p),
   getAdminSystemMetrics:  (p: Record<string,string>) => ipcRenderer.invoke('admin:getSystemMetrics', p),
   getAdminNetworkSpeed:   (p: Record<string,string>) => ipcRenderer.invoke('admin:getNetworkSpeed', p),
   getAdminDeviceInfo:     (p: Record<string,string>) => ipcRenderer.invoke('admin:getDeviceInfo', p),
@@ -61,4 +62,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Admin: list by role (scoped) ─────────────────────────
   listByRole: (role: string, p: Record<string,string>) => ipcRenderer.invoke('admin:listByRole', role, p),
+
+    // ── Permissions ──────────────────────────────────────────
+  getMyPermissions:     ()                                  => ipcRenderer.invoke('perm:getMine'),
+  getPermissionCatalog: ()                                  => ipcRenderer.invoke('perm:getCatalog'),
+  getRolePermissions:   ()                                  => ipcRenderer.invoke('perm:getRoles'),
+  setRolePermissions:   (role: string, permissions: string[]) => ipcRenderer.invoke('perm:setRole', role, permissions),
 });

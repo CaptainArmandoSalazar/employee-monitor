@@ -130,43 +130,28 @@
         <span class="nav-icon">📅</span> My Sessions
       </button>
 
-      <!-- ── Super Admin only ── -->
-      <div class="nav-section-label role-only role-super_admin hidden">Organization</div>
-      <button class="nav-item role-only role-super_admin hidden" data-page="super-admins">
+      <!-- Administration (items are shown or hidden by permissions in dashboard.js) -->
+      <div class="nav-section-label hidden" id="nav-label-org">Administration</div>
+      <button class="nav-item hidden" data-page="super-admins">
         <span class="nav-icon">🛡️</span> Super Admins
       </button>
-      <button class="nav-item role-only role-super_admin hidden" data-page="hrs">
+      <button class="nav-item hidden" data-page="hrs">
         <span class="nav-icon">👔</span> HRs
       </button>
-      <button class="nav-item role-only role-super_admin hidden" data-page="managers">
+      <button class="nav-item hidden" data-page="managers">
         <span class="nav-icon">🏢</span> Managers
       </button>
-      <button class="nav-item role-only role-super_admin hidden" data-page="employees">
+      <button class="nav-item hidden" data-page="employees">
         <span class="nav-icon">👥</span> Employees
       </button>
-      <button class="nav-item role-only role-super_admin hidden" data-page="settings">
-        <span class="nav-icon">⚙️</span> Settings
-      </button>
-
-      <!-- ── HR only ── -->
-      <div class="nav-section-label role-only role-hr hidden">HR Panel</div>
-      <button class="nav-item role-only role-hr hidden" data-page="hrs">
-        <span class="nav-icon">👔</span> HRs
-      </button>
-      <button class="nav-item role-only role-hr hidden" data-page="managers">
-        <span class="nav-icon">🏢</span> Managers
-      </button>
-      <button class="nav-item role-only role-hr hidden" data-page="employees">
-        <span class="nav-icon">👥</span> Employees
-      </button>
-      <button class="nav-item role-only role-hr hidden" data-page="settings">
-        <span class="nav-icon">⚙️</span> Settings
-      </button>
-
-      <!-- ── Manager only ── -->
-      <div class="nav-section-label role-only role-manager hidden">My Team</div>
-      <button class="nav-item role-only role-manager hidden" data-page="my-employees">
+      <button class="nav-item hidden" data-page="my-employees">
         <span class="nav-icon">👥</span> My Employees
+      </button>
+      <button class="nav-item hidden" data-page="permissions">
+        <span class="nav-icon">🔐</span> Permissions
+      </button>
+      <button class="nav-item hidden" data-page="settings">
+        <span class="nav-icon">⚙️</span> Settings
       </button>
 
 <div class="sidebar-bottom">
@@ -486,7 +471,18 @@
         <div class="subpage" id="my-emp-session-netspeed"></div>
         <div class="subpage" id="my-emp-session-activity"></div>
       </div><!-- /my-employees -->
-
+      <!-- ══════════════ PERMISSIONS PAGE (Super Admin) ══════════════ -->
+      <div class="page-view" id="page-permissions">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Permissions</div>
+            <div class="page-subtitle">Choose what each role is allowed to do. Saved to the database and applied automatically.</div>
+          </div>
+        </div>
+        <div id="permissions-content">
+          <div style="padding:40px;text-align:center;"><span class="spinner"></span></div>
+        </div>
+      </div><!-- /permissions -->
 
       <!-- ══════════════ SETTINGS PAGE ══════════════ -->
 <!-- ══════════════ SETTINGS PAGE ══════════════ -->

@@ -22,6 +22,64 @@ async function safeApi<T>(
   }
 }
 
+// ── Permission cache (filled by perm:getMine, refreshed by the dashboard) ──
+let _myPerms = new Set<string>();
+
+async function refreshMyPermissions(): Promise<{ role: string; is_super_admin: boolean; permissions: string[] } | null> {
+  const token = authService.getToken();
+  if (!token) { _myPerms = new Set<string>(); return null; }
+  try {
+    const res = await apiService.get<{ role: string; is_super_admin: boolean; permissions: string[] }>('/permissions/me', token);
+    if (res.ok && res.data && Array.isArray(res.data.permissions)) {
+      _myPerms = new Set<string>(res.data.permissions);
+      return res.data;
+    }
+    if (res.status === 401) authService.handleExpiredToken();
+  } catch { /* offline: keep the last known permissions */ }
+  return null;
+}
+
+const hasPerm = (key: string): boolean => _myPerms.has(key);
+
+/** With the permission -> admin route (other people's data in scope). Without it -> own data only. */
+function registerScopedGet(channel: string, permKey: string, adminPath: string, ownPath: string): void {
+  ipcMain.handle(channel, async (_event, params: Record<string, string> = {}) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false, data: [] };
+    const endpoint = hasPerm(permKey) ? adminPath : ownPath;
+    const result = await safeApi(
+      () => apiService.get(endpoint, token, params),
+      { ok: false, status: 0, data: [] }
+    );
+    if ((result as any).status === 401) { authService.handleExpiredToken(); return { ok: false, data: [] }; }
+    return result;
+  });
+}
+
+// Clock the user out (if clocked in) before the login is cleared
+async function clockOutIfNeeded(): Promise<void> {
+  if (!sessionService.isClocked()) return;
+  activityTracker.stop();
+  trackingService.stop();
+  const totals = activityTracker.getTotals();
+  const existing = sessionService.getActiveSession() as any;
+  await sessionService.clockOut(
+    Math.max(existing?.total_active_time || 0, totals.active),
+    Math.max(existing?.total_idle_time || 0, totals.idle)
+  );
+}
+
+// Resume a session that is still open on the server after an app restart.
+// The tracker starts from the saved totals, so it is the only source of truth.
+function resumeAndStartTracking(session: any): void {
+  sessionService.resumeSession(session);
+  activityTracker.start({
+    active: session.total_active_time || 0,
+    idle:   session.total_idle_time   || 0,
+  });
+  trackingService.start();
+}
+
 export function registerIpcHandlers(): void {
 
   // ── Auth ─────────────────────────────────────────────
@@ -29,7 +87,8 @@ export function registerIpcHandlers(): void {
     return authService.login(email, password);
   });
 
-  ipcMain.handle('auth:logout', () => {
+  ipcMain.handle('auth:logout', async () => {
+    await clockOutIfNeeded();        // must happen while the login token still exists
     activityTracker.stop();
     trackingService.stop();
     authService.logout();
@@ -68,7 +127,8 @@ ipcMain.handle('auth:getEmployee', async () => {
     return { success: true };
   });
 
-  ipcMain.handle('nav:showLogin', () => {
+  ipcMain.handle('nav:showLogin', async () => {
+    await clockOutIfNeeded();
     activityTracker.stop();
     trackingService.stop();
     authService.logout();
@@ -188,14 +248,12 @@ if (netSpeed.download !== undefined) {
   ipcMain.handle('session:clockOut', async () => {
     activityTracker.stop();
     trackingService.stop();
+    // The tracker already starts from the saved totals, so never add them a second time
     const totals = activityTracker.getTotals();
-    const existingSession = sessionService.getActiveSession();
-    // Add already-saved DB totals to current process totals
-    const savedActive = (existingSession as any)?.total_active_time || 0;
-    const savedIdle   = (existingSession as any)?.total_idle_time   || 0;
+    const existingSession = sessionService.getActiveSession() as any;
     return sessionService.clockOut(
-      savedActive + totals.active,
-      savedIdle   + totals.idle
+      Math.max(existingSession?.total_active_time || 0, totals.active),
+      Math.max(existingSession?.total_idle_time   || 0, totals.idle)
     );
   });
   ipcMain.handle('session:getActive', async () => {
@@ -216,13 +274,7 @@ if (session) {
 
           if (gapMinutes < 10) {
             console.log(`[IPC] Session gap is only ${gapMinutes.toFixed(1)}min — resuming, not clocking out`);
-            sessionService.resumeSession(session);
-            activityTracker.seedTotals(
-              (session as any).total_active_time || 0,
-              (session as any).total_idle_time || 0
-            );
-            activityTracker.start();
-            trackingService.start();
+            resumeAndStartTracking(session);
             return session;
           }
         }
@@ -291,21 +343,9 @@ if (session) {
         return null;
       }
     }
-        if (session && sessionService.getClockInTime()) {
-      sessionService.resumeSession(session);
-      activityTracker.start();
-      trackingService.start();
-    }
-
-    if (session) {
-      sessionService.resumeSession(session);
-      // Seed activity tracker with already-saved DB totals so they aren't lost on restart
-      activityTracker.seedTotals(
-        (session as any).total_active_time || 0,
-        (session as any).total_idle_time   || 0
-      );
-      activityTracker.start();
-      trackingService.start();
+    // Same app run and tracking is already going: never restart or reset it
+    if (session && !trackingService.isStarted()) {
+      resumeAndStartTracking(session);
     }
     return session;
   });
@@ -369,96 +409,59 @@ if (session) {
   // FIX: Always use /admin/sessions for admin users.
   // The old logic checked authService.getEmployee()?.role which could be null
   // after a session restore, causing it to fall back to /sessions/my incorrectly.
-  ipcMain.handle('admin:getSessions', async (_event, params: Record<string, string> = {}) => {
-    const token = authService.getToken();
-    const employee = authService.getEmployee();
-    if (!token) return { ok: false, data: [] };
+    // ── Admin: data (permission driven) ───────────────────
+  registerScopedGet('admin:getSessions',      'session.view',   '/admin/sessions',       '/sessions/my');
+  registerScopedGet('admin:getActivity',      'activity.view',  '/admin/activity',       '/tracking/activity');
+  registerScopedGet('admin:getWebsite',       'website.view',   '/admin/website',        '/tracking/website');
+  registerScopedGet('admin:getKeystrokes',    'keystroke.view', '/admin/keystrokes',     '/tracking/keystrokes');
+  registerScopedGet('admin:getKeystrokeTotals', 'keystroke.view', '/admin/keystroke-totals', '/tracking/keystroke-totals');
+  registerScopedGet('admin:getSystemMetrics', 'metrics.view',   '/admin/system-metrics', '/tracking/system-metrics');
+  registerScopedGet('admin:getNetworkSpeed',  'metrics.view',   '/admin/network-speed',  '/tracking/network-speed');
 
-    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
-
-    if (employee?.role && ADMIN_ROLES.includes(employee.role)) {
-      // Use /admin/sessions which supports employee_id filtering
-      const result = await safeApi(
-        () => apiService.get('/admin/sessions', token, params),
-        { ok: false, status: 0, data: [] }
-      );
-      if ((result as any).status === 401) {
-        authService.handleExpiredToken();
-        return { ok: false, data: [] };
-      }
-      return result;
-    } else {
-      // Plain employee: can only see own sessions
-      const p: Record<string, string> = {};
-      if (params.limit) p.limit = params.limit;
-      return safeApi(() => apiService.get('/sessions/my', token, p), { ok: false, status: 0, data: [] });
-    }
-  });
-
-  // ── Admin: Device Info ────────────────────────────────
   ipcMain.handle('admin:getDeviceInfo', async (_event, params: Record<string, string> = {}) => {
     const token = authService.getToken();
-    const employee = authService.getEmployee();
     if (!token) return { ok: false, data: [] };
-    if (employee?.role && ['super_admin', 'hr', 'manager', 'admin'].includes(employee.role)) {
+    if (hasPerm('device.view')) {
       return safeApi(() => apiService.get('/admin/device-info', token, params), { ok: false, status: 0, data: [] });
-    } else {
-      const sessionId = params.session_id;
-      if (!sessionId) return { ok: true, status: 200, data: [] };
-      return safeApi(() => apiService.get(`/sessions/${sessionId}/device-info`, token), { ok: false, status: 0, data: [] });
     }
+    const sessionId = params.session_id;
+    if (!sessionId) return { ok: true, status: 200, data: [] };
+    return safeApi(() => apiService.get(`/sessions/${sessionId}/device-info`, token), { ok: false, status: 0, data: [] });
   });
 
-  // ── Admin: Network Info ───────────────────────────────
   ipcMain.handle('admin:getNetworkInfo', async (_event, params: Record<string, string> = {}) => {
     const token = authService.getToken();
-    const employee = authService.getEmployee();
     if (!token) return { ok: false, data: [] };
-    if (employee?.role && ['super_admin', 'hr', 'manager', 'admin'].includes(employee.role)) {
+    if (hasPerm('device.view')) {
       return safeApi(() => apiService.get('/admin/network-info', token, params), { ok: false, status: 0, data: [] });
-    } else {
-      const sessionId = params.session_id;
-      if (!sessionId) return { ok: true, status: 200, data: [] };
-      return safeApi(() => apiService.get(`/sessions/${sessionId}/network-info`, token), { ok: false, status: 0, data: [] });
     }
+    const sessionId = params.session_id;
+    if (!sessionId) return { ok: true, status: 200, data: [] };
+    return safeApi(() => apiService.get(`/sessions/${sessionId}/network-info`, token), { ok: false, status: 0, data: [] });
   });
 
-  // ── Admin: Activity reports ───────────────────────────
-  ipcMain.handle('admin:getActivity', async (_event, params: Record<string, string> = {}) => {
-    const token = authService.getToken(); if (!token) return { ok: false, data: [] };
-    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
-    const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) ? '/admin/activity' : '/tracking/activity';
-    return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
+  // ── Permissions ───────────────────────────────────────
+  ipcMain.handle('perm:getMine', async () => refreshMyPermissions());
+
+  ipcMain.handle('perm:getCatalog', async () => {
+    const token = authService.getToken();
+    if (!token) return { ok: false, data: [] };
+    return safeApi(() => apiService.get('/permissions/catalog', token), { ok: false, status: 0, data: [] });
   });
 
-  ipcMain.handle('admin:getWebsite', async (_event, params: Record<string, string> = {}) => {
-    const token = authService.getToken(); if (!token) return { ok: false, data: [] };
-    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
-    const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) ? '/admin/website' : '/tracking/website';
-    return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
+  ipcMain.handle('perm:getRoles', async () => {
+    const token = authService.getToken();
+    if (!token) return { ok: false, data: {} };
+    return safeApi(() => apiService.get('/permissions/roles', token), { ok: false, status: 0, data: {} });
   });
 
-  ipcMain.handle('admin:getKeystrokes', async (_event, params: Record<string, string> = {}) => {
-    const token = authService.getToken(); if (!token) return { ok: false, data: [] };
-    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
-    const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) ? '/admin/keystrokes' : '/tracking/keystrokes';
-    return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
-  });
-
-  ipcMain.handle('admin:getSystemMetrics', async (_event, params: Record<string, string> = {}) => {
-      const token = authService.getToken(); if (!token) return { ok: false, data: [] };
-      const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
-      const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) 
-        ? '/admin/system-metrics' 
-        : '/tracking/system-metrics';
-      return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
-    });
-
-  ipcMain.handle('admin:getNetworkSpeed', async (_event, params: Record<string, string> = {}) => {
-    const token = authService.getToken(); if (!token) return { ok: false, data: [] };
-    const ADMIN_ROLES = ['super_admin', 'hr', 'manager', 'admin'];
-    const ep = (authService.getEmployee()?.role && ADMIN_ROLES.includes(authService.getEmployee()!.role)) ? '/admin/network-speed' : '/tracking/network-speed';
-    return safeApi(() => apiService.get(ep, token, params), { ok: false, status: 0, data: [] });
+  ipcMain.handle('perm:setRole', async (_event, role: string, permissions: string[]) => {
+    const token = authService.getToken();
+    if (!token) return { ok: false };
+    return safeApi(
+      () => apiService.patch(`/permissions/roles/${encodeURIComponent(role)}`, { permissions }, token),
+      { ok: false, status: 0, data: {} }
+    );
   });
 
   ipcMain.handle('admin:getSummary', async (_event, params: Record<string, string> = {}) => {

@@ -1,7 +1,14 @@
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, Notification } from 'electron';
 import * as path from 'path';
+import { sessionService } from './services/session.service';
 
 let mainWindow: BrowserWindow | null = null;
+let _quitting = false;
+let _hideNoticeShown = false;
+
+/** Called when the app is really quitting (tray Quit, update install, before-quit). */
+export function setQuitting(value: boolean = true): void { _quitting = value; }
+export function isQuitting(): boolean { return _quitting; }
 
 export function getMainWindow(): BrowserWindow | null {
   return mainWindow;
@@ -10,13 +17,21 @@ export function getMainWindow(): BrowserWindow | null {
 export function setMainWindow(win: BrowserWindow): void {
   mainWindow = win;
 
-  // ── Handle window close (X button) ───────────────────
-  // The 'close' event fires before before-quit.
-  // We let before-quit in main.ts handle the actual clock-out.
-  // This just ensures the window closing triggers app quit properly.
+  // While clocked in, closing the window only hides it. Tracking keeps running.
   win.on('close', (event) => {
-    // Let the app-level before-quit handler take care of clock-out
-    // Don't prevent default here — just let it propagate to before-quit
+    if ((win as any)._allowClose || _quitting) return;   // real close (logout, quit, update)
+    if (!sessionService.isClocked()) return;             // not clocked in: normal close
+
+    event.preventDefault();
+    win.hide();
+
+    if (!_hideNoticeShown && Notification.isSupported()) {
+      _hideNoticeShown = true;
+      new Notification({
+        title: 'AV DEVS Collab',
+        body: 'You are still clocked in. Tracking continues in the background. Use the tray icon to reopen or quit.',
+      }).show();
+    }
   });
 }
 

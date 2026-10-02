@@ -1,9 +1,17 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 import uuid
+
+from app.core.config import settings
 
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def local_today() -> date:
+    """Today's date in the business time zone (not the server's own time zone)."""
+    return datetime.now(ZoneInfo(settings.APP_TIMEZONE)).date()
 
 
 def new_uuid() -> uuid.UUID:

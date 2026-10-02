@@ -3,6 +3,9 @@ import { authService } from './auth.service';
 import { sessionService } from './session.service';
 import { globalKeyboard } from './globalKeyboard';
 import { activityTracker } from '../system/activity';
+import * as fs from 'fs';
+import * as path from 'path';
+import { app } from 'electron';
 
 interface ActivityLog {
   session_id: string; app_name: string; window_title?: string;
@@ -38,14 +41,76 @@ let _isOnline = true;           // ← track online/offline state
 let _offlineSince: Date | null = null;  // ← when did we go offline
 let _heartbeatFailCount = 0;    // ← consecutive heartbeat failures
 
+// ── Buffer limits + crash-safe storage ────────────────────
+const MAX_BUFFER_ITEMS = 5000;     // per buffer; oldest entries are dropped beyond this
+const FLUSH_BATCH_SIZE = 200;      // items per request when sending a backlog
+let _flushingActivity   = false;
+let _flushingWebsite    = false;
+let _flushingKeystrokes = false;
+
+function bufferFile(): string {
+  return path.join(app.getPath('userData'), 'pending_tracking.json');
+}
+
+function capBuffer<T>(buf: T[], label: string): T[] {
+  if (buf.length <= MAX_BUFFER_ITEMS) return buf;
+  const drop = buf.length - MAX_BUFFER_ITEMS;
+  console.warn(`[Tracking] ${label} buffer full — dropping ${drop} oldest entries`);
+  return buf.slice(drop);
+}
+
+// Retry only for errors that can fix themselves. A 400/422 would fail forever.
+function shouldRetry(status: number): boolean {
+  return status === 0 || status === 401 || status === 408 || status === 429 || status >= 500;
+}
+
+function persistBuffers(): void {
+  try {
+    const file = bufferFile();
+    const empty = !_activityBuffer.length && !_websiteBuffer.length &&
+                  !_keystrokeBuffer.length && !_pendingTotals;
+    if (empty) {
+      if (fs.existsSync(file)) fs.unlinkSync(file);
+      return;
+    }
+    const tmp = file + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({
+      employeeId: authService.getEmployee()?.employee_id || null,
+      activity:   _activityBuffer,
+      website:    _websiteBuffer,
+      keystrokes: _keystrokeBuffer,
+      totals:     _pendingTotals,
+    }), 'utf8');
+    fs.renameSync(tmp, file);   // atomic: a crash never leaves a half-written file
+  } catch (e) {
+    console.warn('[Tracking] Could not save pending data:', (e as any)?.message);
+  }
+}
+
+function loadPersistedBuffers(): void {
+  const file = bufferFile();
+  try {
+    if (!fs.existsSync(file)) return;
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const me = authService.getEmployee()?.employee_id || null;
+    // Only restore data that belongs to the person who is logged in now
+    if (data.employeeId && data.employeeId === me) {
+      _activityBuffer  = capBuffer([...(data.activity   || []), ..._activityBuffer],  'Activity');
+      _websiteBuffer   = capBuffer([...(data.website    || []), ..._websiteBuffer],   'Website');
+      _keystrokeBuffer = capBuffer([...(data.keystrokes || []), ..._keystrokeBuffer], 'Keystroke');
+      if (!_pendingTotals && data.totals) _pendingTotals = data.totals;
+      console.log('[Tracking] Restored unsent data from disk:', trackingService.getBufferStats());
+    }
+    persistBuffers();   // rewrites the file (or deletes it if nothing was restored)
+  } catch {
+    try { fs.unlinkSync(file); } catch { /* ignore */ }
+  }
+}
+
 // ── IST timestamp helper ──────────────────────────────────
 function nowIST(): string {
-  return new Date().toLocaleString('en-CA', {
-    timeZone: 'Asia/Kolkata',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-    hour12: false,
-  }).replace(', ', 'T') + '+05:30';
+  // Kept under the old name so nothing else changes. Now returns real UTC time.
+  return new Date().toISOString();
 }
 
 // ── Online/Offline detection ──────────────────────────────
@@ -95,10 +160,13 @@ export const trackingService = {
     _isOnline = true;
     _heartbeatFailCount = 0;
 
-    // ── Flush buffers every 30s ────────────────────────────
+    loadPersistedBuffers();   // pick up anything left over from a crash
+
+    // ── Flush buffers every 30s, and save the rest to disk ─
     _flushInterval = setInterval(() => {
       this.flushBuffers();
       this.flushKeystrokeBuffer();
+      persistBuffers();
     }, 30_000);
 
     // ── Heartbeat every 30s with offline detection ─────────
@@ -165,6 +233,7 @@ export const trackingService = {
         raw_keystrokes:     raw || '',
         timestamp:          nowIST(),
       });
+      _keystrokeBuffer = capBuffer(_keystrokeBuffer, 'Keystroke');
 
       // Try to flush immediately if online
       if (_isOnline) {
@@ -189,33 +258,35 @@ export const trackingService = {
     this.flushBuffers();
     this.flushKeystrokeBuffer();
     this.flushPendingTotals();
+    persistBuffers();   // anything the final flush could not send is kept for next start
     console.log('[Tracking] Stopped.');
   },
 
   // ── Keystroke buffer flush with retry ─────────────────
   async flushKeystrokeBuffer(): Promise<void> {
-    if (!_keystrokeBuffer.length) return;
+    if (_flushingKeystrokes || !_keystrokeBuffer.length) return;
     const token = authService.getToken();
     if (!token) return;
 
-    const batch = [..._keystrokeBuffer];
-    _keystrokeBuffer = [];
-
-    const failed: KeystrokeLog[] = [];
-    for (const ks of batch) {
-      try {
-        await apiService.post('/tracking/keystrokes', ks, token);
-        markOnline();
-      } catch (err) {
-        // Re-queue failed ones
-        failed.push(ks);
-        if (isNetworkError(err)) markOffline();
-        console.warn('[Tracking] Keystroke flush failed — re-queued', ks.keys_pressed_count, 'keys');
+    _flushingKeystrokes = true;
+    try {
+      while (_keystrokeBuffer.length) {
+        const ks = _keystrokeBuffer[0];
+        const res = await apiService.post('/tracking/keystrokes', ks, token);
+        if (res.ok || !shouldRetry(res.status)) {
+          if (!res.ok) console.warn('[Tracking] Server rejected a keystroke entry — dropped');
+          if (_keystrokeBuffer[0] === ks) _keystrokeBuffer.shift();
+          markOnline();
+        } else {
+          break;   // server/network problem: keep the data, try again later
+        }
       }
-    }
-    // Put failed ones back at front of buffer
-    if (failed.length) {
-      _keystrokeBuffer = [...failed, ..._keystrokeBuffer];
+    } catch (err) {
+      if (isNetworkError(err)) markOffline();
+      console.warn('[Tracking] Keystroke flush failed — kept for retry');
+    } finally {
+      _flushingKeystrokes = false;
+      persistBuffers();
     }
   },
 
@@ -244,19 +315,33 @@ export const trackingService = {
     const session = sessionService.getActiveSession();
     if (!session) return;
     _activityBuffer.push({ session_id: session.session_id, ...log });
-    if (_activityBuffer.length >= 20) this.flushActivity();
+    _activityBuffer = capBuffer(_activityBuffer, 'Activity');
+    if (_isOnline && _activityBuffer.length >= 20) this.flushActivity();
   },
 
   async flushActivity(): Promise<void> {
-    if (!_activityBuffer.length) return;
+    if (_flushingActivity || !_activityBuffer.length) return;
     const token = authService.getToken(); if (!token) return;
-    const logs = [..._activityBuffer]; _activityBuffer = [];
+
+    _flushingActivity = true;
     try {
-      await apiService.post('/tracking/activity/batch', { logs }, token);
-      markOnline();
+      while (_activityBuffer.length) {
+        const logs = _activityBuffer.slice(0, FLUSH_BATCH_SIZE);
+        const res = await apiService.post('/tracking/activity/batch', { logs }, token);
+        if (res.ok || !shouldRetry(res.status)) {
+          if (!res.ok) console.warn('[Tracking] Server rejected an activity batch — dropped');
+          const sent = new Set(logs);
+          _activityBuffer = _activityBuffer.filter(l => !sent.has(l));
+          markOnline();
+        } else {
+          break;
+        }
+      }
     } catch (err) {
-      _activityBuffer = [...logs, ..._activityBuffer]; // re-queue
       if (isNetworkError(err)) markOffline();
+    } finally {
+      _flushingActivity = false;
+      persistBuffers();
     }
   },
 
@@ -264,19 +349,33 @@ export const trackingService = {
     const session = sessionService.getActiveSession();
     if (!session) return;
     _websiteBuffer.push({ session_id: session.session_id, ...log });
-    if (_websiteBuffer.length >= 20) this.flushWebsite();
+    _websiteBuffer = capBuffer(_websiteBuffer, 'Website');
+    if (_isOnline && _websiteBuffer.length >= 20) this.flushWebsite();
   },
 
   async flushWebsite(): Promise<void> {
-    if (!_websiteBuffer.length) return;
+    if (_flushingWebsite || !_websiteBuffer.length) return;
     const token = authService.getToken(); if (!token) return;
-    const logs = [..._websiteBuffer]; _websiteBuffer = [];
+
+    _flushingWebsite = true;
     try {
-      await apiService.post('/tracking/website/batch', { logs }, token);
-      markOnline();
+      while (_websiteBuffer.length) {
+        const logs = _websiteBuffer.slice(0, FLUSH_BATCH_SIZE);
+        const res = await apiService.post('/tracking/website/batch', { logs }, token);
+        if (res.ok || !shouldRetry(res.status)) {
+          if (!res.ok) console.warn('[Tracking] Server rejected a website batch — dropped');
+          const sent = new Set(logs);
+          _websiteBuffer = _websiteBuffer.filter(l => !sent.has(l));
+          markOnline();
+        } else {
+          break;
+        }
+      }
     } catch (err) {
-      _websiteBuffer = [...logs, ..._websiteBuffer]; // re-queue
       if (isNetworkError(err)) markOffline();
+    } finally {
+      _flushingWebsite = false;
+      persistBuffers();
     }
   },
 

@@ -1,6 +1,16 @@
 {
   "history": [
     {
+      "version": "v1.0.42",
+      "date": "2026-10-02",
+      "changes": [
+        "Fixed website detection from browser titles to avoid guessing wrong domains",
+        "Standardized backend API port to 8000 across app and docs",
+        "Improved offline buffer safety and retry logic to prevent data loss on network or crash events",
+        "Hardened dashboard error rendering against XSS and escaped unsafe values"
+      ]
+    },
+    {
       "version": "v1.0.41",
       "date": "2026-04-08",
       "changes": [

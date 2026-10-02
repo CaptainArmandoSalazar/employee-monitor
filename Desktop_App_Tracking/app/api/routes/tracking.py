@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from uuid import UUID
 
 from app.core.database import get_db
 from app.models.employee import Employee
+from app.models.keystroke import Keystroke
 from app.schemas.tracking import (
     ActivityLogCreate, ActivityLogOut, ActivityBatch,
     WebsiteLogCreate, WebsiteLogOut, WebsiteBatch,
@@ -111,7 +113,7 @@ def log_keystrokes(
 def get_keystrokes(
     session_id: Optional[UUID] = Query(None),
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(100, ge=1, le=5000),
     db: Session = Depends(get_db),
     current_employee: Employee = Depends(get_current_employee),
 ):
@@ -123,6 +125,23 @@ def get_keystrokes(
         limit=limit,
     )
     return [KeystrokeOut.model_validate(l) for l in logs]
+
+
+@router.get("/keystroke-totals")
+def get_keystroke_totals(
+    session_id: Optional[UUID] = Query(None),
+    db: Session = Depends(get_db),
+    current_employee: Employee = Depends(get_current_employee),
+):
+    """Own keystroke total per session, calculated in the database (no row limit)."""
+    q = (
+        db.query(Keystroke.session_id, func.coalesce(func.sum(Keystroke.keys_pressed_count), 0))
+        .filter(Keystroke.employee_id == current_employee.employee_id)
+    )
+    if session_id:
+        q = q.filter(Keystroke.session_id == session_id)
+    rows = q.group_by(Keystroke.session_id).all()
+    return [{"session_id": str(r[0]), "total_keys": int(r[1])} for r in rows]
 
 
 # ── System Metrics ────────────────────────────────────────

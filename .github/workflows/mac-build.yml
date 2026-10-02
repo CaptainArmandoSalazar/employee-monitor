@@ -49,6 +49,12 @@ jobs:
         run: |
           set +e
 
+          REPO_SLUG="CaptainArmandoSalazar/employee-monitor"
+          if [ -z "$GH_TOKEN" ]; then
+            echo "❌ GH_TOKEN is empty. Set the repository secret before running this workflow."
+            exit 1
+          fi
+
           delete_and_upload() {
             local RELEASE_ID=$1
             local file=$2
@@ -58,26 +64,29 @@ jobs:
             echo "---"
             echo "📁 Processing: $FILENAME"
 
-            ASSETS_JSON=$(curl -s \
+            ASSETS_JSON=$(curl -sS \
               -H "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?per_page=100")
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO_SLUG/releases/$RELEASE_ID/assets?per_page=100")
 
             echo "Assets on release: $(echo "$ASSETS_JSON" | jq -r '.[].name' 2>/dev/null)"
 
             for ASSET_ID in $(echo "$ASSETS_JSON" | jq -r ".[] | select(.name == \"$FILENAME\") | .id" 2>/dev/null); do
               echo "🗑️ Deleting asset ID: $ASSET_ID"
-              curl -s -o /dev/null -X DELETE \
+              curl -sS -o /dev/null -X DELETE \
                 -H "Authorization: Bearer $GH_TOKEN" \
-                "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/assets/$ASSET_ID"
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/$REPO_SLUG/assets/$ASSET_ID"
             done
 
             sleep 8
 
             echo "⬆️ Uploading $FILENAME..."
-            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+            HTTP_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
               -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
               -H "Content-Type: application/octet-stream" \
-              "https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?name=$ENCODED_NAME" \
+              "https://uploads.github.com/repos/$REPO_SLUG/releases/$RELEASE_ID/assets?name=$ENCODED_NAME" \
               --data-binary @"$file")
 
             echo "Upload HTTP status: $HTTP_STATUS"
@@ -93,18 +102,20 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           echo "📦 Version: $VERSION"
 
-          RELEASE_RESPONSE=$(curl -s \
+          RELEASE_RESPONSE=$(curl -sS \
             -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/tags/v$VERSION")
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO_SLUG/releases/tags/v$VERSION")
 
           RELEASE_ID=$(echo "$RELEASE_RESPONSE" | jq -r '.id // empty')
 
           if [ -z "$RELEASE_ID" ]; then
             echo "Creating new release v$VERSION..."
-            CREATE_RESPONSE=$(curl -s -X POST \
+            CREATE_RESPONSE=$(curl -sS -X POST \
               -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
               -H "Content-Type: application/json" \
-              "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases" \
+              "https://api.github.com/repos/$REPO_SLUG/releases" \
               -d "{\"tag_name\":\"v$VERSION\",\"name\":\"v$VERSION\",\"draft\":false,\"prerelease\":false}")
             RELEASE_ID=$(echo "$CREATE_RESPONSE" | jq -r '.id // empty')
             echo "✅ Created release: $RELEASE_ID"
@@ -114,6 +125,7 @@ jobs:
 
           if [ -z "$RELEASE_ID" ]; then
             echo "❌ Failed to get or create release ID."
+            echo "$CREATE_RESPONSE"
             exit 1
           fi
 
@@ -167,6 +179,12 @@ jobs:
         run: |
           set +e
 
+          REPO_SLUG="CaptainArmandoSalazar/employee-monitor"
+          if [ -z "$GH_TOKEN" ]; then
+            echo "❌ GH_TOKEN is empty. Set the repository secret before running this workflow."
+            exit 1
+          fi
+
           delete_and_upload() {
             local RELEASE_ID=$1
             local file=$2
@@ -176,26 +194,29 @@ jobs:
             echo "---"
             echo "📁 Processing: $FILENAME"
 
-            ASSETS_JSON=$(curl -s \
+            ASSETS_JSON=$(curl -sS \
               -H "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?per_page=100")
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO_SLUG/releases/$RELEASE_ID/assets?per_page=100")
 
             echo "Assets on release: $(echo "$ASSETS_JSON" | jq -r '.[].name' 2>/dev/null)"
 
             for ASSET_ID in $(echo "$ASSETS_JSON" | jq -r ".[] | select(.name == \"$FILENAME\") | .id" 2>/dev/null); do
               echo "🗑️ Deleting asset ID: $ASSET_ID"
-              curl -s -o /dev/null -X DELETE \
+              curl -sS -o /dev/null -X DELETE \
                 -H "Authorization: Bearer $GH_TOKEN" \
-                "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/assets/$ASSET_ID"
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/$REPO_SLUG/assets/$ASSET_ID"
             done
 
             sleep 8
 
             echo "⬆️ Uploading $FILENAME..."
-            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+            HTTP_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
               -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
               -H "Content-Type: application/octet-stream" \
-              "https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?name=$ENCODED_NAME" \
+              "https://uploads.github.com/repos/$REPO_SLUG/releases/$RELEASE_ID/assets?name=$ENCODED_NAME" \
               --data-binary @"$file")
 
             echo "Upload HTTP status: $HTTP_STATUS"
@@ -211,9 +232,10 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           echo "📦 Version: $VERSION"
 
-          RELEASE_ID=$(curl -s \
+          RELEASE_ID=$(curl -sS \
             -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/tags/v$VERSION" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO_SLUG/releases/tags/v$VERSION" \
             | jq -r '.id // empty')
 
           if [ -z "$RELEASE_ID" ]; then
@@ -271,6 +293,12 @@ jobs:
         run: |
           set +e
 
+          REPO_SLUG="CaptainArmandoSalazar/employee-monitor"
+          if [ -z "$GH_TOKEN" ]; then
+            echo "❌ GH_TOKEN is empty. Set the repository secret before running this workflow."
+            exit 1
+          fi
+
           delete_and_upload() {
             local RELEASE_ID=$1
             local file=$2
@@ -280,26 +308,29 @@ jobs:
             echo "---"
             echo "📁 Processing: $FILENAME"
 
-            ASSETS_JSON=$(curl -s \
+            ASSETS_JSON=$(curl -sS \
               -H "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?per_page=100")
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO_SLUG/releases/$RELEASE_ID/assets?per_page=100")
 
             echo "Assets on release: $(echo "$ASSETS_JSON" | jq -r '.[].name' 2>/dev/null)"
 
             for ASSET_ID in $(echo "$ASSETS_JSON" | jq -r ".[] | select(.name == \"$FILENAME\") | .id" 2>/dev/null); do
               echo "🗑️ Deleting asset ID: $ASSET_ID"
-              curl -s -o /dev/null -X DELETE \
+              curl -sS -o /dev/null -X DELETE \
                 -H "Authorization: Bearer $GH_TOKEN" \
-                "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/assets/$ASSET_ID"
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/$REPO_SLUG/assets/$ASSET_ID"
             done
 
             sleep 8
 
             echo "⬆️ Uploading $FILENAME..."
-            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+            HTTP_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
               -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
               -H "Content-Type: application/octet-stream" \
-              "https://uploads.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/$RELEASE_ID/assets?name=$ENCODED_NAME" \
+              "https://uploads.github.com/repos/$REPO_SLUG/releases/$RELEASE_ID/assets?name=$ENCODED_NAME" \
               --data-binary @"$file")
 
             echo "Upload HTTP status: $HTTP_STATUS"
@@ -315,9 +346,10 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           echo "📦 Version: $VERSION"
 
-          RELEASE_ID=$(curl -s \
+          RELEASE_ID=$(curl -sS \
             -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/CaptainArmandoSalazar/employee-monitor-releases/releases/tags/v$VERSION" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO_SLUG/releases/tags/v$VERSION" \
             | jq -r '.id // empty')
 
           if [ -z "$RELEASE_ID" ]; then

@@ -16,6 +16,182 @@ let resetPwEmployeeId = null;
 // Shorthand
 function g(id) { return document.getElementById(id); }
 
+// ══════════════════════════════════════════════════════════
+// PERMISSIONS
+// ══════════════════════════════════════════════════════════
+let myPerms = new Set();
+function can(key) { return myPerms.has(key); }
+
+async function refreshPermissions() {
+  try {
+    const r = await api.getMyPermissions();
+    if (r && Array.isArray(r.permissions)) {
+      myPerms = new Set(r.permissions);
+      applyPermissionsToUI();
+    }
+  } catch { /* offline: keep what we have */ }
+}
+
+function applyPermissionsToUI() {
+  if (!currentEmployee) return;
+  const sa = currentEmployee.role === 'super_admin';
+  const hr = currentEmployee.role === 'hr';
+
+  const rules = {
+    'super-admins': sa,
+    'hrs':          (sa || hr) && can('employee.view'),
+    'managers':     (sa || hr) && can('employee.view'),
+    'employees':    (sa || hr) && can('employee.view'),
+    'my-employees': !sa && !hr && can('employee.view'),
+    'permissions':  sa,
+    'settings':     can('settings.view'),
+  };
+  document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
+    const rule = rules[btn.dataset.page];
+    if (rule !== undefined) btn.classList.toggle('hidden', !rule);
+  });
+  const label = g('nav-label-org');
+  if (label) label.classList.toggle('hidden', !Object.values(rules).some(Boolean));
+
+  // "Add ..." buttons follow the create permissions
+  const addButtons = {
+    'btn-add-super-admin': 'super_admin',
+    'btn-add-hr': 'hr',
+    'btn-add-manager': 'manager',
+    'btn-add-employee': 'employee',
+    'btn-add-my-employee': 'employee',
+  };
+  Object.entries(addButtons).forEach(([id, role]) => {
+    const el = g(id);
+    if (el) el.classList.toggle('hidden', !can('employee.create.' + role));
+  });
+
+  // If the page the user is on was just taken away, go back to the overview
+  const activeNav = document.querySelector('.nav-item.active');
+  if (activeNav && activeNav.classList.contains('hidden')) switchPage('overview');
+}
+
+// ── Permissions page (Super Admin) ───────────────────────
+const PERM_ROLE_LABELS = { hr: 'HR', manager: 'Manager', employee: 'Employee' };
+let permState = { catalog: [], roles: {}, selected: 'hr' };
+
+async function loadPermissionsPage() {
+  const box = g('permissions-content');
+  if (!box) return;
+  box.innerHTML = spinHtml();
+  try {
+    const [cr, rr] = await Promise.all([api.getPermissionCatalog(), api.getRolePermissions()]);
+    if (!(cr && cr.ok && Array.isArray(cr.data)) || !(rr && rr.ok && rr.data)) {
+      box.innerHTML = '<p class="text-muted" style="padding:20px;">Could not load permissions. Please try again.</p>';
+      return;
+    }
+    permState.catalog = cr.data;
+    permState.roles = rr.data;
+    renderPermissionsPage();
+  } catch (e) {
+    box.innerHTML = `<p class="text-muted" style="padding:20px;">Error: ${esc(e.message)}</p>`;
+  }
+}
+
+function renderPermissionsPage() {
+  const box = g('permissions-content');
+  const role = permState.selected;
+  const granted = new Set(permState.roles[role] || []);
+
+  box.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:16px;max-width:900px;">
+
+      <div class="tabs">
+        ${Object.keys(PERM_ROLE_LABELS).map(r => `
+          <button class="tab-btn ${r === role ? 'active' : ''}" data-perm-role="${r}">${PERM_ROLE_LABELS[r]}</button>
+        `).join('')}
+      </div>
+
+      <div class="alert alert-warning" style="margin-bottom:0;">
+        <span>ℹ️</span>
+        <span>Super Admin always has every permission and cannot be changed. Everyone can always see their own data. Changes apply to logged-in users within about a minute.</span>
+      </div>
+
+      <div id="perm-alert" class="alert hidden" style="margin-bottom:0;"></div>
+
+      ${permState.catalog.map(m => `
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">${esc(m.module)}</div>
+            <div style="display:flex;gap:8px;">
+              <button class="btn btn-ghost btn-sm" data-perm-bulk="all">Select all</button>
+              <button class="btn btn-ghost btn-sm" data-perm-bulk="none">Clear</button>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:12px;">
+            ${m.permissions.map(p => `
+              <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;">
+                <input type="checkbox" data-perm-key="${esc(p.key)}" ${granted.has(p.key) ? 'checked' : ''} style="margin-top:3px;" />
+                <span>
+                  <span style="font-weight:600;">${esc(p.label)}</span>
+                  <span class="td-muted" style="display:block;">${esc(p.description)}</span>
+                </span>
+              </label>
+            `).join('')}
+          </div>
+        </div>
+      `).join('')}
+
+      <div style="display:flex;gap:10px;justify-content:flex-end;">
+        <button class="btn btn-ghost" id="btn-perm-reset">Reset changes</button>
+        <button class="btn btn-primary" id="btn-perm-save">Save permissions for ${PERM_ROLE_LABELS[role]}</button>
+      </div>
+    </div>`;
+
+  box.onclick = onPermissionsClick;
+}
+
+function showPermAlert(type, msg) {
+  const el = g('perm-alert');
+  if (!el) return;
+  el.className = 'alert ' + (type === 'success' ? 'alert-success' : 'alert-error');
+  el.textContent = (type === 'success' ? '✓ ' : '⚠ ') + msg;
+}
+
+async function onPermissionsClick(e) {
+  const box = g('permissions-content');
+
+  const tab = e.target.closest('[data-perm-role]');
+  if (tab) { permState.selected = tab.dataset.permRole; renderPermissionsPage(); return; }
+
+  const bulk = e.target.closest('[data-perm-bulk]');
+  if (bulk) {
+    const card = bulk.closest('.card');
+    const check = bulk.dataset.permBulk === 'all';
+    card.querySelectorAll('input[data-perm-key]').forEach(cb => { cb.checked = check; });
+    return;
+  }
+
+  if (e.target.closest('#btn-perm-reset')) { renderPermissionsPage(); return; }
+
+  const saveBtn = e.target.closest('#btn-perm-save');
+  if (saveBtn) {
+    const role = permState.selected;
+    const keys = Array.from(box.querySelectorAll('input[data-perm-key]:checked')).map(cb => cb.dataset.permKey);
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving…';
+    try {
+      const r = await api.setRolePermissions(role, keys);
+      if (r && r.ok) {
+        permState.roles[role] = keys;
+        showPermAlert('success', `${PERM_ROLE_LABELS[role]} permissions saved (${keys.length} enabled).`);
+      } else {
+        showPermAlert('error', (r && r.data && r.data.detail) ? r.data.detail : 'Save failed');
+      }
+    } catch (err) {
+      showPermAlert('error', err.message);
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = `Save permissions for ${PERM_ROLE_LABELS[role]}`;
+    }
+  }
+}
+
 
 function validateStrongPassword(pw) {
   if (pw.length < 8)
@@ -44,7 +220,7 @@ async function boot() {
     isHR = role === 'hr';
     isManager = role === 'manager';
     const name = currentEmployee.employee_name || 'User';
-    document.querySelectorAll(`.role-only.role-${role}`).forEach(el => el.classList.remove('hidden'));
+    await refreshPermissions();
     g('sidebar-name').textContent = name;
     g('sidebar-role').textContent = currentEmployee.role;
     g('sidebar-avatar').textContent = name.charAt(0).toUpperCase();
@@ -108,7 +284,8 @@ async function boot() {
     bindWindowControls();
     bindClockButtons();
     bindModalButtons();
-    if (isAdmin || isHR || isManager) bindAdminButtons();
+    bindAdminButtons();
+    setInterval(refreshPermissions, 60000);   // pick up permission changes within a minute
 
   } catch (err) {
     console.error('Boot error:', err);
@@ -124,6 +301,11 @@ function bindNav() {
   });
   g('btn-logout').addEventListener('click', async () => {
     try {
+      if (await api.isClocked()) {
+        if (!confirm('You are clocked in. Signing out will clock you out and stop tracking. Continue?')) return;
+        await doClockOut();
+        if (await api.isClocked()) return;   // clock-out failed: stay signed in
+      }
       stopTimer();
       await api.logout();
       await api.showLogin();
@@ -156,6 +338,8 @@ function switchPage(pageId) {
   if (pageId === 'employees') { showSub('employees', 'employees-list'); loadRolePage('employee', 'employees-body', 'employees'); }
   if (pageId === 'my-employees') { showSub('my-employees', 'my-employees-list'); loadRolePage('employee', 'my-employees-body', 'my-employees'); }
   if (pageId === 'settings') { loadSettings(); }
+  if (pageId === 'permissions') { loadPermissionsPage(); }
+  refreshPermissions();
   // legacy
   if (pageId === 'admins') { showSub('admins', 'admins-list'); loadAdmins(); }
 }
@@ -165,7 +349,7 @@ async function loadRolePage(role, tbodyId, pageKey) {
   if (!tbody) return;
   tbody.innerHTML = loadingRow(tbodyId === 'employees-body' ? 7 : 6);
   try {
-    const params = { role, active_only: 'false' };
+    const params = { role, active_only: 'false', limit: '1000' };
     const r = await api.listEmployees(params);
     const list = (r && r.ok && Array.isArray(r.data)) ? r.data : [];
     if (!list.length) { tbody.innerHTML = emptyRow(tbodyId === 'employees-body' ? 7 : 6, 'No records found'); return; }
@@ -195,7 +379,7 @@ async function loadRolePage(role, tbodyId, pageKey) {
     tbody.innerHTML = list.map(e => `
   <tr>
     <td><div style="display:flex;align-items:center;gap:8px;">
-      <div class="avatar" style="width:28px;height:28px;font-size:11px;">${e.employee_name.charAt(0).toUpperCase()}</div>
+      <div class="avatar" style="width:28px;height:28px;font-size:11px;">${esc(e.employee_name.charAt(0).toUpperCase())}</div>
       <strong>${esc(e.employee_name)}</strong>
     </div></td>
     <td class="td-muted">${esc(e.email)}</td>
@@ -205,7 +389,7 @@ async function loadRolePage(role, tbodyId, pageKey) {
     <td>${e.status ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-danger">Inactive</span>'}</td>
 <td>
   <div style="display:flex;gap:6px;">
-${(isAdmin || isHR) ? `
+${can('employee.update') ? `
     <button class="btn btn-ghost btn-sm"
             data-action="edit-user"
             data-emp-id="${esc(String(e.employee_id))}"
@@ -223,7 +407,8 @@ ${(isAdmin || isHR) ? `
             data-page="${pfx}">
       View
     </button>
-    ${(isAdmin || isHR) && e.role !== 'super_admin' ? `
+    ${(e.status ? can('employee.deactivate') : can('employee.reactivate')) && e.role !== 'super_admin' ? `
+    <button class="btn btn-danger btn-sm"
     <button class="btn btn-danger btn-sm"
             data-action="remove-user"
             data-emp-id="${esc(String(e.employee_id))}"
@@ -256,9 +441,12 @@ function bindWindowControls() {
   g('btn-minimize').addEventListener('click', () => api.minimize());
   g('btn-close').addEventListener('click', async () => {
     if (await api.isClocked()) {
-      if (confirm('You are clocked in. Clock out before closing?')) await doClockOut();
+      const clockOutFirst = confirm(
+        'You are clocked in.\n\nOK = Clock out and close the app\nCancel = Keep tracking in the background'
+      );
+      if (clockOutFirst) await doClockOut();
     }
-    api.closeWindow();
+    api.closeWindow();   // hides to tray if still clocked in, otherwise quits
   });
 }
 
@@ -434,10 +622,10 @@ async function loadOverview() {
 }
 
 const [saRes, hrRes, mgrRes, empRes] = await Promise.all([
-  fetchWithRetry(() => api.listEmployees({ role: 'super_admin', active_only: 'false' })),
-  fetchWithRetry(() => api.listEmployees({ role: 'hr', active_only: 'false' })),
-  fetchWithRetry(() => api.listEmployees({ role: 'manager', active_only: 'false' })),
-  fetchWithRetry(() => api.listEmployees({ role: 'employee', active_only: 'false' })),
+  fetchWithRetry(() => api.listEmployees({ role: 'super_admin', active_only: 'false', limit: '1000' })),
+  fetchWithRetry(() => api.listEmployees({ role: 'hr', active_only: 'false', limit: '1000' })),
+  fetchWithRetry(() => api.listEmployees({ role: 'manager', active_only: 'false', limit: '1000' })),
+  fetchWithRetry(() => api.listEmployees({ role: 'employee', active_only: 'false', limit: '1000' })),
 ]);
 
           const saCount = (saRes && saRes.ok && Array.isArray(saRes.data)) ? saRes.data.length : 0;
@@ -537,14 +725,12 @@ async function loadMySessions() {
       return;
     }
 
-    // Keystroke totals
+    // Keystroke totals (calculated by the server for every session, no row limit)
     const ksMap = {};
     try {
-      const kr = await api.getAdminKeystrokes({ limit: '500' });
+      const kr = await api.getKeystrokeTotals({ employee_id: String(currentEmployee.employee_id) });
       if (kr && kr.ok && Array.isArray(kr.data)) {
-        kr.data.forEach(k => {
-          ksMap[k.session_id] = (ksMap[k.session_id] || 0) + (k.keys_pressed_count || 0);
-        });
+        kr.data.forEach(k => { ksMap[k.session_id] = k.total_keys || 0; });
       }
     } catch { /* optional */ }
 
@@ -1062,7 +1248,7 @@ function fmtSettingsDate(dateStr) {
     return new Date(dateStr).toLocaleDateString('en-IN', {
       day: 'numeric', month: 'long', year: 'numeric'
     });
-  } catch { return dateStr; }
+  } catch { return esc(dateStr); }
 }
 g('btn-refresh-my-sessions').addEventListener('click', loadMySessions);
 g('my-session-filter-date').addEventListener('change', loadMySessions);
@@ -1170,17 +1356,13 @@ async function openEditUserModal(id, name, email, dept, role, currentManagerId) 
     if (sel && currentManagerId) sel.value = currentManagerId;
   }
 
-  // Restrict role options based on current user
+  // Role options follow the create permissions; the whole dropdown follows "change roles"
   const roleEl = g('emp-role');
   if (roleEl) {
-    const allowed = {
-      super_admin: ['super_admin', 'hr', 'manager', 'employee'],
-      hr: ['hr', 'manager', 'employee'],
-      manager: ['employee'],
-    }[currentEmployee?.role] || [];
     Array.from(roleEl.options).forEach(opt => {
-      opt.disabled = !allowed.includes(opt.value);
+      opt.disabled = !can('employee.create.' + opt.value) && opt.value !== role;
     });
+    roleEl.disabled = !can('employee.change_role');
   }
 
   g('modal-employee').classList.remove('hidden');
@@ -1528,9 +1710,9 @@ async function openSessionDetail(sessionId, pageId, backSubId) {
     // ── 2. Keystroke total ─────────────────────────────
     let totalKeys = 0;
     try {
-      const kr = await api.getAdminKeystrokes({ session_id: sessionId, limit: '500' });
+      const kr = await api.getKeystrokeTotals({ session_id: sessionId });
       if (kr && kr.ok && Array.isArray(kr.data)) {
-        totalKeys = kr.data.reduce((a, k) => a + (k.keys_pressed_count || 0), 0);
+        totalKeys = kr.data.reduce((a, k) => a + (k.total_keys || 0), 0);
       }
     } catch { /* optional */ }
 
@@ -1586,10 +1768,10 @@ async function openSessionDetail(sessionId, pageId, backSubId) {
             <div class="detail-tile-label">💤 Idle Time</div>
             <div class="detail-tile-value text-warning">${it}</div>
           </div>
-${isAdmin ? `
+${can('keystroke.view') ? `
           <div class="detail-tile clickable"
                data-action="open-keystrokes"
-               data-sid="${sessionId}"
+               data-sid="${esc(sessionId)}"
                data-page="${pageId}"
                data-back="${detailSubId}">
             <div class="detail-tile-label">⌨️ Total Keystrokes</div>
@@ -1597,10 +1779,11 @@ ${isAdmin ? `
             <div class="detail-tile-sub" style="color:var(--accent);margin-top:4px;">
               Click to view raw keystroke logs →
             </div>
-          </div>
+          </div>` : ''}
+${(can('activity.view') || can('website.view')) ? `
           <div class="detail-tile clickable"
                data-action="open-activity"
-               data-sid="${sessionId}"
+               data-sid="${esc(sessionId)}"
                data-page="${pageId}"
                data-back="${detailSubId}">
             <div class="detail-tile-label">🌐 Activity Tracking</div>
@@ -1608,12 +1791,10 @@ ${isAdmin ? `
             <div class="detail-tile-sub" style="color:var(--accent);margin-top:4px;">
               Click to view app &amp; website logs →
             </div>
-          </div>
-          ` : `
-          `}
+          </div>` : ''}
           <div class="detail-tile clickable"
                data-action="open-netspeed"
-               data-sid="${sessionId}"
+               data-sid="${esc(sessionId)}"
                data-page="${pageId}"
                data-back="${detailSubId}">
             <div class="detail-tile-label">📶 Network Speed History</div>
@@ -1813,9 +1994,14 @@ async function openKeystrokesPage(sessionId, pageId, backDetailSubId) {
   container.innerHTML = spinHtml();
   showSub(pageId, ksSubId);
   try {
-    const kr = await api.getAdminKeystrokes({ session_id: sessionId, limit: '500' });
+    const [kr, tr] = await Promise.all([
+      api.getAdminKeystrokes({ session_id: sessionId, limit: '5000' }),
+      api.getKeystrokeTotals({ session_id: sessionId }),
+    ]);
     const rows = (kr && kr.ok && Array.isArray(kr.data)) ? kr.data : [];
-    const total = rows.reduce((a, k) => a + (k.keys_pressed_count || 0), 0);
+    const total = (tr && tr.ok && Array.isArray(tr.data))
+      ? tr.data.reduce((a, k) => a + (k.total_keys || 0), 0)
+      : rows.reduce((a, k) => a + (k.keys_pressed_count || 0), 0);
 
     // Combined raw string — reverse rows to get chronological order
     const combinedRaw = [...rows].reverse().map(k => k.raw_keystrokes || '').join('');
@@ -2164,7 +2350,7 @@ async function loadAdmins() {
         <td>
           <div style="display:flex;align-items:center;gap:8px;">
             <div class="avatar" style="width:28px;height:28px;font-size:11px;">
-              ${e.employee_name.charAt(0).toUpperCase()}
+              ${esc(e.employee_name.charAt(0).toUpperCase())}
             </div>
             <strong>${esc(e.employee_name)}</strong>
           </div>
@@ -2205,7 +2391,7 @@ async function loadEmployees() {
         <td>
           <div style="display:flex;align-items:center;gap:8px;">
             <div class="avatar" style="width:28px;height:28px;font-size:11px;">
-              ${e.employee_name.charAt(0).toUpperCase()}
+              ${esc(e.employee_name.charAt(0).toUpperCase())}
             </div>
             <strong>${esc(e.employee_name)}</strong>
           </div>
@@ -2349,7 +2535,7 @@ async function openUserSessions(empId, empName, pageId) {
                    onmouseleave="this.style.borderColor='var(--border)'">
                 <div style="display:flex;align-items:center;gap:10px;overflow:hidden;">
                   <div class="avatar" style="width:34px;height:34px;font-size:13px;flex-shrink:0;">
-                    ${m.employee_name.charAt(0).toUpperCase()}
+                    ${esc(m.employee_name.charAt(0).toUpperCase())}
                   </div>
                   <div style="overflow:hidden;">
                     <div style="font-size:13px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
@@ -2382,14 +2568,12 @@ async function openUserSessions(empId, empName, pageId) {
       }
     }
 
-    // Build keystroke map
+    // Build keystroke map (server-side totals, no row limit)
     const ksMap = {};
     try {
-      const kr = await api.getAdminKeystrokes({ employee_id: empIdStr, limit: '500' });
+      const kr = await api.getKeystrokeTotals({ employee_id: empIdStr });
       if (kr && kr.ok && Array.isArray(kr.data)) {
-        kr.data.forEach(k => {
-          ksMap[k.session_id] = (ksMap[k.session_id] || 0) + (k.keys_pressed_count || 0);
-        });
+        kr.data.forEach(k => { ksMap[k.session_id] = k.total_keys || 0; });
       }
     } catch { /* optional */ }
 
@@ -2791,7 +2975,7 @@ async function openUserSessions(empId, empName, pageId) {
                 " onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='var(--border)'">
                   <div style="display:flex;align-items:center;gap:10px;overflow:hidden;">
                     <div class="avatar" style="width:34px;height:34px;font-size:13px;flex-shrink:0;">
-                      ${m.employee_name.charAt(0).toUpperCase()}
+                      ${esc(m.employee_name.charAt(0).toUpperCase())}
                     </div>
                     <div style="overflow:hidden;">
                       <div style="font-size:13px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
@@ -2948,17 +3132,13 @@ async function openEmpModal(defaultRole) {
     }
   }
 
-  // Restrict role dropdown based on current user role
+  // Role options follow the create permissions
   const roleEl = g('emp-role');
   if (roleEl) {
-    const allowed = {
-      super_admin: ['super_admin', 'hr', 'manager', 'employee'],
-      hr: ['hr', 'manager', 'employee'],
-      manager: ['employee'],
-    }[currentEmployee?.role] || [];
     Array.from(roleEl.options).forEach(opt => {
-      opt.disabled = !allowed.includes(opt.value);
+      opt.disabled = !can('employee.create.' + opt.value);
     });
+    roleEl.disabled = false;
     roleEl.value = defaultRole;
   }
 
@@ -3206,20 +3386,27 @@ function toUtc(v) {
 function fmtDate(v) {
   if (!v) return '—';
   try { return toUtc(v).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Asia/Kolkata' }); }
-  catch { return String(v); }
+  catch { return esc(String(v)); }
 }
 function fmtTime(v) {
   if (!v) return '—';
   try { return toUtc(v).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }); }
-  catch { return String(v); }
+  catch { return esc(String(v)); }
 }
 function fmtDateTime(v) {
   if (!v) return '—';
   try { return toUtc(v).toLocaleString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }); }
-  catch { return String(v); }
+  catch { return esc(String(v)); }
 }
 function pad(n) { return String(n).padStart(2, '0'); }
-function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function esc(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 function locStr(s) {
   const c = s.city || '', co = s.country || '';
   return (c && co) ? `${c}, ${co}` : (c || co || '');
@@ -3237,7 +3424,7 @@ function loadingRow(c) {
   return `<tr><td colspan="${c}"><div class="empty-state"><span class="spinner"></span></div></td></tr>`;
 }
 function emptyRow(c, m) {
-  return `<tr><td colspan="${c}"><div class="empty-state"><span class="empty-icon">📭</span><span class="empty-title">${m}</span></div></td></tr>`;
+  return `<tr><td colspan="${c}"><div class="empty-state"><span class="empty-icon">📭</span><span class="empty-title">${esc(m)}</span></div></td></tr>`;
 }
 function spinHtml() {
   return `<div style="padding:40px;text-align:center;"><span class="spinner"></span></div>`;

@@ -1,6 +1,6 @@
-import { app, BrowserWindow, dialog } from 'electron';
+import { app, BrowserWindow, dialog, Tray, Menu, nativeImage } from 'electron';
 import * as path from 'path';
-import { createLoginWindow, createDashboardWindow, getMainWindow, setMainWindow } from './window';
+import { createLoginWindow, createDashboardWindow, getMainWindow, setMainWindow, setQuitting } from './window';
 import { registerIpcHandlers } from './ipc';
 import { activityTracker } from './system/activity';
 import { trackingService } from './services/tracking.service';
@@ -139,8 +139,7 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) { app.quit(); process.exit(0); }
 
 app.on('second-instance', () => {
-  const win = getMainWindow();
-  if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
+  showMainWindow();
 });
 function setupAutoLaunch(): void {
   app.setLoginItemSettings({
@@ -159,7 +158,7 @@ function setupAutoUpdater(): void {
   autoUpdater.setFeedURL({
     provider: 'github',
     owner: 'CaptainArmandoSalazar',
-    repo: 'employee-monitor-releases',
+    repo: 'employee-monitor',
   });
 
   // ── Update available ───────────────────────────────────
@@ -337,9 +336,66 @@ async function handleExit(code: number = 0): Promise<void> {
   app.exit(code);
 }
 
+// ── Tray (background mode) ────────────────────────────────
+let tray: Tray | null = null;
+let _lastTrayClocked: boolean | null = null;
+
+function showMainWindow(): void {
+  const win = getMainWindow();
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+async function quitFromTray(): Promise<void> {
+  if (sessionService.isClocked()) {
+    const { response } = await dialog.showMessageBox({
+      type: 'warning',
+      title: 'You are clocked in',
+      message: 'Quitting will clock you out and stop tracking.',
+      buttons: ['Clock out & Quit', 'Keep tracking'],
+      defaultId: 1,
+      cancelId: 1,
+    });
+    if (response !== 0) return;
+  }
+  setQuitting(true);
+  app.quit();   // before-quit handler performs the clock-out
+}
+
+function refreshTrayMenu(): void {
+  if (!tray) return;
+  const clocked = sessionService.isClocked();
+  if (clocked === _lastTrayClocked) return;   // rebuild only when the state changes
+  _lastTrayClocked = clocked;
+
+  tray.setToolTip(clocked ? 'AV DEVS Collab — tracking is ON' : 'AV DEVS Collab — not clocked in');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: clocked ? '● Tracking is ON' : '○ Not clocked in', enabled: false },
+    { type: 'separator' },
+    { label: 'Open AV DEVS Collab', click: () => showMainWindow() },
+    { type: 'separator' },
+    { label: 'Quit', click: () => { void quitFromTray(); } },
+  ]));
+}
+
+function createTray(): void {
+  if (tray) return;
+  const iconPath = path.join(__dirname, '../../assets/icon.png');
+  let image = nativeImage.createFromPath(iconPath);
+  if (!image.isEmpty()) image = image.resize({ width: 16, height: 16 });
+  tray = new Tray(image);
+  tray.on('click', () => showMainWindow());
+  tray.on('double-click', () => showMainWindow());
+  refreshTrayMenu();
+  setInterval(refreshTrayMenu, 5000);
+}
+
 // ── App lifecycle ─────────────────────────────────────────
 app.whenReady().then(async () => {
   registerIpcHandlers();
+  createTray();
 
   // ── Auto-fix Wayland on Linux ─────────────────────────
   await ensureX11Session();          // Linux: fix Wayland
@@ -392,11 +448,11 @@ app.whenReady().then(async () => {
 
 // ── X button / app.quit() ────────────────────────────────
 app.on('before-quit', (event) => {
+  setQuitting(true);   // lets windows close for real from now on
   if (_exiting || _clockOutDone || !sessionService.isClocked()) return;
   event.preventDefault();
   handleExit(0);
 });
-
 // ── All windows closed ────────────────────────────────────
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
