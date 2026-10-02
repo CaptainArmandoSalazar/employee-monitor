@@ -1,6 +1,26 @@
 {
   "history": [
     {
+      "version": "v1.0.44",
+      "date": "2026-10-02",
+      "changes": [
+        "Fixed Linux Debian packaging and desktop launcher path for the installed app to appear in Ubuntu app search",
+        "Adjusted Electron Linux startup to avoid sandbox launch failures on Ubuntu",
+        "Resolved the broken launch path caused by spaces in the package name and invalid AppImage/desktop behavior",
+        "Kept the backend 8001 fix and the prior website detection, tracking, and XSS-safe UI fixes intact"
+      ]
+    },
+    {
+      "version": "v1.0.43",
+      "date": "2026-10-02",
+      "changes": [
+        "Updated the app to use the live backend port 8001 for successful API communication",
+        "Fixed the default backend URL mismatch that caused not-found and login failures after deployment",
+        "Kept the website detection, offline queue, and XSS-safe rendering fixes from the previous release",
+        "Prepared the next release build and GitHub publishing update for the corrected deployment"
+      ]
+    },
+    {
       "version": "v1.0.42",
       "date": "2026-10-02",
       "changes": [

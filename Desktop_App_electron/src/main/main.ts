@@ -135,6 +135,11 @@ async function ensureMacInputMonitoring(): Promise<void> {
   // Just log it for debugging
 }
 
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('no-sandbox');
+  app.commandLine.appendSwitch('disable-setuid-sandbox');
+}
+
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) { app.quit(); process.exit(0); }
 

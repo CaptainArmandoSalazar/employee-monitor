@@ -1,6 +1,6 @@
 {
   "name": "av-devs-collab",
-  "version": "1.0.42",
+  "version": "1.0.44",
   "description": "Employee Monitoring Desktop App",
   "main": "dist/main/main.js",
   "homepage": "https://avdevs.com",
@@ -38,7 +38,7 @@
   },
   "build": {
     "appId": "com.avdevs.collab",
-    "productName": "AV DEVS Collab",
+    "productName": "AV-DEVS-Collab",
     "artifactName": "AV-DEVS-Collab-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "release"
@@ -107,7 +107,11 @@
       "icon": "assets/icons/",
       "category": "Utility",
       "executableName": "av-devs-collab",
-      "maintainer": "AvDevs <admin@avdevs.com>"
+      "maintainer": "AvDevs <admin@avdevs.com>",
+      "desktop": {
+        "Name": "AV DEVS Collab",
+        "Comment": "Employee Monitoring Desktop App"
+      }
     },
     "nsis": {
       "oneClick": false,
