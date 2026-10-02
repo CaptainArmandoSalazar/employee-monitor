@@ -155,15 +155,30 @@ function setupAutoLaunch(): void {
 }
 // ── Auto Updater Setup ────────────────────────────────────
 function setupAutoUpdater(): void {
+  const fs = require('fs');
+  const path = require('path');
+  const releaseConfigPath = path.join(__dirname, '..', '..', 'release.config.json');
+  let releaseConfig: { update?: { provider?: string; owner?: string; repo?: string } } = {};
+
+  try {
+    releaseConfig = JSON.parse(fs.readFileSync(releaseConfigPath, 'utf8'));
+  } catch (error) {
+    console.warn('[Updater] Could not read release.config.json, falling back to defaults.', error);
+  }
+
+  const updateProvider = (releaseConfig.update?.provider as 'github') || 'github';
+  const updateOwner = releaseConfig.update?.owner || 'CaptainArmandoSalazar';
+  const updateRepo = releaseConfig.update?.repo || 'employee-monitor';
+
   // Disable auto download — we'll control when to install
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
-  // Set your GitHub repo
+  // Set your GitHub repo from the central release config
   autoUpdater.setFeedURL({
-    provider: 'github',
-    owner: 'CaptainArmandoSalazar',
-    repo: 'employee-monitor',
+    provider: updateProvider,
+    owner: updateOwner,
+    repo: updateRepo,
   });
 
   // ── Update available ───────────────────────────────────

@@ -1,6 +1,16 @@
 {
   "history": [
     {
+      "version": "v1.0.50",
+      "date": "2026-10-02",
+      "changes": [
+        "Updated the release metadata to use the changelog as the source of truth for version syncing",
+        "Centralized deployment and GitHub updater settings into a single release config file",
+        "Validated the Electron build and version sync flow so package and login metadata stay aligned with the latest release",
+        "Preserved the updater, Linux packaging, and backend configuration fixes from the current release cycle"
+      ]
+    },
+    {
       "version": "v1.0.49",
       "date": "2026-10-02",
       "changes": [

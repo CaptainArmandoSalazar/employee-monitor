@@ -8,7 +8,7 @@ export interface Employee {
   employee_name: string;
   email: string;
   department: string | null;
-  role: 'super_admin' | 'hr' | 'manager' | 'employee' | 'admin';
+  role: 'super_admin' | 'hr' | 'manager' | 'employee';
   status: boolean;
   date_of_joining: string | null;
   created_at: string | null;

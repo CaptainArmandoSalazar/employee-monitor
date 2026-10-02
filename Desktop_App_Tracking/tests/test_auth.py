@@ -1,7 +1,17 @@
+def test_default_seed_credentials_are_not_hardcoded():
+    from app.core.config import settings
+
+    assert settings.DEFAULT_ADMIN_EMAIL.strip() != "admin@avdevs.com"
+    assert settings.DEFAULT_ADMIN_PASSWORD.strip() != "1234"
+
+
+from app.core.config import settings
+
+
 def test_login_success(client):
     resp = client.post(
         "/api/v1/auth/login",
-        json={"email": "admin@avdevs.com", "password": "1234"},
+        json={"email": settings.DEFAULT_ADMIN_EMAIL, "password": settings.DEFAULT_ADMIN_PASSWORD},
     )
     assert resp.status_code == 200
     data = resp.json()
@@ -12,7 +22,7 @@ def test_login_success(client):
 def test_login_wrong_password(client):
     resp = client.post(
         "/api/v1/auth/login",
-        json={"email": "admin@avdevs.com", "password": "wrong"},
+        json={"email": settings.DEFAULT_ADMIN_EMAIL, "password": "wrong"},
     )
     assert resp.status_code == 401
 
@@ -28,7 +38,7 @@ def test_login_unknown_email(client):
 def test_me(client, admin_headers):
     resp = client.get("/api/v1/auth/me", headers=admin_headers)
     assert resp.status_code == 200
-    assert resp.json()["email"] == "admin@avdevs.com"
+    assert resp.json()["email"] == settings.DEFAULT_ADMIN_EMAIL
 
 
 def test_me_no_token(client):

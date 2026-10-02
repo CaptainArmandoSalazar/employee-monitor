@@ -340,8 +340,6 @@ function switchPage(pageId) {
   if (pageId === 'settings') { loadSettings(); }
   if (pageId === 'permissions') { loadPermissionsPage(); }
   refreshPermissions();
-  // legacy
-  if (pageId === 'admins') { showSub('admins', 'admins-list'); loadAdmins(); }
 }
 
 async function loadRolePage(role, tbodyId, pageKey) {
@@ -2412,46 +2410,6 @@ async function openNetSpeedPage(sessionId, pageId, backDetailSubId) {
   }
 }
 // ══════════════════════════════════════════════════════════
-// ADMINS PAGE
-// ══════════════════════════════════════════════════════════
-async function loadAdmins() {
-  const tbody = g('admins-body');
-  tbody.innerHTML = loadingRow(6);
-  try {
-    const r = await api.listEmployees({ role: 'admin', active_only: 'false' });
-    const list = (r && r.ok && Array.isArray(r.data)) ? r.data : [];
-    if (!list.length) { tbody.innerHTML = emptyRow(6, 'No admins found'); return; }
-    tbody.innerHTML = list.map(e => `
-      <tr>
-        <td>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <div class="avatar" style="width:28px;height:28px;font-size:11px;">
-              ${esc(e.employee_name.charAt(0).toUpperCase())}
-            </div>
-            <strong>${esc(e.employee_name)}</strong>
-          </div>
-        </td>
-        <td class="td-muted">${esc(e.email)}</td>
-        <td>${esc(e.department || '—')}</td>
-        <td class="td-muted">${e.date_of_joining ? fmtDate(e.date_of_joining) : '—'}</td>
-        <td>
-          ${e.status
-        ? '<span class="badge badge-success">Active</span>'
-        : '<span class="badge badge-danger">Inactive</span>'}
-        </td>
-        <td>
-          <button class="btn btn-ghost btn-sm"
-                  data-action="view-user"
-                  data-emp-id="${esc(String(e.employee_id))}"
-                  data-emp-name="${esc(e.employee_name)}"
-                  data-page="admins">
-            View
-          </button>
-        </td>
-      </tr>`).join('');
-  } catch (e) { tbody.innerHTML = emptyRow(6, 'Error: ' + e.message); }
-}
-
 // ══════════════════════════════════════════════════════════
 // EMPLOYEES PAGE
 // ══════════════════════════════════════════════════════════
@@ -3121,10 +3079,6 @@ function bindAdminButtons() {
   const addMyEmployee = g('btn-add-my-employee');
   if (addMyEmployee) addMyEmployee.addEventListener('click', () => openEmpModal('employee'));
 
-  // Legacy buttons
-  const addAdmin = g('btn-add-admin');
-  if (addAdmin) addAdmin.addEventListener('click', () => openEmpModal('super_admin'));
-
   g('btn-save-employee').addEventListener('click', saveEmployee);
   g('btn-confirm-reset').addEventListener('click', confirmReset);
 }
@@ -3274,7 +3228,7 @@ function roleName(r) {
 }
 function openEditEmployeeModal(id, name, email, dept, role) {
   editingEmployeeId = id;
-  g('modal-emp-title').textContent = 'Edit ' + (role === 'admin' ? 'Admin' : 'Employee');
+  g('modal-emp-title').textContent = 'Edit Employee';
   g('emp-name').value = name;
   g('emp-email').value = email;
   g('emp-email').disabled = true;

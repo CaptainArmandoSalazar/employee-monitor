@@ -1,6 +1,6 @@
 {
   "name": "av-devs-collab",
-  "version": "1.0.49",
+  "version": "1.0.50",
   "description": "Employee Monitoring Desktop App",
   "main": "dist/main/main.js",
   "homepage": "https://avdevs.com",
@@ -9,9 +9,10 @@
     "email": "admin@avdevs.com"
   },
   "scripts": {
-    "build": "tsc",
+    "sync:release": "node scripts/sync-release.js",
+    "build": "node scripts/sync-release.js && tsc",
     "start": "npm run build && electron .",
-    "dev": "concurrently \"tsc --watch\" \"cp src/main/services/inputWorker.js dist/main/services/inputWorker.js && wait-on dist/main/main.js && electron . --dev\"",
+    "dev": "npm run sync:release && concurrently \"tsc --watch\" \"cp src/main/services/inputWorker.js dist/main/services/inputWorker.js && wait-on dist/main/main.js && electron . --dev\"",
     "dist": "npm run build && cp src/main/services/inputWorker.js dist/main/services/inputWorker.js && electron-builder",
     "dist:linux": "npm run build && cp src/main/services/inputWorker.js dist/main/services/inputWorker.js && electron-builder --linux AppImage deb",
     "dist:win": "npm run build && electron-builder --windows nsis",
@@ -38,7 +39,7 @@
   },
   "build": {
     "appId": "com.avdevs.collab",
-    "productName": "AV-DEVS-Collab",
+    "productName": "AV DEVS Collab",
     "artifactName": "AV-DEVS-Collab-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "release"

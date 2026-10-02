@@ -8,8 +8,8 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200  # 30 days
 
-    DEFAULT_ADMIN_EMAIL: str = "admin@avdevs.com"
-    DEFAULT_ADMIN_PASSWORD: str = "1234"
+    DEFAULT_ADMIN_EMAIL: str = ""
+    DEFAULT_ADMIN_PASSWORD: str = ""
     DEFAULT_ADMIN_NAME: str = "Super Admin"
     DEFAULT_ADMIN_DEPARTMENT: str = "IT"
 

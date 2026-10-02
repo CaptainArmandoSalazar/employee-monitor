@@ -13,6 +13,9 @@ from app.main import app
 from app.services.auth_service import seed_default_admin
 from app.core.permissions import seed_permissions
 
+settings.DEFAULT_ADMIN_EMAIL = "superadmin@company.com"
+settings.DEFAULT_ADMIN_PASSWORD = "LocalTest!123"
+
 SQLITE_URL = "sqlite:///./test.db"
 
 engine_test = create_engine(SQLITE_URL, connect_args={"check_same_thread": False})
@@ -60,10 +63,10 @@ def client(db):
 
 @pytest.fixture()
 def admin_token(client):
-    """Return a valid JWT token for the default admin."""
+    """Return a valid JWT token for the seeded default super admin."""
     resp = client.post(
         "/api/v1/auth/login",
-        json={"email": "admin@avdevs.com", "password": "1234"},
+        json={"email": settings.DEFAULT_ADMIN_EMAIL, "password": settings.DEFAULT_ADMIN_PASSWORD},
     )
     assert resp.status_code == 200, resp.text
     return resp.json()["access_token"]

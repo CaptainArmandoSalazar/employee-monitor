@@ -68,7 +68,7 @@ app = FastAPI(
     title="Employee Monitor API",
     description=(
         "Production-ready backend for the Employee Monitoring desktop application.\n\n"
-        "**Default admin credentials:** `admin@avdevs.com` / `1234`\n\n"
+        "Set `DEFAULT_ADMIN_EMAIL` and `DEFAULT_ADMIN_PASSWORD` in the environment before startup to bootstrap the initial Super Admin account.\n\n"
         "Use `POST /api/v1/auth/login` to get a JWT token, then click **Authorize** above."
     ),
     version="1.0.0",

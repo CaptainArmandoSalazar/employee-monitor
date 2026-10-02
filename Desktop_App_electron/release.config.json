@@ -1,0 +1,21 @@
+{
+  "app": {
+    "name": "AV DEVS Collab",
+    "displayName": "AV DEVS Collab",
+    "releaseType": "release"
+  },
+  "github": {
+    "owner": "CaptainArmandoSalazar",
+    "repo": "employee-monitor",
+    "tokenEnv": "GITHUB_TOKEN",
+    "releaseType": "release"
+  },
+  "secrets": {
+    "githubToken": ""
+  },
+  "update": {
+    "provider": "github",
+    "owner": "CaptainArmandoSalazar",
+    "repo": "employee-monitor"
+  }
+}
