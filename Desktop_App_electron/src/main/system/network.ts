@@ -16,6 +16,17 @@ export interface NetworkSpeed {
   ping: number;      // ms
 }
 
+function isLikelyVirtualMachine(): boolean {
+  if (process.platform !== 'win32') return false;
+  try {
+    const { execSync } = require('child_process');
+    const out = execSync('wmic computersystem get model', { stdio: ['ignore', 'pipe', 'pipe'] }).toString().toLowerCase();
+    return /virtual|vmware|virtualbox|hyper-v|kvm/.test(out);
+  } catch {
+    return false;
+  }
+}
+
 // ── Get local IP and MAC ──────────────────────────────────
 export function getNetworkInfo(): NetworkInfo {
   const interfaces = os.networkInterfaces();
@@ -291,6 +302,11 @@ async function measureUploadParallel(): Promise<number> {
  */
 export async function getNetworkSpeed(): Promise<NetworkSpeed> {
   try {
+    if (isLikelyVirtualMachine()) {
+      console.warn('[Network] Virtual machine detected — internet speed measurement is limited in this environment.');
+      return { download: 0, upload: 0, ping: 0 };
+    }
+
     // Step 1: Measure latency/ping to Cloudflare (very stable)
     const pingPromise = measureTcpPing('speed.cloudflare.com', 443, 5);
 

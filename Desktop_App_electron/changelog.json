@@ -1,6 +1,16 @@
 {
   "history": [
     {
+      "version": "v1.0.51",
+      "date": "2026-10-05",
+      "changes": [
+        "Fixed VM/Windows guest behavior so the app no longer crashes when active-window or internet-speed data is unavailable",
+        "Added graceful fallback handling for VirtualBox and virtualized Windows environments when no real desktop/network metrics are present",
+        "Improved app reliability by detecting missing foreground-window data and returning safe fallback values instead of failing the tracking flow",
+        "Kept the GitHub release metadata, updater config, and desktop packaging aligned for the newest release"
+      ]
+    },
+    {
       "version": "v1.0.50",
       "date": "2026-10-02",
       "changes": [

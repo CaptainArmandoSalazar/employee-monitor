@@ -80,10 +80,21 @@ function getActiveWindow(): Promise<ActiveWindow | null> {
         Write-Output "$($proc.Name)|$($s.ToString())"
       `;
       exec(`powershell -Command "${script.replace(/\n/g, ' ')}"`, (err, out) => {
-        if (err || !out) return resolve(null);
-        const [app, ...titleParts] = out.trim().split('|');
-        const appName = getFriendlyName(app?.trim() || '');
-        resolve({ appName, windowTitle: titleParts.join('|').trim() });
+        if (err || !out) {
+          resolve({ appName: 'Desktop', windowTitle: 'No active window detected' });
+          return;
+        }
+
+        const trimmed = out.trim();
+        if (!trimmed || trimmed === '|') {
+          resolve({ appName: 'Desktop', windowTitle: 'No active window detected' });
+          return;
+        }
+
+        const [app, ...titleParts] = trimmed.split('|');
+        const appName = getFriendlyName(app?.trim() || 'Desktop');
+        const windowTitle = titleParts.join('|').trim() || 'No active window detected';
+        resolve({ appName, windowTitle });
       });
 
     } else if (process.platform === 'darwin') {
