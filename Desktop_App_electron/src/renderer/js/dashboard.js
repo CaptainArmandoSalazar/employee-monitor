@@ -1496,6 +1496,25 @@ async function openActivityPage(sessionId, pageId, backDetailSubId) {
     const actRows = (actR && actR.ok && Array.isArray(actR.data)) ? actR.data : [];
     const webRows = (webR && webR.ok && Array.isArray(webR.data)) ? webR.data : [];
 
+    const normalizeBrowserApp = (name) => {
+      const raw = String(name || 'Unknown').trim();
+      const lower = raw.toLowerCase();
+      if (lower.includes('chrome')) return 'Google Chrome';
+      if (lower.includes('firefox')) return 'Firefox';
+      if (lower.includes('edge')) return 'Microsoft Edge';
+      if (lower.includes('brave')) return 'Brave';
+      if (lower.includes('opera')) return 'Opera';
+      if (lower.includes('vivaldi')) return 'Vivaldi';
+      if (lower.includes('safari')) return 'Safari';
+      if (lower.includes('chromium')) return 'Chromium';
+      return raw || 'Unknown';
+    };
+
+    const isBrowserApp = (name) => {
+      const label = normalizeBrowserApp(name).toLowerCase();
+      return ['google chrome', 'firefox', 'microsoft edge', 'brave', 'opera', 'vivaldi', 'safari', 'chromium'].some(v => label.includes(v));
+    };
+
     // ── Stats ──────────────────────────────────────────────
     const totalAppTime = actRows.reduce((a, r) => a + (r.duration || 0), 0);
     const totalWebTime = webRows.reduce((a, r) => a + (r.duration || 0), 0);
@@ -1514,6 +1533,36 @@ async function openActivityPage(sessionId, pageId, backDetailSubId) {
       .sort((a, b) => b.duration - a.duration)
       .slice(0, 10);
 
+    const browserMap = {};
+    const addBrowserDuration = (browserName, dur, extra = null) => {
+      const app = normalizeBrowserApp(browserName || 'Unknown');
+      if (!isBrowserApp(app)) return;
+      if (!browserMap[app]) browserMap[app] = { name: app, duration: 0, count: 0, events: [] };
+      const value = Number(dur) || 0;
+      browserMap[app].duration += value;
+      browserMap[app].count += 1;
+      if (extra) browserMap[app].events.push(extra);
+    };
+
+    actRows.forEach(r => {
+      addBrowserDuration(r.app_name, r.duration, {
+        title: r.window_title || '—',
+        duration: Number(r.duration) || 0,
+        start_time: r.start_time,
+        end_time: r.end_time,
+      });
+    });
+    webRows.forEach(r => {
+      addBrowserDuration(r.app_name || r.domain, r.duration, {
+        title: r.title || r.domain || '—',
+        duration: Number(r.duration) || 0,
+        timestamp: r.timestamp,
+      });
+    });
+    const browserGroups = Object.values(browserMap)
+      .sort((a, b) => b.duration - a.duration);
+    const selectedBrowser = browserGroups[0]?.name || null;
+
     // ── Top domains aggregation ────────────────────────────
     const domainMap = {};
     webRows.forEach(r => {
@@ -1528,201 +1577,290 @@ async function openActivityPage(sessionId, pageId, backDetailSubId) {
 
     const maxAppDur = topApps.length ? Math.max(...topApps.map(a => a.duration)) : 1;
     const maxDomainDur = topDomains.length ? Math.max(...topDomains.map(d => d.duration)) : 1;
+    const maxBrowserDur = browserGroups.length ? Math.max(...browserGroups.map(b => b.duration)) : 1;
 
-    container.innerHTML = `
-      <div style="display:flex;flex-direction:column;gap:20px;">
+    let browserSelection = browserGroups[0]?.name || null;
 
-        <!-- Header -->
-        <div style="display:flex;align-items:center;gap:12px;">
-          <button class="back-btn"
-                  data-action="back-to-sub"
-                  data-target-page="${pageId}"
-                  data-target-sub="${backDetailSubId}">
-            ← Back to Session
-          </button>
-          <div>
-            <div class="page-title">🌐 Activity Tracking</div>
-            <div class="page-subtitle">
-              App usage &amp; website visits for this session
-            </div>
-          </div>
-        </div>
+    const renderActivityView = () => {
+      const selectedDetailRows = browserSelection
+        ? webRows
+            .filter((row) => {
+              const browserName = normalizeBrowserApp(row.app_name || row.domain || 'Unknown');
+              return browserName === browserSelection;
+            })
+            .map((row) => ({
+              domain: row.domain || 'Unknown',
+              title: row.title || '—',
+              duration: Number(row.duration) || 0,
+              timestamp: row.timestamp,
+            }))
+            .slice(0, 30)
+        : [];
 
-        <!-- Stats -->
-        <div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));">
-          <div class="stat-card accent">
-            <div class="stat-label">App Time</div>
-            <div class="stat-value" style="font-size:20px;">${sToHm(totalAppTime)}</div>
-            <div class="stat-sub">${uniqueApps} unique apps</div>
-          </div>
-          <div class="stat-card success">
-            <div class="stat-label">Web Time</div>
-            <div class="stat-value" style="font-size:20px;">${sToHm(totalWebTime)}</div>
-            <div class="stat-sub">${uniqueDomains} unique sites</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">App Switches</div>
-            <div class="stat-value" style="font-size:20px;">${actRows.length}</div>
-            <div class="stat-sub">Total events</div>
-          </div>
-          <div class="stat-card warning">
-            <div class="stat-label">Website Visits</div>
-            <div class="stat-value" style="font-size:20px;">${webRows.length}</div>
-            <div class="stat-sub">Total visits</div>
-          </div>
-        </div>
+      container.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:20px;">
 
-        <!-- Top Apps -->
-        ${topApps.length ? `
-        <div class="card">
-          <div class="card-header">
+          <!-- Header -->
+          <div style="display:flex;align-items:center;gap:12px;">
+            <button class="back-btn"
+                    data-action="back-to-sub"
+                    data-target-page="${pageId}"
+                    data-target-sub="${backDetailSubId}">
+              ← Back to Session
+            </button>
             <div>
-              <div class="card-title">💻 Top Applications</div>
-              <div class="card-subtitle">Most used apps this session</div>
+              <div class="page-title">🌐 Activity Tracking</div>
+              <div class="page-subtitle">
+                App usage &amp; website visits for this session
+              </div>
             </div>
           </div>
-          <div style="display:flex;flex-direction:column;gap:10px;">
-            ${topApps.map(app => `
-              <div style="display:flex;align-items:center;gap:12px;">
-                <div style="
-                  min-width:140px;
-                  font-size:13px;
-                  font-weight:600;
-                  color:var(--text-primary);
-                  overflow:hidden;
-                  text-overflow:ellipsis;
-                  white-space:nowrap;
-                ">${esc(app.name)}</div>
-                <div style="flex:1;">
-                  <div class="progress-bar">
-                    <div class="progress-fill accent"
-                         style="width:${Math.round((app.duration / maxAppDur) * 100)}%;">
+
+          <!-- Stats -->
+          <div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));">
+            <div class="stat-card accent">
+              <div class="stat-label">App Time</div>
+              <div class="stat-value" style="font-size:20px;">${sToHm(totalAppTime)}</div>
+              <div class="stat-sub">${uniqueApps} unique apps</div>
+            </div>
+            <div class="stat-card success">
+              <div class="stat-label">Web Time</div>
+              <div class="stat-value" style="font-size:20px;">${sToHm(totalWebTime)}</div>
+              <div class="stat-sub">${uniqueDomains} unique sites</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">App Switches</div>
+              <div class="stat-value" style="font-size:20px;">${actRows.length}</div>
+              <div class="stat-sub">Total events</div>
+            </div>
+            <div class="stat-card warning">
+              <div class="stat-label">Website Visits</div>
+              <div class="stat-value" style="font-size:20px;">${webRows.length}</div>
+              <div class="stat-sub">Total visits</div>
+            </div>
+          </div>
+
+          <!-- Browser Summary -->
+          ${browserGroups.length ? `
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">🌐 Browser Activity</div>
+                <div class="card-subtitle">Browser totals for this session</div>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:12px;">
+              ${browserGroups.map(browser => `
+                <button class="btn btn-ghost btn-sm"
+                        data-browser-select="${esc(browser.name)}"
+                        style="justify-content:flex-start;width:100%;padding:10px 12px;border:1px solid var(--border);background:${browserSelection === browser.name ? 'var(--panel-alt)' : 'transparent'};display:flex;align-items:center;gap:12px;">
+                  <span style="font-weight:700;min-width:160px;text-align:left;color:var(--text-primary);">${esc(browser.name)}</span>
+                  <span style="flex:1;display:flex;align-items:center;gap:8px;">
+                    <span class="progress-bar" style="flex:1;min-width:120px;">
+                      <span class="progress-fill success" style="width:${Math.round((browser.duration / maxBrowserDur) * 100)}%;"></span>
+                    </span>
+                    <span style="min-width:60px;text-align:right;font-size:12px;color:var(--text-secondary);">${sToHm(browser.duration)}</span>
+                  </span>
+                </button>
+              `).join('')}
+            </div>
+          </div>` : ''}
+
+          ${browserSelection ? `
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">📑 ${esc(browserSelection)} pages</div>
+                <div class="card-subtitle">Pages opened while this browser was active</div>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr>
+                  <th>#</th>
+                  <th>Domain</th>
+                  <th>Page Title</th>
+                  <th>Duration</th>
+                  <th>Visited At</th>
+                </tr></thead>
+                <tbody>
+                  ${selectedDetailRows.length
+          ? selectedDetailRows.map((row, idx) => `
+                      <tr>
+                        <td class="td-muted">${idx + 1}</td>
+                        <td><span style="color:var(--accent);font-weight:600;">${esc(row.domain || '—')}</span></td>
+                        <td class="td-muted" style="max-width:350px;"><div class="truncate">${esc(row.title || '—')}</div></td>
+                        <td class="text-success">${sToHm(row.duration || 0)}</td>
+                        <td class="td-mono td-muted">${fmtDateTime(row.timestamp)}</td>
+                      </tr>`).join('')
+          : emptyRow(5, 'No website activity recorded for this browser')}
+                </tbody>
+              </table>
+            </div>
+          </div>` : ''}
+
+          <!-- Top Apps -->
+          ${topApps.length ? `
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">💻 Top Applications</div>
+                <div class="card-subtitle">Most used apps this session</div>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              ${topApps.map(app => `
+                <div style="display:flex;align-items:center;gap:12px;">
+                  <div style="
+                    min-width:140px;
+                    font-size:13px;
+                    font-weight:600;
+                    color:var(--text-primary);
+                    overflow:hidden;
+                    text-overflow:ellipsis;
+                    white-space:nowrap;
+                  ">${esc(app.name)}</div>
+                  <div style="flex:1;">
+                    <div class="progress-bar">
+                      <div class="progress-fill accent"
+                           style="width:${Math.round((app.duration / maxAppDur) * 100)}%;">
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div style="min-width:60px;text-align:right;font-size:12px;color:var(--text-secondary);">
-                  ${sToHm(app.duration)}
-                </div>
-                <div style="min-width:50px;text-align:right;font-size:11px;color:var(--text-muted);">
-                  ${app.count}x
-                </div>
-              </div>
-            `).join('')}
-          </div>
-        </div>` : ''}
-
-        <!-- Top Websites -->
-        ${topDomains.length ? `
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title">🌐 Top Websites</div>
-              <div class="card-subtitle">Most visited websites this session</div>
-            </div>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:10px;">
-            ${topDomains.map(d => `
-              <div style="display:flex;align-items:center;gap:12px;">
-                <div style="
-                  min-width:160px;
-                  font-size:13px;
-                  font-weight:600;
-                  color:var(--accent);
-                  overflow:hidden;
-                  text-overflow:ellipsis;
-                  white-space:nowrap;
-                ">${esc(d.domain)}</div>
-                <div style="flex:1;">
-                  <div class="progress-bar">
-                    <div class="progress-fill success"
-                         style="width:${Math.round((d.duration / maxDomainDur) * 100)}%;">
-                    </div>
+                  <div style="min-width:60px;text-align:right;font-size:12px;color:var(--text-secondary);">
+                    ${sToHm(app.duration)}
+                  </div>
+                  <div style="min-width:50px;text-align:right;font-size:11px;color:var(--text-muted);">
+                    ${app.count}x
                   </div>
                 </div>
-                <div style="min-width:60px;text-align:right;font-size:12px;color:var(--text-secondary);">
-                  ${sToHm(d.duration)}
-                </div>
-                <div style="min-width:50px;text-align:right;font-size:11px;color:var(--text-muted);">
-                  ${d.count}x
-                </div>
+              `).join('')}
+            </div>
+          </div>` : ''}
+
+          <!-- Top Websites -->
+          ${topDomains.length ? `
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">🌐 Top Websites</div>
+                <div class="card-subtitle">Most visited websites this session</div>
               </div>
-            `).join('')}
-          </div>
-        </div>` : ''}
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              ${topDomains.map(d => `
+                <div style="display:flex;align-items:center;gap:12px;">
+                  <div style="
+                    min-width:160px;
+                    font-size:13px;
+                    font-weight:600;
+                    color:var(--accent);
+                    overflow:hidden;
+                    text-overflow:ellipsis;
+                    white-space:nowrap;
+                  ">${esc(d.domain)}</div>
+                  <div style="flex:1;">
+                    <div class="progress-bar">
+                      <div class="progress-fill success"
+                           style="width:${Math.round((d.duration / maxDomainDur) * 100)}%;">
+                      </div>
+                    </div>
+                  </div>
+                  <div style="min-width:60px;text-align:right;font-size:12px;color:var(--text-secondary);">
+                    ${sToHm(d.duration)}
+                  </div>
+                  <div style="min-width:50px;text-align:right;font-size:11px;color:var(--text-muted);">
+                    ${d.count}x
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>` : ''}
 
-        <!-- Detailed App Log Table -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">📋 Detailed App Activity Log</div>
-            <div class="card-subtitle">${actRows.length} events recorded</div>
+          <!-- Detailed App Log Table -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">📋 Detailed App Activity Log</div>
+              <div class="card-subtitle">${actRows.length} events recorded</div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr>
+                  <th>#</th>
+                  <th>Application</th>
+                  <th>Window Title</th>
+                  <th>Duration</th>
+                  <th>Start Time</th>
+                  <th>End Time</th>
+                </tr></thead>
+                <tbody>
+                  ${actRows.length
+          ? actRows.map((r, i) => `
+                      <tr>
+                        <td class="td-muted">${i + 1}</td>
+                        <td><strong>${esc(r.app_name || '—')}</strong></td>
+                        <td class="td-muted" style="max-width:250px;">
+                          <div class="truncate">${esc(r.window_title || '—')}</div>
+                        </td>
+                        <td class="text-success">${sToHm(r.duration || 0)}</td>
+                        <td class="td-mono td-muted">${fmtDateTime(r.start_time)}</td>
+                        <td class="td-mono td-muted">${fmtDateTime(r.end_time)}</td>
+                      </tr>`).join('')
+          : emptyRow(6, 'No app activity recorded for this session')}
+                </tbody>
+              </table>
+            </div>
           </div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr>
-                <th>#</th>
-                <th>Application</th>
-                <th>Window Title</th>
-                <th>Duration</th>
-                <th>Start Time</th>
-                <th>End Time</th>
-              </tr></thead>
-              <tbody>
-                ${actRows.length
-        ? actRows.map((r, i) => `
-                    <tr>
-                      <td class="td-muted">${i + 1}</td>
-                      <td><strong>${esc(r.app_name || '—')}</strong></td>
-                      <td class="td-muted" style="max-width:250px;">
-                        <div class="truncate">${esc(r.window_title || '—')}</div>
-                      </td>
-                      <td class="text-success">${sToHm(r.duration || 0)}</td>
-                      <td class="td-mono td-muted">${fmtDateTime(r.start_time)}</td>
-                      <td class="td-mono td-muted">${fmtDateTime(r.end_time)}</td>
-                    </tr>`).join('')
-        : emptyRow(6, 'No app activity recorded for this session')}
-              </tbody>
-            </table>
-          </div>
-        </div>
 
-        <!-- Detailed Website Log Table -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">🌍 Detailed Website Activity Log</div>
-            <div class="card-subtitle">${webRows.length} visits recorded</div>
+          <!-- Detailed Website Log Table -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">🌍 Detailed Website Activity Log</div>
+              <div class="card-subtitle">${webRows.length} visits recorded</div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr>
+                  <th>#</th>
+                  <th>Domain</th>
+                  <th>Page Title</th>
+                  <th>Duration</th>
+                  <th>Visited At</th>
+                </tr></thead>
+                <tbody>
+                  ${webRows.length
+          ? webRows.map((r, i) => `
+                      <tr>
+                        <td class="td-muted">${i + 1}</td>
+                        <td>
+                          <span style="color:var(--accent);font-weight:600;">
+                            ${esc(r.domain || '—')}
+                          </span>
+                        </td>
+                        <td class="td-muted" style="max-width:300px;">
+                          <div class="truncate">${esc(r.title || '—')}</div>
+                        </td>
+                        <td class="text-success">${sToHm(r.duration || 0)}</td>
+                        <td class="td-mono td-muted">${fmtDateTime(r.timestamp)}</td>
+                      </tr>`).join('')
+          : emptyRow(5, 'No website activity recorded for this session')}
+                </tbody>
+              </table>
+            </div>
           </div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr>
-                <th>#</th>
-                <th>Domain</th>
-                <th>Page Title</th>
-                <th>Duration</th>
-                <th>Visited At</th>
-              </tr></thead>
-              <tbody>
-                ${webRows.length
-        ? webRows.map((r, i) => `
-                    <tr>
-                      <td class="td-muted">${i + 1}</td>
-                      <td>
-                        <span style="color:var(--accent);font-weight:600;">
-                          ${esc(r.domain || '—')}
-                        </span>
-                      </td>
-                      <td class="td-muted" style="max-width:300px;">
-                        <div class="truncate">${esc(r.title || '—')}</div>
-                      </td>
-                      <td class="text-success">${sToHm(r.duration || 0)}</td>
-                      <td class="td-mono td-muted">${fmtDateTime(r.timestamp)}</td>
-                    </tr>`).join('')
-        : emptyRow(5, 'No website activity recorded for this session')}
-              </tbody>
-            </table>
-          </div>
-        </div>
 
-      </div>`;
+        </div>`;
+
+      container.querySelectorAll('[data-browser-select]').forEach(button => {
+        button.addEventListener('click', () => {
+          const next = button.getAttribute('data-browser-select');
+          browserSelection = next || null;
+          renderActivityView();
+        });
+      });
+    };
+
+    renderActivityView();
 
   } catch (e) {
     container.innerHTML = `

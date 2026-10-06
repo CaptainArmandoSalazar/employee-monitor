@@ -1,13 +1,13 @@
 {
   "history": [
     {
-      "version": "v1.0.52",
+      "version": "v1.0.53",
       "date": "2026-10-06",
       "changes": [
-        "Prepared the next release by syncing the app changelog, package metadata, and login version display to the latest build",
-        "Kept the desktop release flow aligned with the current GitHub tag and updater configuration for the newest version",
-        "Preserved the most recent stability and Linux packaging fixes while preparing the app for the next release cycle",
-        "Validated the release metadata path so the installed app version remains consistent across the build and login UI"
+        "Grouped browser activity by app name so Chrome, Firefox, Edge, and other browsers are listed separately in the dashboard",
+        "Added browser-specific drill-down details to show each website page visited under the selected browser during the session",
+        "Fixed the activity tracking source so website records retain the real browser/app that generated the page visit instead of relying on guessed domain names",
+        "Kept the version sync flow aligned across the changelog, package.json, and login UI for the next GitHub release"
       ]
     },
     {

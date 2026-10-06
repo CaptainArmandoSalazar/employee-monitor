@@ -149,6 +149,7 @@ website_logs = Table(
     Column("id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
     Column("session_id", UUID(as_uuid=True), ForeignKey("sessions.session_id")),
     Column("employee_id", UUID(as_uuid=True), ForeignKey("employees.employee_id")),
+    Column("app_name", String),
     Column("url", Text),
     Column("domain", String),
     Column("title", Text),

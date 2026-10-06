@@ -12,7 +12,7 @@ interface ActivityLog {
   start_time: string; end_time: string; duration: number; is_idle: boolean;
 }
 interface WebsiteLog {
-  session_id: string; url: string; domain: string;
+  session_id: string; app_name?: string; url: string; domain: string;
   title?: string; duration: number; timestamp: string;
 }
 interface KeystrokeLog {

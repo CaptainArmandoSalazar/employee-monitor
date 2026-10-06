@@ -270,6 +270,7 @@ function closeCurrentWindow(now: number): void {
     const urlInfo = extractUrl(_lastWindow.appName, _lastWindow.windowTitle);
     if (urlInfo) {
       trackingService.pushWebsite({
+        app_name:  _lastWindow.appName,
         url:       urlInfo.url,
         domain:    urlInfo.domain,
         title:     _lastWindow.windowTitle,

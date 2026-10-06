@@ -253,10 +253,11 @@ function setupAutoUpdater(): void {
       cancelId: 1,
     }).then(({ response }) => {
       if (response === 0) {
-        // Clock out before restarting
-        forceClockOut().then(() => {
-          autoUpdater.quitAndInstall(false, true);
-        });
+        // Do not clock the user out during a version update restart.
+        // Keep the active session alive and install the update as a clean relaunch.
+        setInstallingUpdate(true);
+        setQuitting(true);
+        autoUpdater.quitAndInstall(false, true);
       }
     });
   });

@@ -43,6 +43,7 @@ class ActivityLogOut(BaseModel):
 # ── Website ───────────────────────────────────────────────
 class WebsiteLogCreate(UtcModel):
     session_id: UUID
+    app_name: Optional[str] = None
     url: Optional[str] = None
     domain: Optional[str] = None
     title: Optional[str] = None
@@ -54,6 +55,7 @@ class WebsiteLogOut(BaseModel):
     id: UUID
     session_id: UUID
     employee_id: UUID
+    app_name: Optional[str]
     url: Optional[str]
     domain: Optional[str]
     title: Optional[str]
