@@ -81,6 +81,44 @@ def session_metrics(
     return analytics_service.get_avg_system_metrics(db, session_id)
 
 
+@router.get("/live-overview")
+def live_overview(
+    db: Session = Depends(get_db),
+    current: Employee = Depends(require_permission("summary.view")),
+):
+    return analytics_service.get_live_dashboard(db, current)
+
+
+@router.get("/activity-timeline")
+def activity_timeline(
+    employee_id: Optional[UUID] = Query(None),
+    target_date: Optional[date] = Query(None),
+    db: Session = Depends(get_db),
+    current: Employee = Depends(require_permission("activity.view")),
+):
+    return analytics_service.get_activity_timeline(db, current, employee_id=employee_id, target_date=target_date)
+
+
+@router.get("/idle-analysis")
+def idle_analysis(
+    employee_id: Optional[UUID] = Query(None),
+    target_date: Optional[date] = Query(None),
+    db: Session = Depends(get_db),
+    current: Employee = Depends(require_permission("activity.view")),
+):
+    return analytics_service.get_idle_analysis(db, current, employee_id=employee_id, target_date=target_date)
+
+
+@router.get("/network-risk")
+def network_risk(
+    employee_id: Optional[UUID] = Query(None),
+    target_date: Optional[date] = Query(None),
+    db: Session = Depends(get_db),
+    current: Employee = Depends(require_permission("device.view")),
+):
+    return analytics_service.get_network_risk(db, current, employee_id=employee_id, target_date=target_date)
+
+
 # ── Sessions ──────────────────────────────────────────────
 @router.get("/sessions", response_model=List[SessionOut])
 def admin_sessions(

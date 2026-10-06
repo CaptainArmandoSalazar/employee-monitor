@@ -37,3 +37,4 @@ class Session(Base):
     network_speed_logs = relationship("NetworkSpeedLog", back_populates="session", lazy="dynamic")
     device_info = relationship("DeviceInfo", back_populates="session", lazy="dynamic")
     network_info = relationship("NetworkInfo", back_populates="session", lazy="dynamic")
+    offline_sync_queue = relationship("OfflineSyncQueue", back_populates="session", lazy="dynamic")

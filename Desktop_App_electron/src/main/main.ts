@@ -158,7 +158,7 @@ function setupAutoUpdater(): void {
   const fs = require('fs');
   const path = require('path');
   const releaseConfigPath = path.join(__dirname, '..', '..', 'release.config.json');
-  let releaseConfig: { update?: { provider?: string; owner?: string; repo?: string } } = {};
+  let releaseConfig: { update?: { provider?: string; owner?: string; repo?: string }; github?: { owner?: string; repo?: string } } = {};
 
   try {
     releaseConfig = JSON.parse(fs.readFileSync(releaseConfigPath, 'utf8'));
@@ -167,18 +167,23 @@ function setupAutoUpdater(): void {
   }
 
   const updateProvider = (releaseConfig.update?.provider as 'github') || 'github';
-  const updateOwner = releaseConfig.update?.owner || 'CaptainArmandoSalazar';
-  const updateRepo = releaseConfig.update?.repo || 'employee-monitor';
+  const updateOwner = releaseConfig.update?.owner || releaseConfig.github?.owner || 'CaptainArmandoSalazar';
+  const updateRepo = releaseConfig.update?.repo || releaseConfig.github?.repo || 'employee-monitor';
+  const updateToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || undefined;
+
+  console.log('[Updater] Feed config:', { provider: updateProvider, owner: updateOwner, repo: updateRepo, tokenPresent: !!updateToken });
 
   // Disable auto download — we'll control when to install
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
-  // Set your GitHub repo from the central release config
+  // Set your GitHub repo from the central release config.
+  // Token is optional for public repos but helps private or restricted release assets.
   autoUpdater.setFeedURL({
     provider: updateProvider,
     owner: updateOwner,
     repo: updateRepo,
+    ...(updateToken ? { token: updateToken } : {}),
   });
 
   // ── Update available ───────────────────────────────────
@@ -263,18 +268,23 @@ function setupAutoUpdater(): void {
     // Don't show dialog for update errors — just log silently
   });
 
+  const runUpdateCheck = async (): Promise<void> => {
+    try {
+      const result = await autoUpdater.checkForUpdates();
+      console.log('[Updater] checkForUpdates returned:', result?.updateInfo?.version || 'no update');
+    } catch (err: any) {
+      console.error('[Updater] Check failed:', err?.message || err);
+    }
+  };
+
   // ── Check on startup (delay 10s to let app fully load) ─
   setTimeout(() => {
-    autoUpdater.checkForUpdates().catch(err => {
-      console.error('[Updater] Check failed:', err?.message);
-    });
+    void runUpdateCheck();
   }, 10_000);
 
   // ── Check every 30 minutes while app is running ────────
   setInterval(() => {
-    autoUpdater.checkForUpdates().catch(err => {
-      console.error('[Updater] Periodic check failed:', err?.message);
-    });
+    void runUpdateCheck();
   }, 30 * 60 * 1000);
 }
 

@@ -112,3 +112,56 @@ def test_admin_route_blocked_for_employee(client, admin_headers):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 403
+
+
+def test_admin_live_overview(client, admin_headers):
+    emp_id, session_id, emp_headers = _create_emp_with_session(client, admin_headers)
+    client.post(
+        "/api/v1/tracking/activity",
+        json={"session_id": session_id, "app_name": "Zoom", "duration": 300, "is_idle": False},
+        headers=emp_headers,
+    )
+    resp = client.get("/api/v1/admin/live-overview", headers=admin_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "total_employees" in data
+    assert "online_employees" in data
+    assert "active_sessions" in data
+
+
+def test_admin_activity_timeline_and_idle_analysis(client, admin_headers):
+    emp_id, session_id, emp_headers = _create_emp_with_session(client, admin_headers)
+    client.post(
+        "/api/v1/tracking/activity",
+        json={"session_id": session_id, "app_name": "Slack", "duration": 1800, "is_idle": True},
+        headers=emp_headers,
+    )
+    timeline_resp = client.get(f"/api/v1/admin/activity-timeline?employee_id={emp_id}", headers=admin_headers)
+    assert timeline_resp.status_code == 200
+    assert isinstance(timeline_resp.json(), list)
+
+    idle_resp = client.get(f"/api/v1/admin/idle-analysis?employee_id={emp_id}", headers=admin_headers)
+    assert idle_resp.status_code == 200
+    assert isinstance(idle_resp.json(), list)
+
+
+def test_admin_network_risk_and_offline_sync(client, admin_headers):
+    emp_id, session_id, emp_headers = _create_emp_with_session(client, admin_headers)
+    client.post(
+        "/api/v1/sessions/network-info",
+        json={"session_id": session_id, "ip_address": "10.0.0.1", "connection_type": "wifi", "ssid": "public-hotspot"},
+        headers=emp_headers,
+    )
+    risk_resp = client.get("/api/v1/admin/network-risk", headers=admin_headers)
+    assert risk_resp.status_code == 200
+    assert isinstance(risk_resp.json(), list)
+
+    sync_resp = client.post(
+        "/api/v1/sessions/offline-sync/queue",
+        json={"event_type": "activity", "payload": {"app_name": "Browser", "duration": 30}, "device_id": "device-123"},
+        headers=emp_headers,
+    )
+    assert sync_resp.status_code == 200
+    payload = sync_resp.json()
+    assert payload["status"] == "queued"
+    assert payload["event_type"] == "activity"

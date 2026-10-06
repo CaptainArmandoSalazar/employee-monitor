@@ -39,3 +39,4 @@ class Employee(Base):
     device_info = relationship("DeviceInfo", back_populates="employee", lazy="dynamic")
     network_info = relationship("NetworkInfo", back_populates="employee", lazy="dynamic")
     devices = relationship("Device", back_populates="employee", lazy="dynamic")
+    offline_sync_queue = relationship("OfflineSyncQueue", back_populates="employee", lazy="dynamic")
