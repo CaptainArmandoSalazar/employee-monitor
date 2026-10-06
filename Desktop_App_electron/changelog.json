@@ -1,13 +1,13 @@
 {
   "history": [
     {
-      "version": "v1.0.53",
+      "version": "v1.0.54",
       "date": "2026-10-06",
       "changes": [
-        "Grouped browser activity by app name so Chrome, Firefox, Edge, and other browsers are listed separately in the dashboard",
-        "Added browser-specific drill-down details to show each website page visited under the selected browser during the session",
-        "Fixed the activity tracking source so website records retain the real browser/app that generated the page visit instead of relying on guessed domain names",
-        "Kept the version sync flow aligned across the changelog, package.json, and login UI for the next GitHub release"
+        "Restored the previous stable activity tracking dashboard behavior after reverting the browser grouping experiment",
+        "Kept the app on the last verified working flow while preserving the release metadata sync across changelog, package.json, and login UI",
+        "Validated the Electron build and release sync pipeline so the next GitHub release stays consistent across all versioned assets",
+        "Prepared the stable production build for the next tagged GitHub release"
       ]
     },
     {
