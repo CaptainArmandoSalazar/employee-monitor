@@ -29,8 +29,10 @@ def scope_condition(current: Employee, column):
         # own direct reports and self (never a super admin)
         return column.in_(
             select(E.employee_id).where(
-                or_(E.manager_id == current.employee_id, E.employee_id == current.employee_id),
-                E.role != "super_admin",
+                or_(
+                    (E.manager_id == current.employee_id) & (E.role == "employee"),
+                    E.employee_id == current.employee_id,
+                ),
             )
         )
 
@@ -56,7 +58,9 @@ def can_view_account(current: Employee, target: Employee) -> bool:
         return True
     if current.role == "hr":
         return target.role != "super_admin"
-    return target.manager_id == current.employee_id
+    return current.role == "manager" and (
+        target.role == "employee" and target.manager_id == current.employee_id
+    )
 
 
 def can_manage_account(current: Employee, target: Employee) -> bool:
@@ -64,7 +68,9 @@ def can_manage_account(current: Employee, target: Employee) -> bool:
         return True
     if current.role == "hr":
         return target.role != "super_admin"
-    return target.manager_id == current.employee_id
+    return current.role == "manager" and (
+        target.role == "employee" and target.manager_id == current.employee_id
+    )
 
 
 def is_last_super_admin(db: Session, target: Employee) -> bool:

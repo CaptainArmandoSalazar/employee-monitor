@@ -65,7 +65,33 @@ ALL_PERMISSION_KEYS: List[str] = [
     p["key"] for m in PERMISSION_CATALOG for p in m["permissions"]
 ]
 
-# Applied only once, on the very first start. After that the Super Admin owns these values.
+ROLE_PERMISSION_KEYS = {
+    "hr": set(ALL_PERMISSION_KEYS),
+    "manager": {
+        "employee.view",
+        "employee.create.employee",
+        "employee.deactivate",
+        "employee.reactivate",
+    },
+    "employee": {"employee.view"},
+}
+
+REQUIRED_ROLE_PERMISSIONS = {
+    "manager": {"employee.view"},
+    "employee": {"employee.view"},
+}
+
+SCOPED_VIEW_PERMISSIONS = {
+    "employee.view",
+    "session.view",
+    "summary.view",
+    "activity.view",
+    "website.view",
+    "keystroke.view",
+    "metrics.view",
+    "device.view",
+}
+
 DEFAULT_ROLE_PERMISSIONS = {
     "hr": [
         "employee.view", "employee.update", "employee.change_role",
@@ -76,11 +102,10 @@ DEFAULT_ROLE_PERMISSIONS = {
         "settings.view",
     ],
     "manager": [
-        "employee.view", "employee.update", "employee.deactivate", "employee.reset_password",
-        "employee.create.employee",
-        "session.view", "summary.view", "metrics.view", "device.view",
+        "employee.view", "employee.create.employee", "employee.deactivate",
+        "employee.reactivate",
     ],
-    "employee": [],
+    "employee": ["employee.view"],
 }
 
 
@@ -88,12 +113,97 @@ def get_permission_keys_for_role(db: Session, role: str) -> List[str]:
     if role == "super_admin":
         return list(ALL_PERMISSION_KEYS)
     rows = db.query(RolePermission.permission_key).filter(RolePermission.role == role).all()
-    return [r[0] for r in rows]
+    allowed = ROLE_PERMISSION_KEYS.get(role, set())
+    granted = {r[0] for r in rows if r[0] in allowed}
+    return sorted(granted | REQUIRED_ROLE_PERMISSIONS.get(role, set()))
+
+
+def get_permission_catalog_for_role(role: str):
+    if role == "hr":
+        return PERMISSION_CATALOG
+
+    if role == "manager":
+        labels = {
+            "employee.view": (
+                "View own and team data",
+                "See your own data and data for employees who report directly to you.",
+            ),
+            "employee.create.employee": (
+                "Add employees to your team",
+                "Create employee accounts assigned to you.",
+            ),
+            "employee.deactivate": (
+                "Deactivate your employees",
+                "Deactivate employees who report directly to you.",
+            ),
+            "employee.reactivate": (
+                "Reactivate your employees",
+                "Reactivate employees who report directly to you.",
+            ),
+        }
+        modules = [
+            {"module": "Data access", "permissions": ["employee.view"]},
+            {
+                "module": "Team management",
+                "permissions": [
+                    "employee.create.employee",
+                    "employee.deactivate",
+                    "employee.reactivate",
+                ],
+            },
+        ]
+    elif role == "employee":
+        labels = {
+            "employee.view": (
+                "View my own data",
+                "See only your own profile, sessions, and tracking data.",
+            ),
+        }
+        modules = [{"module": "My data", "permissions": ["employee.view"]}]
+    else:
+        return []
+
+    permission_items = {
+        item["key"]: item
+        for module in PERMISSION_CATALOG
+        for item in module["permissions"]
+    }
+    return [
+        {
+            "module": module["module"],
+            "permissions": [
+                {
+                    **permission_items[key],
+                    "label": labels[key][0],
+                    "description": labels[key][1],
+                    "required": key in REQUIRED_ROLE_PERMISSIONS.get(role, set()),
+                }
+                for key in module["permissions"]
+            ],
+        }
+        for module in modules
+    ]
 
 
 def has_permission(db: Session, employee, permission_key: str) -> bool:
     if employee.role == "super_admin":
         return True
+    if (
+        employee.role in ("manager", "employee")
+        and permission_key in SCOPED_VIEW_PERMISSIONS
+        and permission_key != "employee.view"
+    ):
+        return (
+            db.query(RolePermission)
+            .filter(
+                RolePermission.role == employee.role,
+                RolePermission.permission_key == "employee.view",
+            )
+            .first()
+            is not None
+        )
+    if permission_key not in ROLE_PERMISSION_KEYS.get(employee.role, set()):
+        return False
     return (
         db.query(RolePermission)
         .filter(
@@ -130,4 +240,19 @@ def seed_permissions(db: Session) -> None:
         for role, keys in DEFAULT_ROLE_PERMISSIONS.items():
             for key in keys:
                 db.add(RolePermission(role=role, permission_key=key))
+        db.commit()
+    else:
+        for role in ("manager", "employee"):
+            db.query(RolePermission).filter(
+                RolePermission.role == role,
+                ~RolePermission.permission_key.in_(ROLE_PERMISSION_KEYS[role]),
+            ).delete(synchronize_session=False)
+        for role, keys in REQUIRED_ROLE_PERMISSIONS.items():
+            for key in keys:
+                exists = db.query(RolePermission).filter(
+                    RolePermission.role == role,
+                    RolePermission.permission_key == key,
+                ).first()
+                if not exists:
+                    db.add(RolePermission(role=role, permission_key=key))
         db.commit()

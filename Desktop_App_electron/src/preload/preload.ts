@@ -65,7 +65,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // ── Permissions ──────────────────────────────────────────
   getMyPermissions:     ()                                  => ipcRenderer.invoke('perm:getMine'),
-  getPermissionCatalog: ()                                  => ipcRenderer.invoke('perm:getCatalog'),
+  getPermissionCatalog: (role: string)                      => ipcRenderer.invoke('perm:getCatalog', role),
   getRolePermissions:   ()                                  => ipcRenderer.invoke('perm:getRoles'),
   setRolePermissions:   (role: string, permissions: string[]) => ipcRenderer.invoke('perm:setRole', role, permissions),
 });

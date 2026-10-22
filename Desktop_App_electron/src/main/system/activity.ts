@@ -171,7 +171,9 @@ const VALID_TLDS = new Set([
   'cloud', 'online', 'site', 'store', 'blog',
 ]);
 
-// Sites whose page titles end with the site name instead of the domain
+// Sites whose page titles end with the site name instead of the domain.
+// These names are intentionally broader than only Bitbucket so normal browser tabs
+// like Slack, ClickUp, Jira, Claude, GitHub, etc. are recognized reliably.
 const KNOWN_SITES: Record<string, string> = {
   'youtube': 'youtube.com',
   'github': 'github.com',
@@ -198,6 +200,22 @@ const KNOWN_SITES: Record<string, string> = {
   'figma': 'figma.com',
   'netflix': 'netflix.com',
   'wikipedia': 'wikipedia.org',
+  'slack': 'slack.com',
+  'clickup': 'clickup.com',
+  'trello': 'trello.com',
+  'asana': 'asana.com',
+  'linear': 'linear.app',
+  'microsoft teams': 'teams.microsoft.com',
+  'outlook': 'outlook.office.com',
+  'gmail inbox': 'mail.google.com',
+  'google chat': 'chat.google.com',
+  'dropbox': 'dropbox.com',
+  'zoom': 'zoom.us',
+  'discord': 'discord.com',
+  'zoom meeting': 'zoom.us',
+  'confluence': 'atlassian.net',
+  'azure devops': 'dev.azure.com',
+  'devops': 'dev.azure.com',
 };
 
 function cleanDomain(raw: string): string | null {
@@ -220,17 +238,55 @@ function extractUrl(appName: string, windowTitle: string): { url: string; domain
   const title = windowTitle.replace(BROWSER_SUFFIX, '').trim();
   if (!title) return null;
 
-  // The site name / domain is normally the LAST part: "Page title - youtube.com"
-  const parts = title.split(/\s+[-–—|·]\s+/);
-  const last  = parts[parts.length - 1].trim();
+  const candidates = new Set<string>();
+  const rawParts = title.split(/\s+[-–—|·]\s+|\s+\|\s+|\s+::\s+/);
+  rawParts.forEach(part => {
+    const trimmed = part.trim();
+    if (trimmed) candidates.add(trimmed);
+  });
 
-  const domain = cleanDomain(last);
-  if (domain) return { url: `https://${domain}`, domain };
+  const fullTextCandidates = title.match(/[a-z0-9.-]+\.[a-z]{2,}(?:\.[a-z]{2,})?/gi) || [];
+  fullTextCandidates.forEach(value => candidates.add(value));
+  candidates.add(title);
 
-  const known = KNOWN_SITES[last.toLowerCase()];
-  if (known) return { url: `https://${known}`, domain: known };
+  const ordered = Array.from(candidates).filter(Boolean);
+  for (const candidate of ordered) {
+    const normalized = candidate.trim().toLowerCase();
+    const directDomain = cleanDomain(normalized);
+    if (directDomain) return { url: `https://${directDomain}`, domain: directDomain };
 
-  return null;   // not sure, so we log nothing instead of a wrong domain
+    const known = KNOWN_SITES[normalized];
+    if (known) return { url: `https://${known}`, domain: known };
+
+    const knownMatch = Object.entries(KNOWN_SITES).find(([key, domain]) => {
+      const siteKey = key.toLowerCase();
+      const siteDomain = domain.toLowerCase();
+      return normalized.includes(siteKey)
+        || siteKey.includes(normalized)
+        || normalized.includes(siteDomain.replace(/^https?:\/\//, '').replace(/^www\./, ''));
+    });
+    if (knownMatch) {
+      const [, domain] = knownMatch;
+      return { url: `https://${domain}`, domain };
+    }
+
+    const embedded = normalized.match(/(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+(?:\.[a-z0-9-]+)+)/i);
+    if (embedded) {
+      const domain = cleanDomain(embedded[1]);
+      if (domain) return { url: `https://${domain}`, domain };
+    }
+  }
+
+  // Fallback: if the title is a plain known app/service name, map it to a web domain.
+  const fallback = Object.entries(KNOWN_SITES).find(([key]) =>
+    title.toLowerCase().includes(key.toLowerCase())
+  );
+  if (fallback) {
+    const [, domain] = fallback;
+    return { url: `https://${domain}`, domain };
+  }
+
+  return null;
 }
 
 // ── Idle detection constants ──────────────────────────────

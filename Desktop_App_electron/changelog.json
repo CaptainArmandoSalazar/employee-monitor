@@ -1,6 +1,17 @@
 {
   "history": [
     {
+      "version": "v1.0.55",
+      "date": "2026-10-22",
+      "changes": [
+        "Scoped manager permissions to their own team and limited employee accounts to viewing their own data",
+        "Restricted the permission selector to role-appropriate options and made account creation use the role selected by its Add section",
+        "Renamed the account form field to Department / Team",
+        "Improved website recognition for common collaboration and productivity services",
+        "Registered the offline sync queue model and aligned the website app-name database migration"
+      ]
+    },
+    {
       "version": "v1.0.54",
       "date": "2026-10-06",
       "changes": [

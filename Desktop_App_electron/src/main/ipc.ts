@@ -488,10 +488,13 @@ if (session) {
   // ── Permissions ───────────────────────────────────────
   ipcMain.handle('perm:getMine', async () => refreshMyPermissions());
 
-  ipcMain.handle('perm:getCatalog', async () => {
+  ipcMain.handle('perm:getCatalog', async (_event, role: string) => {
     const token = authService.getToken();
     if (!token) return { ok: false, data: [] };
-    return safeApi(() => apiService.get('/permissions/catalog', token), { ok: false, status: 0, data: [] });
+    return safeApi(
+      () => apiService.get('/permissions/catalog', token, { role }),
+      { ok: false, status: 0, data: [] }
+    );
   });
 
   ipcMain.handle('perm:getRoles', async () => {

@@ -63,12 +63,13 @@ def list_employees(
             manager_id=manager_id, skip=skip, limit=limit,
         )
         emps = [e for e in emps if e.role != "super_admin"]
-    else:
-        # everyone else sees only their own direct reports
-        emps = employee_service.list_employees_by_role(
-            db, role=role, department=department, status=status_filter,
+    elif current.role == "manager":
+        emps = [] if role not in (None, "employee") else employee_service.list_employees_by_role(
+            db, role="employee", department=department, status=status_filter,
             manager_id=current.employee_id, skip=skip, limit=limit,
         )
+    else:
+        raise HTTPException(status_code=403, detail="Employees can view only their own profile")
     return [EmployeeOut.model_validate(e) for e in emps]
 
 

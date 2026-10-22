@@ -526,11 +526,12 @@
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div class="form-group">
-        <label class="form-label">Department</label>
+        <label class="form-label">Department / Team</label>
         <input class="form-input" type="text" id="emp-department" placeholder="Engineering" />
       </div>
       <div class="form-group">
         <label class="form-label">Role</label>
+        <div class="form-input hidden" id="emp-role-display"></div>
         <select class="form-input" id="emp-role">
           <option value="super_admin">Super Admin</option>
           <option value="hr">HR</option>

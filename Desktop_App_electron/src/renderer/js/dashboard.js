@@ -12,6 +12,7 @@ let timerInterval = null;
 let clockInTime = null;
 let editingEmployeeId = null;
 let resetPwEmployeeId = null;
+let creatingEmployeeRole = null;
 
 // Shorthand
 function g(id) { return document.getElementById(id); }
@@ -27,6 +28,20 @@ async function refreshPermissions() {
     const r = await api.getMyPermissions();
     if (r && Array.isArray(r.permissions)) {
       myPerms = new Set(r.permissions);
+      if (
+        ['manager', 'employee'].includes(r.role)
+        && myPerms.has('employee.view')
+      ) {
+        [
+          'session.view',
+          'summary.view',
+          'activity.view',
+          'website.view',
+          'keystroke.view',
+          'metrics.view',
+          'device.view',
+        ].forEach(key => myPerms.add(key));
+      }
       applyPermissionsToUI();
     }
   } catch { /* offline: keep what we have */ }
@@ -42,7 +57,7 @@ function applyPermissionsToUI() {
     'hrs':          (sa || hr) && can('employee.view'),
     'managers':     (sa || hr) && can('employee.view'),
     'employees':    (sa || hr) && can('employee.view'),
-    'my-employees': !sa && !hr && can('employee.view'),
+    'my-employees': currentEmployee.role === 'manager' && can('employee.view'),
     'permissions':  sa,
     'settings':     can('settings.view'),
   };
@@ -75,12 +90,16 @@ function applyPermissionsToUI() {
 const PERM_ROLE_LABELS = { hr: 'HR', manager: 'Manager', employee: 'Employee' };
 let permState = { catalog: [], roles: {}, selected: 'hr' };
 
-async function loadPermissionsPage() {
+async function loadPermissionsPage(role = permState.selected) {
   const box = g('permissions-content');
   if (!box) return;
+  permState.selected = role;
   box.innerHTML = spinHtml();
   try {
-    const [cr, rr] = await Promise.all([api.getPermissionCatalog(), api.getRolePermissions()]);
+    const [cr, rr] = await Promise.all([
+      api.getPermissionCatalog(role),
+      api.getRolePermissions(),
+    ]);
     if (!(cr && cr.ok && Array.isArray(cr.data)) || !(rr && rr.ok && rr.data)) {
       box.innerHTML = '<p class="text-muted" style="padding:20px;">Could not load permissions. Please try again.</p>';
       return;
@@ -109,7 +128,7 @@ function renderPermissionsPage() {
 
       <div class="alert alert-warning" style="margin-bottom:0;">
         <span>ℹ️</span>
-        <span>Super Admin always has every permission and cannot be changed. Everyone can always see their own data. Changes apply to logged-in users within about a minute.</span>
+        <span>Super Admin always has every permission and cannot be changed. Manager access is limited to their own data and direct reports; employee access is limited to their own data.</span>
       </div>
 
       <div id="perm-alert" class="alert hidden" style="margin-bottom:0;"></div>
@@ -118,15 +137,17 @@ function renderPermissionsPage() {
         <div class="card">
           <div class="card-header">
             <div class="card-title">${esc(m.module)}</div>
+            ${m.permissions.some(p => !p.required) ? `
             <div style="display:flex;gap:8px;">
               <button class="btn btn-ghost btn-sm" data-perm-bulk="all">Select all</button>
               <button class="btn btn-ghost btn-sm" data-perm-bulk="none">Clear</button>
             </div>
+            ` : ''}
           </div>
           <div style="display:flex;flex-direction:column;gap:12px;">
             ${m.permissions.map(p => `
               <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;">
-                <input type="checkbox" data-perm-key="${esc(p.key)}" ${granted.has(p.key) ? 'checked' : ''} style="margin-top:3px;" />
+                <input type="checkbox" data-perm-key="${esc(p.key)}" ${granted.has(p.key) || p.required ? 'checked' : ''} ${p.required ? 'disabled' : ''} style="margin-top:3px;" />
                 <span>
                   <span style="font-weight:600;">${esc(p.label)}</span>
                   <span class="td-muted" style="display:block;">${esc(p.description)}</span>
@@ -157,13 +178,16 @@ async function onPermissionsClick(e) {
   const box = g('permissions-content');
 
   const tab = e.target.closest('[data-perm-role]');
-  if (tab) { permState.selected = tab.dataset.permRole; renderPermissionsPage(); return; }
+  if (tab) {
+    await loadPermissionsPage(tab.dataset.permRole);
+    return;
+  }
 
   const bulk = e.target.closest('[data-perm-bulk]');
   if (bulk) {
     const card = bulk.closest('.card');
     const check = bulk.dataset.permBulk === 'all';
-    card.querySelectorAll('input[data-perm-key]').forEach(cb => { cb.checked = check; });
+    card.querySelectorAll('input[data-perm-key]:not(:disabled)').forEach(cb => { cb.checked = check; });
     return;
   }
 
@@ -3279,6 +3303,7 @@ function bindModalButtons() {
 
 async function openEmpModal(defaultRole) {
   editingEmployeeId = null;
+  creatingEmployeeRole = defaultRole;
   g('modal-emp-title').textContent = `Add ${roleName(defaultRole)}`;
   g('emp-name').value = '';
   g('emp-email').value = '';
@@ -3302,12 +3327,14 @@ async function openEmpModal(defaultRole) {
 
   // Role options follow the create permissions
   const roleEl = g('emp-role');
+  const roleDisplay = g('emp-role-display');
   if (roleEl) {
-    Array.from(roleEl.options).forEach(opt => {
-      opt.disabled = !can('employee.create.' + opt.value);
-    });
-    roleEl.disabled = false;
     roleEl.value = defaultRole;
+    roleEl.classList.add('hidden');
+  }
+  if (roleDisplay) {
+    roleDisplay.textContent = roleName(defaultRole);
+    roleDisplay.classList.remove('hidden');
   }
 
   g('modal-employee').classList.remove('hidden');
@@ -3366,12 +3393,15 @@ function roleName(r) {
 }
 function openEditEmployeeModal(id, name, email, dept, role) {
   editingEmployeeId = id;
+  creatingEmployeeRole = null;
   g('modal-emp-title').textContent = 'Edit Employee';
   g('emp-name').value = name;
   g('emp-email').value = email;
   g('emp-email').disabled = true;
   g('emp-department').value = dept;
   g('emp-role').value = role;
+  g('emp-role').classList.remove('hidden');
+  g('emp-role-display').classList.add('hidden');
   g('emp-password-group').style.display = 'none';
   g('modal-emp-alert').classList.add('hidden');
   g('modal-employee').classList.remove('hidden');
@@ -3383,7 +3413,11 @@ async function saveEmployee() {
   const email = g('emp-email').value.trim();
   const password = g('emp-password').value;
   const dept = g('emp-department').value.trim();
-  const role = g('emp-role').value;
+  const role = editingEmployeeId ? g('emp-role').value : creatingEmployeeRole;
+  if (!role) {
+    showModalAlert('modal-emp-alert', 'Select a role');
+    return;
+  }
   const managerId = g('emp-manager-id') ? g('emp-manager-id').value : '';
   g('modal-emp-alert').classList.add('hidden');
 

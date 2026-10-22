@@ -13,7 +13,7 @@ from app.schemas.device import DeviceInfoCreate, DeviceInfoOut, NetworkInfoCreat
 from app.services import session_service
 from sqlalchemy import desc
 from app.api.deps import get_current_employee, require_permission
-from app.services.access_service import scope_condition
+from app.services.access_service import can_access_employee_data, scope_condition
 from app.utils.helpers import utcnow
 
 router = APIRouter(prefix="/sessions", tags=["Sessions"])
@@ -119,7 +119,7 @@ def get_session(
     session = db.query(SessionModel).filter(SessionModel.session_id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    if current_employee.role != "super_admin" and session.employee_id != current_employee.employee_id:
+    if not can_access_employee_data(db, current_employee, session.employee_id):
         raise HTTPException(status_code=403, detail="Access denied")
     return SessionOut.model_validate(session)
 

@@ -1,11 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import List
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.permissions import (
-    PERMISSION_CATALOG, ALL_PERMISSION_KEYS, EDITABLE_ROLES,
+    ALL_PERMISSION_KEYS, EDITABLE_ROLES, ROLE_PERMISSION_KEYS,
+    REQUIRED_ROLE_PERMISSIONS,
+    get_permission_catalog_for_role,
     get_permission_keys_for_role,
 )
 from app.models.employee import Employee
@@ -36,8 +38,13 @@ def my_permissions(
 
 
 @router.get("/catalog")
-def permission_catalog(_: Employee = Depends(require_super_admin)):
-    return PERMISSION_CATALOG
+def permission_catalog(
+    role: str = Query("hr"),
+    _: Employee = Depends(require_super_admin),
+):
+    if role not in EDITABLE_ROLES:
+        raise HTTPException(status_code=400, detail="This role has no editable permission catalog")
+    return get_permission_catalog_for_role(role)
 
 
 @router.get("/roles")
@@ -63,6 +70,19 @@ def update_role_permissions(
         raise HTTPException(status_code=400, detail=f"Unknown permissions: {', '.join(unknown)}")
 
     keys = set(payload.permissions)
+    missing_required = REQUIRED_ROLE_PERMISSIONS.get(role, set()) - keys
+    if missing_required:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Required permissions for {role}: {', '.join(sorted(missing_required))}",
+        )
+    disallowed = keys - ROLE_PERMISSION_KEYS[role]
+    if disallowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Permissions not available for {role}: {', '.join(sorted(disallowed))}",
+        )
+
     db.query(RolePermission).filter(RolePermission.role == role).delete()
     for key in keys:
         db.add(RolePermission(role=role, permission_key=key))

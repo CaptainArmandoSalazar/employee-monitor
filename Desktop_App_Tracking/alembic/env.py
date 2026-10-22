@@ -19,6 +19,7 @@ from app.core.database import Base
 from app.models import (  # noqa: F401
     employee, session, device, network,
     activity, system_metrics, keystroke, website,
+    sync_queue,
 )
 
 config = context.config

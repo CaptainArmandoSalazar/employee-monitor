@@ -14,7 +14,7 @@ from app.core.middleware import RequestLoggingMiddleware
 from app.models import (  # noqa: F401
     employee, session, device, network,
     activity, system_metrics, keystroke, website,
-    permission,
+    permission, sync_queue,
 )
 
 from app.api.routes import (
