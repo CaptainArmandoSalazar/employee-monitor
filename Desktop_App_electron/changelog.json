@@ -1,6 +1,14 @@
 {
   "history": [
     {
+      "version": "v1.0.56",
+      "date": "2026-10-23",
+      "changes": [
+        "automate the deployment of the latest release to the production environment",
+        "ensure that the latest release is always available to users without manual intervention"
+      ]
+    },
+    {
       "version": "v1.0.55",
       "date": "2026-10-22",
       "changes": [

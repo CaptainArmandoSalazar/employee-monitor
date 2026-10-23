@@ -1,6 +1,6 @@
 {
   "name": "av-devs-collab",
-  "version": "1.0.55",
+  "version": "1.0.56",
   "description": "Employee Monitoring Desktop App",
   "main": "dist/main/main.js",
   "homepage": "https://avdevs.com",
@@ -10,6 +10,7 @@
   },
   "scripts": {
     "sync:release": "node scripts/sync-release.js",
+    "release": "node scripts/release.js",
     "build": "node scripts/sync-release.js && tsc",
     "start": "npm run build && electron .",
     "dev": "npm run sync:release && concurrently \"tsc --watch\" \"cp src/main/services/inputWorker.js dist/main/services/inputWorker.js && wait-on dist/main/main.js && electron . --dev\"",
