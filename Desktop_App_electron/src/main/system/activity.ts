@@ -156,13 +156,13 @@ function getActiveWindow(): Promise<ActiveWindow | null> {
 
 // ── Extract domain from browser window title ─────────────
 const BROWSER_NAMES = [
-  'google chrome', 'chromium', 'firefox', 'mozilla firefox',
+  'google chrome', 'chrome', 'chromium', 'firefox', 'mozilla firefox',
   'safari', 'microsoft edge', 'edge', 'opera', 'brave', 'vivaldi',
 ];
 
 // Removes the trailing "- Google Chrome" (and an optional profile name after it)
 const BROWSER_SUFFIX =
-  /\s+[-–—]\s+(google chrome|chromium|mozilla firefox|firefox|microsoft edge|brave|opera|vivaldi|safari)(\s+[-–—]\s+.*)?$/i;
+  /\s+[-–—]\s+(google chrome|chrome|chromium|mozilla firefox|firefox|microsoft edge|brave|opera|vivaldi|safari)(\s+[-–—]\s+.*)?$/i;
 
 // Only real, common TLDs. Blocks file names such as main.py, app.js, notes.txt
 const VALID_TLDS = new Set([
@@ -237,6 +237,17 @@ function extractUrl(appName: string, windowTitle: string): { url: string; domain
 
   const title = windowTitle.replace(BROWSER_SUFFIX, '').trim();
   if (!title) return null;
+
+  const knownSite = Object.entries(KNOWN_SITES)
+    .sort(([a], [b]) => b.length - a.length)
+    .find(([name]) => {
+      const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+      return new RegExp(`(?:^|[^a-z0-9])${escapedName}(?:$|[^a-z0-9])`, 'i').test(title);
+    });
+  if (knownSite) {
+    const [, domain] = knownSite;
+    return { url: `https://${domain}`, domain };
+  }
 
   const candidates = new Set<string>();
   const rawParts = title.split(/\s+[-–—|·]\s+|\s+\|\s+|\s+::\s+/);

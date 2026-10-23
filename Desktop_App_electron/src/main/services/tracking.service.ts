@@ -339,6 +339,7 @@ export const trackingService = {
       }
     } catch (err) {
       if (isNetworkError(err)) markOffline();
+      console.warn('[Tracking] Activity flush failed — kept for retry:', (err as Error)?.message || err);
     } finally {
       _flushingActivity = false;
       persistBuffers();
@@ -350,7 +351,7 @@ export const trackingService = {
     if (!session) return;
     _websiteBuffer.push({ session_id: session.session_id, ...log });
     _websiteBuffer = capBuffer(_websiteBuffer, 'Website');
-    if (_isOnline && _websiteBuffer.length >= 20) this.flushWebsite();
+    if (_isOnline) void this.flushWebsite();
   },
 
   async flushWebsite(): Promise<void> {
@@ -363,7 +364,9 @@ export const trackingService = {
         const logs = _websiteBuffer.slice(0, FLUSH_BATCH_SIZE);
         const res = await apiService.post('/tracking/website/batch', { logs }, token);
         if (res.ok || !shouldRetry(res.status)) {
-          if (!res.ok) console.warn('[Tracking] Server rejected a website batch — dropped');
+          if (!res.ok) {
+            console.warn(`[Tracking] Server rejected a website batch (HTTP ${res.status}) — dropped`);
+          }
           const sent = new Set(logs);
           _websiteBuffer = _websiteBuffer.filter(l => !sent.has(l));
           markOnline();
@@ -373,6 +376,7 @@ export const trackingService = {
       }
     } catch (err) {
       if (isNetworkError(err)) markOffline();
+      console.warn('[Tracking] Website flush failed — kept for retry:', (err as Error)?.message || err);
     } finally {
       _flushingWebsite = false;
       persistBuffers();

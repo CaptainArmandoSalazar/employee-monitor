@@ -11,6 +11,9 @@ let isManager = false;
 let timerInterval = null;
 let clockInTime = null;
 let editingEmployeeId = null;
+let editingEmployeeOriginalRole = null;
+let editingEmployeeListBodyId = null;
+let editingEmployeePageKey = null;
 let resetPwEmployeeId = null;
 let creatingEmployeeRole = null;
 
@@ -418,8 +421,10 @@ ${can('employee.update') ? `
             data-emp-name="${esc(e.employee_name)}"
             data-emp-email="${esc(e.email)}"
             data-emp-dept="${esc(e.department || '')}"
-            data-emp-role="${esc(e.role)}"
-            data-emp-manager="${esc(e.manager_id || '')}">
+            data-emp-role="${esc(role)}"
+            data-emp-manager="${esc(e.manager_id || '')}"
+            data-emp-body="${esc(tbodyId)}"
+            data-page="${esc(pfx)}">
       Edit
     </button>` : ''}
     <button class="btn btn-ghost btn-sm"
@@ -1343,7 +1348,16 @@ document.addEventListener('click', async function (e) {
     openSessionDetail(sid, pageId, backSub);
   }
   if (action === 'edit-user' && empId) {
-    openEditUserModal(empId, btn.dataset.empName, btn.dataset.empEmail, btn.dataset.empDept, btn.dataset.empRole, btn.dataset.empManager);
+    openEditUserModal(
+      empId,
+      btn.dataset.empName,
+      btn.dataset.empEmail,
+      btn.dataset.empDept,
+      btn.dataset.empRole,
+      btn.dataset.empManager,
+      btn.dataset.empBody,
+      btn.dataset.page
+    );
   }
   if (action === 'view-user' && empId && empName && pageId) {
     openUserSessions(empId, empName, pageId);
@@ -1409,35 +1423,55 @@ document.addEventListener('click', async function (e) {
   }
 });
 
-async function openEditUserModal(id, name, email, dept, role, currentManagerId) {
+async function openEditUserModal(id, name, email, dept, role, currentManagerId, listBodyId, pageKey) {
+  const roleEl = g('emp-role');
+  const roleDisplay = g('emp-role-display');
+  const normalizedRole = String(role || '').trim().toLowerCase();
+  const validRole = roleEl && Array.from(roleEl.options).some(opt => opt.value === normalizedRole);
+  if (!validRole) {
+    showModalAlert('modal-emp-alert', 'Could not determine this employee’s role. Please refresh the page and try again.');
+    g('modal-employee').classList.remove('hidden');
+    return;
+  }
+
   editingEmployeeId = id;
-  g('modal-emp-title').textContent = 'Edit Employee';
+  editingEmployeeOriginalRole = normalizedRole;
+  editingEmployeeListBodyId = listBodyId;
+  editingEmployeePageKey = pageKey;
+  creatingEmployeeRole = null;
+  g('modal-emp-title').textContent = `Edit ${roleName(normalizedRole)}`;
   g('emp-name').value = name;
   g('emp-email').value = email;
   g('emp-email').disabled = true;
   g('emp-department').value = dept || '';
-  g('emp-role').value = role;
+  roleEl.value = normalizedRole;
+  roleEl.classList.remove('hidden');
+  roleDisplay?.classList.add('hidden');
   g('emp-password-group').style.display = 'none';
   g('modal-emp-alert').classList.add('hidden');
 
-  // Always show manager group when editing an employee
   const managerGroup = g('emp-manager-group');
-  if (managerGroup) {
+  const managerSelect = g('emp-manager-id');
+  const updateManagerField = async () => {
+    if (!managerGroup || !managerSelect) return;
+    if (roleEl.value !== 'employee') {
+      managerGroup.style.display = 'none';
+      managerSelect.value = '';
+      managerSelect.disabled = false;
+      return;
+    }
     managerGroup.style.display = 'block';
     await populateManagerDropdown();
-    // Pre-select current manager
-    const sel = g('emp-manager-id');
-    if (sel && currentManagerId) sel.value = currentManagerId;
-  }
+    if (currentManagerId) managerSelect.value = currentManagerId;
+  };
+  roleEl.onchange = () => { void updateManagerField(); };
+  await updateManagerField();
 
   // Role options follow the create permissions; the whole dropdown follows "change roles"
-  const roleEl = g('emp-role');
-  if (roleEl) {
-    Array.from(roleEl.options).forEach(opt => {
-      opt.disabled = !can('employee.create.' + opt.value) && opt.value !== role;
-    });
-    roleEl.disabled = !can('employee.change_role');
-  }
+  Array.from(roleEl.options).forEach(opt => {
+    opt.disabled = !can('employee.create.' + opt.value) && opt.value !== normalizedRole;
+  });
+  roleEl.disabled = !can('employee.change_role');
 
   g('modal-employee').classList.remove('hidden');
 }
@@ -1517,27 +1551,15 @@ async function openActivityPage(sessionId, pageId, backDetailSubId) {
       api.getAdminWebsite({ session_id: sessionId, limit: '500' }),
     ]);
 
+    if (!webR?.ok) {
+      const detail = webR?.data?.detail || webR?.data?.error;
+      throw new Error(
+        `Could not load website activity (HTTP ${webR?.status || 0})${detail ? `: ${detail}` : ''}`
+      );
+    }
+
     const actRows = (actR && actR.ok && Array.isArray(actR.data)) ? actR.data : [];
     const webRows = (webR && webR.ok && Array.isArray(webR.data)) ? webR.data : [];
-
-    const normalizeBrowserApp = (name) => {
-      const raw = String(name || 'Unknown').trim();
-      const lower = raw.toLowerCase();
-      if (lower.includes('chrome')) return 'Google Chrome';
-      if (lower.includes('firefox')) return 'Firefox';
-      if (lower.includes('edge')) return 'Microsoft Edge';
-      if (lower.includes('brave')) return 'Brave';
-      if (lower.includes('opera')) return 'Opera';
-      if (lower.includes('vivaldi')) return 'Vivaldi';
-      if (lower.includes('safari')) return 'Safari';
-      if (lower.includes('chromium')) return 'Chromium';
-      return raw || 'Unknown';
-    };
-
-    const isBrowserApp = (name) => {
-      const label = normalizeBrowserApp(name).toLowerCase();
-      return ['google chrome', 'firefox', 'microsoft edge', 'brave', 'opera', 'vivaldi', 'safari', 'chromium'].some(v => label.includes(v));
-    };
 
     // ── Stats ──────────────────────────────────────────────
     const totalAppTime = actRows.reduce((a, r) => a + (r.duration || 0), 0);
@@ -1557,36 +1579,6 @@ async function openActivityPage(sessionId, pageId, backDetailSubId) {
       .sort((a, b) => b.duration - a.duration)
       .slice(0, 10);
 
-    const browserMap = {};
-    const addBrowserDuration = (browserName, dur, extra = null) => {
-      const app = normalizeBrowserApp(browserName || 'Unknown');
-      if (!isBrowserApp(app)) return;
-      if (!browserMap[app]) browserMap[app] = { name: app, duration: 0, count: 0, events: [] };
-      const value = Number(dur) || 0;
-      browserMap[app].duration += value;
-      browserMap[app].count += 1;
-      if (extra) browserMap[app].events.push(extra);
-    };
-
-    actRows.forEach(r => {
-      addBrowserDuration(r.app_name, r.duration, {
-        title: r.window_title || '—',
-        duration: Number(r.duration) || 0,
-        start_time: r.start_time,
-        end_time: r.end_time,
-      });
-    });
-    webRows.forEach(r => {
-      addBrowserDuration(r.app_name || r.domain, r.duration, {
-        title: r.title || r.domain || '—',
-        duration: Number(r.duration) || 0,
-        timestamp: r.timestamp,
-      });
-    });
-    const browserGroups = Object.values(browserMap)
-      .sort((a, b) => b.duration - a.duration);
-    const selectedBrowser = browserGroups[0]?.name || null;
-
     // ── Top domains aggregation ────────────────────────────
     const domainMap = {};
     webRows.forEach(r => {
@@ -1601,25 +1593,44 @@ async function openActivityPage(sessionId, pageId, backDetailSubId) {
 
     const maxAppDur = topApps.length ? Math.max(...topApps.map(a => a.duration)) : 1;
     const maxDomainDur = topDomains.length ? Math.max(...topDomains.map(d => d.duration)) : 1;
-    const maxBrowserDur = browserGroups.length ? Math.max(...browserGroups.map(b => b.duration)) : 1;
-
-    let browserSelection = browserGroups[0]?.name || null;
+    const normalizeActivityLabel = value => String(value || '').trim().toLowerCase();
+    const websiteDomainsByActivity = new Map();
+    webRows.forEach(row => {
+      const key = `${normalizeActivityLabel(row.app_name)}\u0000${normalizeActivityLabel(row.title)}`;
+      if (!normalizeActivityLabel(row.title) || !row.domain) return;
+      if (!websiteDomainsByActivity.has(key)) websiteDomainsByActivity.set(key, new Set());
+      websiteDomainsByActivity.get(key).add(row.domain);
+    });
+    let selectedAppIndex = null;
 
     const renderActivityView = () => {
-      const selectedDetailRows = browserSelection
-        ? webRows
-            .filter((row) => {
-              const browserName = normalizeBrowserApp(row.app_name || row.domain || 'Unknown');
-              return browserName === browserSelection;
-            })
-            .map((row) => ({
-              domain: row.domain || 'Unknown',
-              title: row.title || '—',
-              duration: Number(row.duration) || 0,
-              timestamp: row.timestamp,
-            }))
-            .slice(0, 30)
+      const selectedApp = selectedAppIndex === null ? null : topApps[selectedAppIndex];
+      const selectedAppTitleRows = selectedApp
+        ? actRows.reduce((titles, row) => {
+            if (normalizeActivityLabel(row.app_name || 'Unknown') !== normalizeActivityLabel(selectedApp.name)) return titles;
+            const title = String(row.window_title || '').trim() || 'Unknown window title';
+            const titleKey = normalizeActivityLabel(title);
+            const existing = titles.get(titleKey);
+            const websiteKey = `${normalizeActivityLabel(row.app_name)}\u0000${titleKey}`;
+            const websiteDomains = websiteDomainsByActivity.get(websiteKey);
+            if (existing) {
+              existing.duration += Number(row.duration) || 0;
+              existing.openCount += 1;
+              websiteDomains?.forEach(domain => existing.websites.add(domain));
+            } else {
+              titles.set(titleKey, {
+                title,
+                duration: Number(row.duration) || 0,
+                openCount: 1,
+                websites: new Set(websiteDomains || []),
+              });
+            }
+            return titles;
+          }, new Map()).values()
         : [];
+      const topWindowTitles = [...selectedAppTitleRows]
+        .sort((a, b) => b.duration - a.duration)
+        .slice(0, 10);
 
       container.innerHTML = `
         <div style="display:flex;flex-direction:column;gap:20px;">
@@ -1664,65 +1675,6 @@ async function openActivityPage(sessionId, pageId, backDetailSubId) {
             </div>
           </div>
 
-          <!-- Browser Summary -->
-          ${browserGroups.length ? `
-          <div class="card">
-            <div class="card-header">
-              <div>
-                <div class="card-title">🌐 Browser Activity</div>
-                <div class="card-subtitle">Browser totals for this session</div>
-              </div>
-            </div>
-            <div style="display:flex;flex-direction:column;gap:12px;">
-              ${browserGroups.map(browser => `
-                <button class="btn btn-ghost btn-sm"
-                        data-browser-select="${esc(browser.name)}"
-                        style="justify-content:flex-start;width:100%;padding:10px 12px;border:1px solid var(--border);background:${browserSelection === browser.name ? 'var(--panel-alt)' : 'transparent'};display:flex;align-items:center;gap:12px;">
-                  <span style="font-weight:700;min-width:160px;text-align:left;color:var(--text-primary);">${esc(browser.name)}</span>
-                  <span style="flex:1;display:flex;align-items:center;gap:8px;">
-                    <span class="progress-bar" style="flex:1;min-width:120px;">
-                      <span class="progress-fill success" style="width:${Math.round((browser.duration / maxBrowserDur) * 100)}%;"></span>
-                    </span>
-                    <span style="min-width:60px;text-align:right;font-size:12px;color:var(--text-secondary);">${sToHm(browser.duration)}</span>
-                  </span>
-                </button>
-              `).join('')}
-            </div>
-          </div>` : ''}
-
-          ${browserSelection ? `
-          <div class="card">
-            <div class="card-header">
-              <div>
-                <div class="card-title">📑 ${esc(browserSelection)} pages</div>
-                <div class="card-subtitle">Pages opened while this browser was active</div>
-              </div>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead><tr>
-                  <th>#</th>
-                  <th>Domain</th>
-                  <th>Page Title</th>
-                  <th>Duration</th>
-                  <th>Visited At</th>
-                </tr></thead>
-                <tbody>
-                  ${selectedDetailRows.length
-          ? selectedDetailRows.map((row, idx) => `
-                      <tr>
-                        <td class="td-muted">${idx + 1}</td>
-                        <td><span style="color:var(--accent);font-weight:600;">${esc(row.domain || '—')}</span></td>
-                        <td class="td-muted" style="max-width:350px;"><div class="truncate">${esc(row.title || '—')}</div></td>
-                        <td class="text-success">${sToHm(row.duration || 0)}</td>
-                        <td class="td-mono td-muted">${fmtDateTime(row.timestamp)}</td>
-                      </tr>`).join('')
-          : emptyRow(5, 'No website activity recorded for this browser')}
-                </tbody>
-              </table>
-            </div>
-          </div>` : ''}
-
           <!-- Top Apps -->
           ${topApps.length ? `
           <div class="card">
@@ -1733,8 +1685,14 @@ async function openActivityPage(sessionId, pageId, backDetailSubId) {
               </div>
             </div>
             <div style="display:flex;flex-direction:column;gap:10px;">
-              ${topApps.map(app => `
-                <div style="display:flex;align-items:center;gap:12px;">
+              ${topApps.map((app, index) => `
+                <button type="button"
+                        data-app-select="${index}"
+                        aria-label="Show window titles for ${esc(app.name)}"
+                        aria-expanded="${selectedAppIndex === index}"
+                        class="btn btn-ghost btn-sm"
+                        style="width:100%;padding:8px 0;border:0;background:${selectedAppIndex === index ? 'var(--panel-alt)' : 'transparent'};text-align:left;cursor:pointer;">
+                  <div style="display:flex;align-items:center;gap:12px;width:100%;">
                   <div style="
                     min-width:140px;
                     font-size:13px;
@@ -1757,10 +1715,43 @@ async function openActivityPage(sessionId, pageId, backDetailSubId) {
                   <div style="min-width:50px;text-align:right;font-size:11px;color:var(--text-muted);">
                     ${app.count}x
                   </div>
-                </div>
+                  </div>
+                </button>
               `).join('')}
             </div>
-          </div>` : ''}
+          </div>
+          ${selectedApp ? `
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">🪟 Top Window Titles — ${esc(selectedApp.name)}</div>
+                <div class="card-subtitle">Most-used distinct window titles, with repeated titles combined</div>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr>
+                  <th>Website</th>
+                  <th>Window Title</th>
+                  <th>Total Time</th>
+                  <th>Times Opened</th>
+                </tr></thead>
+                <tbody>
+                  ${topWindowTitles.length
+          ? topWindowTitles.map(row => `
+                      <tr>
+                        <td class="td-muted">${esc([...row.websites].join(', ') || 'Not captured')}</td>
+                        <td class="td-muted" style="max-width:500px;">
+                          <div class="truncate">${esc(row.title)}</div>
+                        </td>
+                        <td class="text-success">${sToHm(row.duration)}</td>
+                        <td>${row.openCount}</td>
+                      </tr>`).join('')
+          : emptyRow(4, 'No window titles recorded for this application')}
+                </tbody>
+              </table>
+            </div>
+          </div>` : ''}` : ''}
 
           <!-- Top Websites -->
           ${topDomains.length ? `
@@ -1836,49 +1827,12 @@ async function openActivityPage(sessionId, pageId, backDetailSubId) {
             </div>
           </div>
 
-          <!-- Detailed Website Log Table -->
-          <div class="card">
-            <div class="card-header">
-              <div class="card-title">🌍 Detailed Website Activity Log</div>
-              <div class="card-subtitle">${webRows.length} visits recorded</div>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead><tr>
-                  <th>#</th>
-                  <th>Domain</th>
-                  <th>Page Title</th>
-                  <th>Duration</th>
-                  <th>Visited At</th>
-                </tr></thead>
-                <tbody>
-                  ${webRows.length
-          ? webRows.map((r, i) => `
-                      <tr>
-                        <td class="td-muted">${i + 1}</td>
-                        <td>
-                          <span style="color:var(--accent);font-weight:600;">
-                            ${esc(r.domain || '—')}
-                          </span>
-                        </td>
-                        <td class="td-muted" style="max-width:300px;">
-                          <div class="truncate">${esc(r.title || '—')}</div>
-                        </td>
-                        <td class="text-success">${sToHm(r.duration || 0)}</td>
-                        <td class="td-mono td-muted">${fmtDateTime(r.timestamp)}</td>
-                      </tr>`).join('')
-          : emptyRow(5, 'No website activity recorded for this session')}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
         </div>`;
 
-      container.querySelectorAll('[data-browser-select]').forEach(button => {
+      container.querySelectorAll('[data-app-select]').forEach(button => {
         button.addEventListener('click', () => {
-          const next = button.getAttribute('data-browser-select');
-          browserSelection = next || null;
+          const index = Number(button.getAttribute('data-app-select'));
+          selectedAppIndex = selectedAppIndex === index ? null : index;
           renderActivityView();
         });
       });
@@ -3303,6 +3257,9 @@ function bindModalButtons() {
 
 async function openEmpModal(defaultRole) {
   editingEmployeeId = null;
+  editingEmployeeOriginalRole = null;
+  editingEmployeeListBodyId = null;
+  editingEmployeePageKey = null;
   creatingEmployeeRole = defaultRole;
   g('modal-emp-title').textContent = `Add ${roleName(defaultRole)}`;
   g('emp-name').value = '';
@@ -3322,6 +3279,11 @@ async function openEmpModal(defaultRole) {
       await populateManagerDropdown();
     } else {
       managerGroup.style.display = 'none';
+      const managerSelect = g('emp-manager-id');
+      if (managerSelect) {
+        managerSelect.value = '';
+        managerSelect.disabled = false;
+      }
     }
   }
 
@@ -3330,6 +3292,7 @@ async function openEmpModal(defaultRole) {
   const roleDisplay = g('emp-role-display');
   if (roleEl) {
     roleEl.value = defaultRole;
+    roleEl.onchange = null;
     roleEl.classList.add('hidden');
   }
   if (roleDisplay) {
@@ -3343,6 +3306,7 @@ async function openEmpModal(defaultRole) {
 async function populateManagerDropdown() {
   const sel = g('emp-manager-id');
   if (!sel) return;
+  sel.disabled = false;
   sel.innerHTML = '<option value="">— No Manager —</option>';
   try {
     // Fetch managers and HRs in parallel
@@ -3393,8 +3357,11 @@ function roleName(r) {
 }
 function openEditEmployeeModal(id, name, email, dept, role) {
   editingEmployeeId = id;
+  editingEmployeeOriginalRole = role;
+  editingEmployeeListBodyId = null;
+  editingEmployeePageKey = null;
   creatingEmployeeRole = null;
-  g('modal-emp-title').textContent = 'Edit Employee';
+  g('modal-emp-title').textContent = `Edit ${roleName(role)}`;
   g('emp-name').value = name;
   g('emp-email').value = email;
   g('emp-email').disabled = true;
@@ -3418,7 +3385,7 @@ async function saveEmployee() {
     showModalAlert('modal-emp-alert', 'Select a role');
     return;
   }
-  const managerId = g('emp-manager-id') ? g('emp-manager-id').value : '';
+  const managerId = role === 'employee' && g('emp-manager-id') ? g('emp-manager-id').value : '';
   g('modal-emp-alert').classList.add('hidden');
 
   if (!name) { showModalAlert('modal-emp-alert', 'Name is required'); return; }
@@ -3432,9 +3399,10 @@ async function saveEmployee() {
   btn.disabled = true; btn.textContent = 'Saving…';
   try {
     const payload = { employee_name: name, department: dept, role };
-    // Always include manager_id on edit (even if empty, to allow removing a manager)
     if (editingEmployeeId) {
-      payload.manager_id = managerId || null;
+      if (role === 'employee' || editingEmployeeOriginalRole === 'employee') {
+        payload.manager_id = role === 'employee' ? (managerId || null) : null;
+      }
     } else {
       if (managerId) payload.manager_id = managerId;
     }
@@ -3451,9 +3419,14 @@ async function saveEmployee() {
         manager: { key: 'managers', bodyId: 'managers-body' },
         employee: { key: 'employees', bodyId: 'employees-body' },
       };
-      // If manager is adding, refresh their own "my-employees" page instead
+      const savedRole = r.data?.role || role;
       if (editingEmployeeId) {
-        loadRolePage('employee', 'employees-body', 'employees');
+        const target = pageMap[savedRole] || pageMap[editingEmployeeOriginalRole];
+        if (savedRole === editingEmployeeOriginalRole && editingEmployeeListBodyId) {
+          loadRolePage(savedRole, editingEmployeeListBodyId, editingEmployeePageKey);
+        } else if (target) {
+          loadRolePage(savedRole, target.bodyId, target.key);
+        }
       } else {
         const target = (isManager && role === 'employee')
           ? { key: 'my-employees', bodyId: 'my-employees-body' }

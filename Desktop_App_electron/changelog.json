@@ -1,6 +1,17 @@
 {
   "history": [
     {
+      "version": "v1.0.57",
+      "date": "2026-10-23",
+      "changes": [
+        "Updated Activity Tracking to show selectable top applications with the ten most-used distinct window titles, combined total time, and times opened",
+        "Improved browser website detection from window titles and flush recognized website activity promptly",
+        "Added website domain details to the application window-title view and made website activity load errors visible",
+        "Added backend compatibility for existing databases missing the website_logs.app_name column",
+        "Updated account editing so the form reflects the selected account role and only employees see manager assignment"
+      ]
+    },
+    {
       "version": "v1.0.56",
       "date": "2026-10-23",
       "changes": [
