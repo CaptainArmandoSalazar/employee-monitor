@@ -1031,6 +1031,7 @@ async function loadSettings() {
               <button id="btn-check-updates" class="btn btn-ghost btn-sm" style="min-width:190px;" ${isDownloading ? 'disabled' : ''}>
                 ${isDownloading ? '⏳ Downloading update…' : '🔄 Check for Updates'}
               </button>
+              <div id="update-check-error" style="display:none;max-width:220px;font-size:11px;color:var(--danger);text-align:right;"></div>
               <div style="font-size:11px;color:var(--accent);display:flex;align-items:center;gap:4px;">
                 View full changelog <span style="font-size:14px;">→</span>
               </div>
@@ -1063,7 +1064,7 @@ async function loadSettings() {
 
     // ── Click card → show full changelog ──────────────────
     g('version-summary-card').addEventListener('click', () => {
-      showFullChangelog(current, history, info.updateDownloaded, info.updateAvailableVersion);
+      showFullChangelog(current, history, info.updateDownloaded, info.updateAvailableVersion, isDownloading);
     });
     // Wire download/install buttons on card view
     const dlCardBtn = g('btn-download-card');
@@ -1082,7 +1083,11 @@ async function loadSettings() {
     if (checkUpdatesBtn) {
       checkUpdatesBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        handleManualUpdateCheck(checkUpdatesBtn);
+        if (checkUpdatesBtn.dataset.action === 'download') {
+          handleDownloadUpdate(checkUpdatesBtn);
+        } else {
+          handleManualUpdateCheck(checkUpdatesBtn);
+        }
       });
     }
 
@@ -1094,24 +1099,41 @@ async function loadSettings() {
 async function handleManualUpdateCheck(btn) {
   if (!btn) return;
 
+  const errorEl = g('update-check-error');
+  if (errorEl) {
+    errorEl.textContent = '';
+    errorEl.style.display = 'none';
+  }
+  btn.dataset.action = 'check';
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> Checking…';
   btn.style.cursor = 'not-allowed';
   btn.className = 'btn btn-ghost btn-sm';
 
   try {
-    const result = await Promise.race([
-      api.checkForUpdates(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Update check timed out')), 15000))
-    ]);
+    const result = await api.checkForUpdates();
+    if (!result?.ok) {
+      throw new Error(result?.error || 'The update check did not complete.');
+    }
+    const currentState = await api.getAppVersion();
+    if (currentState?.updateDownloading) {
+      btn.disabled = true;
+      btn.innerHTML = '⏳ Downloading update…';
+      btn.style.cursor = 'not-allowed';
+      return;
+    }
+    if (currentState?.updateDownloaded) {
+      await loadSettings();
+      return;
+    }
     const hasUpdate = !!result?.hasUpdate;
 
     if (hasUpdate) {
+      btn.dataset.action = 'download';
       btn.className = 'btn btn-primary btn-sm';
       btn.innerHTML = '⬇ Download Update';
       btn.disabled = false;
       btn.style.cursor = 'pointer';
-      btn.onclick = () => handleDownloadUpdate(btn);
       return;
     }
 
@@ -1119,18 +1141,20 @@ async function handleManualUpdateCheck(btn) {
     btn.innerHTML = '✅ Already latest version';
     btn.disabled = true;
     btn.style.cursor = 'default';
-    btn.onclick = null;
   } catch (e) {
     btn.className = 'btn btn-danger btn-sm';
-    btn.innerHTML = '❌ Check failed';
+    btn.innerHTML = '↻ Retry update check';
     btn.disabled = false;
     btn.style.cursor = 'pointer';
-    btn.onclick = () => handleManualUpdateCheck(btn);
+    if (errorEl) {
+      errorEl.textContent = e?.message || 'Unable to check for updates.';
+      errorEl.style.display = 'block';
+    }
   }
 }
 
 // ── Full Changelog View ───────────────────────────────────
-function showFullChangelog(current, history, updateDownloaded = false, updateAvailableVersion = null) {
+function showFullChangelog(current, history, updateDownloaded = false, updateAvailableVersion = null, updateDownloading = false) {
   const container = g('settings-version-content');
   const latest = history[0] || {};
   const older = history.slice(1);
@@ -1138,6 +1162,7 @@ function showFullChangelog(current, history, updateDownloaded = false, updateAva
     ? updateAvailableVersion
     : (latest.version || '').replace('v', '');
   const isOutdated = latestClean && current !== latestClean;
+  const isDownloading = !!updateDownloading;
 
   container.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:24px;">
@@ -1191,10 +1216,12 @@ function showFullChangelog(current, history, updateDownloaded = false, updateAva
                 font-size:11px;font-weight:700;
                 color:var(--warning);
                 text-transform:uppercase;letter-spacing:.06em;
-              ">⚠ Update Available</div>
+              ">${isDownloading ? '⏳ Downloading Update' : '⚠ Update Available'}</div>
               ${updateDownloaded
         ? `<button id="btn-install-now" class="btn btn-success">⚡ Install & Restart</button>`
-        : `<button id="btn-download-update" class="btn btn-primary">⬇ Download Update</button>`}
+        : isDownloading
+          ? `<button class="btn btn-ghost" disabled>⏳ Downloading…</button>`
+          : `<button id="btn-download-update" class="btn btn-primary">⬇ Download Update</button>`}
             </div>
           </div>
         </div>
@@ -1477,38 +1504,50 @@ async function openEditUserModal(id, name, email, dept, role, currentManagerId, 
 }
 
 async function handleDownloadUpdate(btn) {
-  if (!btn) return;
+  if (!btn || btn.disabled) return;
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> Downloading…';
   btn.style.cursor = 'not-allowed';
 
   try {
-    const r = await api.downloadUpdate();
+    const downloadRequest = api.downloadUpdate();
+    const pollDownloadState = async () => {
+      try {
+        const refreshed = await api.getAppVersion();
+        if (refreshed?.updateDownloaded || !refreshed?.updateDownloading) {
+          await loadSettings();
+          return;
+        }
+
+        const cardButton = g('btn-download-card');
+        if (cardButton) {
+          cardButton.disabled = true;
+          cardButton.textContent = '⏳ Downloading…';
+        }
+        const checkButton = g('btn-check-updates');
+        if (checkButton) {
+          checkButton.disabled = true;
+          checkButton.textContent = '⏳ Downloading update…';
+        }
+        const detailButton = g('btn-download-update');
+        if (detailButton) {
+          detailButton.disabled = true;
+          detailButton.textContent = '⏳ Downloading…';
+        }
+        setTimeout(pollDownloadState, 1000);
+      } catch (e) {
+        console.warn('[Settings] update-state poll failed:', e);
+      }
+    };
+    setTimeout(pollDownloadState, 300);
+
+    const r = await downloadRequest;
     if (r && r.ok) {
       btn.innerHTML = '⏳ Downloading…';
       btn.disabled = true;
       btn.style.cursor = 'default';
       btn.className = 'btn btn-ghost btn-sm';
       btn.style.width = '100%';
-
-      const pollDownloadState = async () => {
-        try {
-          const refreshed = await api.getAppVersion();
-          if (refreshed?.updateDownloaded || !refreshed?.updateDownloading) {
-            loadSettings();
-            return;
-          }
-          if (refreshed?.updateDownloading) {
-            loadSettings();
-            setTimeout(pollDownloadState, 1000);
-            return;
-          }
-        } catch (e) {
-          console.warn('[Settings] update-state poll failed:', e);
-        }
-      };
-
-      setTimeout(pollDownloadState, 1200);
     } else {
       btn.innerHTML = '❌ ' + (r?.error || 'Failed');
       btn.disabled = false;

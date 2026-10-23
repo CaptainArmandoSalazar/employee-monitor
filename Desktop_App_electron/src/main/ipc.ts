@@ -8,6 +8,7 @@ import { getDeviceInfo } from './system/metrics';
 import { getNetworkInfo, getGeoInfo, getNetworkSpeed } from './system/network';
 import { createLoginWindow, createDashboardWindow, closeAllWindows, setMainWindow, setQuitting } from './window';
 import {
+  checkForUpdates,
   isUpdateDownloaded,
   isUpdateDownloading,
   getUpdateAvailableVersion,
@@ -35,24 +36,6 @@ function compareVersions(current: string, target: string): number {
   }
 
   return 0;
-}
-
-function timeoutPromise<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-
-  return new Promise<T>((resolve, reject) => {
-    timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-    promise.then(
-      (value) => {
-        clearTimeout(timer!);
-        resolve(value);
-      },
-      (error) => {
-        clearTimeout(timer!);
-        reject(error);
-      }
-    );
-  });
 }
 
 // ── Helper: wrap any API call and handle 401 gracefully ──
@@ -593,6 +576,12 @@ if (session) {
     if (!app.isPackaged) {
       return { ok: false, error: 'Auto-update only works in production builds' };
     }
+    if (isUpdateDownloaded()) {
+      return { ok: false, error: 'The update is already downloaded.' };
+    }
+    if (isUpdateDownloading()) {
+      return { ok: true, downloading: true };
+    }
     try {
       setUpdateDownloaded(false);
       setUpdateDownloading(true);
@@ -615,12 +604,11 @@ if (session) {
     if (!app.isPackaged) {
       return { ok: false, error: 'Dev mode' };
     }
+    if (isUpdateDownloading()) {
+      return { ok: false, error: 'An update is already downloading.' };
+    }
     try {
-      const result = await timeoutPromise(
-        autoUpdater.checkForUpdates(),
-        15000,
-        'Update check timed out'
-      );
+      const result = await checkForUpdates();
       const updateInfo = result?.updateInfo || null;
       const currentVersion = String(app.getVersion()).replace(/^v/i, '');
       const remoteVersion = String(updateInfo?.version || '').replace(/^v/i, '');

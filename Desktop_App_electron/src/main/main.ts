@@ -190,27 +190,6 @@ function setupAutoUpdater(): void {
   autoUpdater.on('update-available', (info) => {
     console.log('[Updater] Update available:', info.version);
     _updateAvailableVersion = info.version;
-    const win = getMainWindow();
-    if (!win) return;
-
-    dialog.showMessageBox(win, {
-      type: 'info',
-      title: 'Update Available',
-      message: `A new version (v${info.version}) is available.`,
-      detail: 'Would you like to download and install it now?',
-      buttons: ['Download Now', 'Later'],
-      defaultId: 0,
-      cancelId: 1,
-    }).then(({ response }) => {
-      if (response === 0) {
-        _updateDownloading = true;
-        _updateDownloaded = false;
-        void autoUpdater.downloadUpdate().catch((err: unknown) => {
-          _updateDownloading = false;
-          console.error('[Updater] Download failed:', err instanceof Error ? err.message : err);
-        });
-      }
-    });
   });
 
   // ── No update ──────────────────────────────────────────
@@ -267,14 +246,14 @@ function setupAutoUpdater(): void {
 
   // ── Error ──────────────────────────────────────────────
   autoUpdater.on('error', (err) => {
-    _updateDownloading = false;
     console.error('[Updater] Error:', err?.message || err);
     // Don't show dialog for update errors — just log silently
   });
 
   const runUpdateCheck = async (): Promise<void> => {
+    if (_updateDownloading || _updateDownloaded) return;
     try {
-      const result = await autoUpdater.checkForUpdates();
+      const result = await checkForUpdates();
       console.log('[Updater] checkForUpdates returned:', result?.updateInfo?.version || 'no update');
     } catch (err: any) {
       console.error('[Updater] Check failed:', err?.message || err);
@@ -290,6 +269,16 @@ function setupAutoUpdater(): void {
   setInterval(() => {
     void runUpdateCheck();
   }, 30 * 60 * 1000);
+}
+
+let _updateCheckPromise: ReturnType<typeof autoUpdater.checkForUpdates> | null = null;
+export function checkForUpdates() {
+  if (!_updateCheckPromise) {
+    _updateCheckPromise = autoUpdater.checkForUpdates().finally(() => {
+      _updateCheckPromise = null;
+    });
+  }
+  return _updateCheckPromise;
 }
 
 // ── Force clock-out ───────────────────────────────────────
