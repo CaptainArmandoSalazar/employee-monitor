@@ -190,8 +190,6 @@ function setupAutoUpdater(): void {
   autoUpdater.on('update-available', (info) => {
     console.log('[Updater] Update available:', info.version);
     _updateAvailableVersion = info.version;
-    _updateDownloaded = false;
-    _updateDownloading = false;
     const win = getMainWindow();
     if (!win) return;
 
@@ -205,16 +203,21 @@ function setupAutoUpdater(): void {
       cancelId: 1,
     }).then(({ response }) => {
       if (response === 0) {
-        autoUpdater.downloadUpdate();
+        _updateDownloading = true;
+        _updateDownloaded = false;
+        void autoUpdater.downloadUpdate().catch((err: unknown) => {
+          _updateDownloading = false;
+          console.error('[Updater] Download failed:', err instanceof Error ? err.message : err);
+        });
       }
     });
   });
 
   // ── No update ──────────────────────────────────────────
   autoUpdater.on('update-not-available', () => {
-    _updateAvailableVersion = null;
-    _updateDownloaded = false;
-    _updateDownloading = false;
+    if (!_updateDownloading && !_updateDownloaded) {
+      _updateAvailableVersion = null;
+    }
     console.log('[Updater] App is up to date.');
   });
 

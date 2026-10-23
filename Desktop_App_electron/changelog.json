@@ -1,6 +1,14 @@
 {
   "history": [
     {
+      "version": "v1.0.59",
+      "date": "2026-10-23",
+      "changes": [
+        "Fixed the update settings UI to keep showing a disabled Downloading state during an active update download",
+        "Prevented update checks from resetting the active download state"
+      ]
+    },
+    {
       "version": "v1.0.58",
       "date": "2026-10-23",
       "changes": [

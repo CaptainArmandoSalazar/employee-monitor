@@ -1003,13 +1003,13 @@ async function loadSettings() {
             </div>
 
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-              ${isOutdated ? `
+              ${isOutdated || isDownloading ? `
               <div style="
               background:rgba(245,158,11,.15);border:1px solid var(--warning);
                 border-radius:var(--radius);padding:8px 14px;text-align:center;
               ">
                 <div style="font-size:10px;color:var(--warning);font-weight:700;text-transform:uppercase;letter-spacing:.06em;">${isDownloading ? 'Downloading' : 'Update Available'}</div>
-                <div style="font-size:15px;font-weight:700;font-family:var(--font-mono);color:var(--text-primary);margin-top:2px;">v${esc(latestClean)}</div>
+                <div style="font-size:15px;font-weight:700;font-family:var(--font-mono);color:var(--text-primary);margin-top:2px;">${latestClean ? `v${esc(latestClean)}` : 'Update in progress'}</div>
                 <div style="margin-top:8px;">
                   ${info.updateDownloaded
           ? `<button id="btn-install-now-card" class="btn btn-success btn-sm" style="width:100%;">⚡ Install Now</button>`
@@ -1028,8 +1028,8 @@ async function loadSettings() {
                 <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-top:2px;">✅ Up to date</div>
               </div>
               `}
-              <button id="btn-check-updates" class="btn btn-ghost btn-sm" style="min-width:190px;">
-                🔄 Check for Updates
+              <button id="btn-check-updates" class="btn btn-ghost btn-sm" style="min-width:190px;" ${isDownloading ? 'disabled' : ''}>
+                ${isDownloading ? '⏳ Downloading update…' : '🔄 Check for Updates'}
               </button>
               <div style="font-size:11px;color:var(--accent);display:flex;align-items:center;gap:4px;">
                 View full changelog <span style="font-size:14px;">→</span>
@@ -1494,7 +1494,7 @@ async function handleDownloadUpdate(btn) {
       const pollDownloadState = async () => {
         try {
           const refreshed = await api.getAppVersion();
-          if (refreshed?.updateDownloaded) {
+          if (refreshed?.updateDownloaded || !refreshed?.updateDownloading) {
             loadSettings();
             return;
           }
@@ -1506,12 +1506,6 @@ async function handleDownloadUpdate(btn) {
         } catch (e) {
           console.warn('[Settings] update-state poll failed:', e);
         }
-
-        btn.innerHTML = '⚡ Install & Restart';
-        btn.disabled = false;
-        btn.style.cursor = 'pointer';
-        btn.className = 'btn btn-success btn-sm';
-        btn.onclick = () => api.installUpdate();
       };
 
       setTimeout(pollDownloadState, 1200);

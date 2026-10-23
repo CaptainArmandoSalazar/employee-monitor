@@ -625,9 +625,11 @@ if (session) {
       const currentVersion = String(app.getVersion()).replace(/^v/i, '');
       const remoteVersion = String(updateInfo?.version || '').replace(/^v/i, '');
       const hasUpdate = !!updateInfo && compareVersions(currentVersion, remoteVersion) < 0;
-
-      setUpdateAvailableVersion(hasUpdate ? updateInfo.version : null);
-      setUpdateDownloading(false);
+      if (hasUpdate) {
+        setUpdateAvailableVersion(updateInfo.version);
+      } else if (!isUpdateDownloading() && !isUpdateDownloaded()) {
+        setUpdateAvailableVersion(null);
+      }
 
       return {
         ok: true,
@@ -636,8 +638,9 @@ if (session) {
         currentVersion,
       };
     } catch (e: any) {
-      setUpdateAvailableVersion(null);
-      setUpdateDownloading(false);
+      if (!isUpdateDownloading() && !isUpdateDownloaded()) {
+        setUpdateAvailableVersion(null);
+      }
       return { ok: false, error: e?.message || 'Update check failed' };
     }
   });
