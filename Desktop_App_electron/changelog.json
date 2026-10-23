@@ -1,6 +1,13 @@
 {
   "history": [
     {
+      "version": "v1.0.58",
+      "date": "2026-10-23",
+      "changes": [
+        "Limited Top Applications, Top Window Titles, and Top Websites to the five highest-ranked entries"
+      ]
+    },
+    {
       "version": "v1.0.57",
       "date": "2026-10-23",
       "changes": [

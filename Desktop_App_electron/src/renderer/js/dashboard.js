@@ -1577,7 +1577,7 @@ async function openActivityPage(sessionId, pageId, backDetailSubId) {
     });
     const topApps = Object.values(appMap)
       .sort((a, b) => b.duration - a.duration)
-      .slice(0, 10);
+      .slice(0, 5);
 
     // ── Top domains aggregation ────────────────────────────
     const domainMap = {};
@@ -1589,7 +1589,7 @@ async function openActivityPage(sessionId, pageId, backDetailSubId) {
     });
     const topDomains = Object.values(domainMap)
       .sort((a, b) => b.duration - a.duration)
-      .slice(0, 10);
+      .slice(0, 5);
 
     const maxAppDur = topApps.length ? Math.max(...topApps.map(a => a.duration)) : 1;
     const maxDomainDur = topDomains.length ? Math.max(...topDomains.map(d => d.duration)) : 1;
@@ -1630,7 +1630,7 @@ async function openActivityPage(sessionId, pageId, backDetailSubId) {
         : [];
       const topWindowTitles = [...selectedAppTitleRows]
         .sort((a, b) => b.duration - a.duration)
-        .slice(0, 10);
+        .slice(0, 5);
 
       container.innerHTML = `
         <div style="display:flex;flex-direction:column;gap:20px;">
