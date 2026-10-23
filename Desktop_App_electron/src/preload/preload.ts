@@ -56,6 +56,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   downloadUpdate:   () => ipcRenderer.invoke('system:downloadUpdate'),
   installUpdate:    () => ipcRenderer.invoke('system:installUpdate'),
   checkForUpdates:  () => ipcRenderer.invoke('system:checkForUpdates'),
+  onUpdateState: (callback: (state: {
+    updateDownloaded: boolean;
+    updateDownloading: boolean;
+    updateAvailableVersion: string | null;
+  }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: {
+      updateDownloaded: boolean;
+      updateDownloading: boolean;
+      updateAvailableVersion: string | null;
+    }) => callback(state);
+    ipcRenderer.on('system:updateState', listener);
+    return () => ipcRenderer.removeListener('system:updateState', listener);
+  },
 
   // ── Admin: Assign manager ─────────────────────────────────
   assignManager: (empId: string, managerId: string) => ipcRenderer.invoke('admin:assignManager', empId, managerId),

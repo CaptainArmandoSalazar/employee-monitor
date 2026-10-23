@@ -20,6 +20,48 @@ let creatingEmployeeRole = null;
 // Shorthand
 function g(id) { return document.getElementById(id); }
 
+if (typeof api.onUpdateState === 'function') {
+  api.onUpdateState(applyUpdateState);
+}
+
+function applyUpdateState(state) {
+  if (!state) return;
+  if (state.updateDownloaded) {
+    if (g('page-settings')?.classList.contains('active')) void loadSettings();
+    return;
+  }
+
+  const downloading = !!state.updateDownloading;
+  const cardButton = g('btn-download-card');
+  if (cardButton) {
+    cardButton.disabled = downloading;
+    cardButton.textContent = downloading ? '⏳ Downloading…' : '⬇ Download';
+    cardButton.className = downloading ? 'btn btn-ghost btn-sm' : 'btn btn-primary btn-sm';
+  }
+
+  const detailButton = g('btn-download-update');
+  if (detailButton) {
+    detailButton.disabled = downloading;
+    detailButton.textContent = downloading ? '⏳ Downloading…' : '⬇ Download Update';
+    detailButton.className = downloading ? 'btn btn-ghost' : 'btn btn-primary';
+  }
+
+  const checkButton = g('btn-check-updates');
+  if (checkButton) {
+    checkButton.disabled = downloading;
+    checkButton.textContent = downloading
+      ? '⏳ Downloading update…'
+      : checkButton.dataset.action === 'download'
+        ? '⬇ Download Update'
+        : '🔄 Check for Updates';
+  }
+
+  const summaryStatus = g('update-status-title');
+  if (summaryStatus) summaryStatus.textContent = downloading ? 'Downloading' : 'Update Available';
+  const detailStatus = g('update-availability-status');
+  if (detailStatus) detailStatus.textContent = downloading ? '⏳ Downloading Update' : '⚠ Update Available';
+}
+
 // ══════════════════════════════════════════════════════════
 // PERMISSIONS
 // ══════════════════════════════════════════════════════════
@@ -1008,7 +1050,7 @@ async function loadSettings() {
               background:rgba(245,158,11,.15);border:1px solid var(--warning);
                 border-radius:var(--radius);padding:8px 14px;text-align:center;
               ">
-                <div style="font-size:10px;color:var(--warning);font-weight:700;text-transform:uppercase;letter-spacing:.06em;">${isDownloading ? 'Downloading' : 'Update Available'}</div>
+                <div id="update-status-title" style="font-size:10px;color:var(--warning);font-weight:700;text-transform:uppercase;letter-spacing:.06em;">${isDownloading ? 'Downloading' : 'Update Available'}</div>
                 <div style="font-size:15px;font-weight:700;font-family:var(--font-mono);color:var(--text-primary);margin-top:2px;">${latestClean ? `v${esc(latestClean)}` : 'Update in progress'}</div>
                 <div style="margin-top:8px;">
                   ${info.updateDownloaded
@@ -1216,11 +1258,11 @@ function showFullChangelog(current, history, updateDownloaded = false, updateAva
                 font-size:11px;font-weight:700;
                 color:var(--warning);
                 text-transform:uppercase;letter-spacing:.06em;
-              ">${isDownloading ? '⏳ Downloading Update' : '⚠ Update Available'}</div>
+              " id="update-availability-status">${isDownloading ? '⏳ Downloading Update' : '⚠ Update Available'}</div>
               ${updateDownloaded
         ? `<button id="btn-install-now" class="btn btn-success">⚡ Install & Restart</button>`
         : isDownloading
-          ? `<button class="btn btn-ghost" disabled>⏳ Downloading…</button>`
+          ? `<button id="btn-download-update" class="btn btn-ghost" disabled>⏳ Downloading…</button>`
           : `<button id="btn-download-update" class="btn btn-primary">⬇ Download Update</button>`}
             </div>
           </div>
@@ -1505,51 +1547,13 @@ async function openEditUserModal(id, name, email, dept, role, currentManagerId, 
 
 async function handleDownloadUpdate(btn) {
   if (!btn || btn.disabled) return;
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Downloading…';
-  btn.style.cursor = 'not-allowed';
+  applyUpdateState({ updateDownloading: true, updateDownloaded: false });
 
   try {
-    const downloadRequest = api.downloadUpdate();
-    const pollDownloadState = async () => {
-      try {
-        const refreshed = await api.getAppVersion();
-        if (refreshed?.updateDownloaded || !refreshed?.updateDownloading) {
-          await loadSettings();
-          return;
-        }
-
-        const cardButton = g('btn-download-card');
-        if (cardButton) {
-          cardButton.disabled = true;
-          cardButton.textContent = '⏳ Downloading…';
-        }
-        const checkButton = g('btn-check-updates');
-        if (checkButton) {
-          checkButton.disabled = true;
-          checkButton.textContent = '⏳ Downloading update…';
-        }
-        const detailButton = g('btn-download-update');
-        if (detailButton) {
-          detailButton.disabled = true;
-          detailButton.textContent = '⏳ Downloading…';
-        }
-        setTimeout(pollDownloadState, 1000);
-      } catch (e) {
-        console.warn('[Settings] update-state poll failed:', e);
-      }
-    };
-    setTimeout(pollDownloadState, 300);
-
-    const r = await downloadRequest;
-    if (r && r.ok) {
-      btn.innerHTML = '⏳ Downloading…';
-      btn.disabled = true;
-      btn.style.cursor = 'default';
-      btn.className = 'btn btn-ghost btn-sm';
-      btn.style.width = '100%';
-    } else {
-      btn.innerHTML = '❌ ' + (r?.error || 'Failed');
+    const result = await api.downloadUpdate();
+    if (!result?.ok) {
+      applyUpdateState({ updateDownloading: false, updateDownloaded: false });
+      btn.innerHTML = '❌ ' + (result?.error || 'Failed');
       btn.disabled = false;
       btn.style.cursor = 'pointer';
       setTimeout(() => {
@@ -1558,6 +1562,7 @@ async function handleDownloadUpdate(btn) {
       }, 3000);
     }
   } catch (e) {
+    applyUpdateState({ updateDownloading: false, updateDownloaded: false });
     btn.innerHTML = '❌ Error';
     btn.disabled = false;
     btn.style.cursor = 'pointer';

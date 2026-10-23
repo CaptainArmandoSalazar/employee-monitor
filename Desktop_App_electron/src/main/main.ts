@@ -189,13 +189,36 @@ function setupAutoUpdater(): void {
   // ── Update available ───────────────────────────────────
   autoUpdater.on('update-available', (info) => {
     console.log('[Updater] Update available:', info.version);
-    _updateAvailableVersion = info.version;
+    setUpdateAvailableVersion(info.version);
+    if (!_promptForUpdateAvailable || _updateDownloading || _updateDownloaded) return;
+
+    const win = getMainWindow();
+    if (!win) return;
+    void dialog.showMessageBox(win, {
+      type: 'info',
+      title: 'Update Available',
+      message: `A new version (v${info.version}) is available.`,
+      detail: 'Would you like to download and install it now?',
+      buttons: ['Download Now', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+    }).then(({ response }) => {
+      if (response !== 0 || _updateDownloading || _updateDownloaded) return;
+
+      setUpdateState(true, false);
+      void autoUpdater.downloadUpdate().catch((err: unknown) => {
+        setUpdateState(false, false);
+        console.error('[Updater] Download failed:', err instanceof Error ? err.message : err);
+      });
+    }).catch((err: unknown) => {
+      console.error('[Updater] Update prompt failed:', err instanceof Error ? err.message : err);
+    });
   });
 
   // ── No update ──────────────────────────────────────────
   autoUpdater.on('update-not-available', () => {
     if (!_updateDownloading && !_updateDownloaded) {
-      _updateAvailableVersion = null;
+      setUpdateAvailableVersion(null);
     }
     console.log('[Updater] App is up to date.');
   });
@@ -204,6 +227,7 @@ function setupAutoUpdater(): void {
   autoUpdater.on('download-progress', (progress) => {
     _updateDownloading = true;
     _updateDownloaded = false;
+    publishUpdateState();
     const win = getMainWindow();
     if (win) {
       win.setProgressBar(progress.percent / 100);
@@ -216,6 +240,7 @@ function setupAutoUpdater(): void {
   autoUpdater.on('update-downloaded', (info) => {
     _updateDownloading = false;
     _updateDownloaded = true;
+    publishUpdateState();
     console.log('[Updater] Update downloaded:', info.version);
     const win = getMainWindow();
 
@@ -253,7 +278,7 @@ function setupAutoUpdater(): void {
   const runUpdateCheck = async (): Promise<void> => {
     if (_updateDownloading || _updateDownloaded) return;
     try {
-      const result = await checkForUpdates();
+      const result = await checkForUpdates(true);
       console.log('[Updater] checkForUpdates returned:', result?.updateInfo?.version || 'no update');
     } catch (err: any) {
       console.error('[Updater] Check failed:', err?.message || err);
@@ -272,10 +297,13 @@ function setupAutoUpdater(): void {
 }
 
 let _updateCheckPromise: ReturnType<typeof autoUpdater.checkForUpdates> | null = null;
-export function checkForUpdates() {
+let _promptForUpdateAvailable = false;
+export function checkForUpdates(promptForUpdate = false) {
+  _promptForUpdateAvailable = promptForUpdate;
   if (!_updateCheckPromise) {
     _updateCheckPromise = autoUpdater.checkForUpdates().finally(() => {
       _updateCheckPromise = null;
+      _promptForUpdateAvailable = false;
     });
   }
   return _updateCheckPromise;
@@ -288,18 +316,36 @@ let _updateDownloading = false;
 let _updateAvailableVersion: string | null = null;
 let _installingUpdate = false;
 
+function publishUpdateState(): void {
+  const win = getMainWindow();
+  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
+  win.webContents.send('system:updateState', {
+    updateDownloaded: _updateDownloaded,
+    updateDownloading: _updateDownloading,
+    updateAvailableVersion: _updateAvailableVersion,
+  });
+}
+
 // Export so ipc.ts can check it
 export function isUpdateDownloaded(): boolean { return _updateDownloaded; }
 export function isUpdateDownloading(): boolean { return _updateDownloading; }
 export function getUpdateAvailableVersion(): string | null { return _updateAvailableVersion; }
 export function setUpdateDownloaded(value: boolean): void {
   _updateDownloaded = value;
+  publishUpdateState();
 }
 export function setUpdateDownloading(value: boolean): void {
   _updateDownloading = value;
+  publishUpdateState();
+}
+export function setUpdateState(downloading: boolean, downloaded: boolean): void {
+  _updateDownloading = downloading;
+  _updateDownloaded = downloaded;
+  publishUpdateState();
 }
 export function setUpdateAvailableVersion(version: string | null): void {
   _updateAvailableVersion = version;
+  publishUpdateState();
 }
 export function setInstallingUpdate(value: boolean): void {
   _installingUpdate = value;

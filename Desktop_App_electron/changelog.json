@@ -1,6 +1,14 @@
 {
   "history": [
     {
+      "version": "v1.0.61",
+      "date": "2026-10-23",
+      "changes": [
+        "Synchronized updater download state immediately across Settings and the full changelog view",
+        "Updated the Download button when an update starts from the automatic prompt"
+      ]
+    },
+    {
       "version": "v1.0.60",
       "date": "2026-10-23",
       "changes": [

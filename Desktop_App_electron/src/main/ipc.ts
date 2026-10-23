@@ -13,8 +13,7 @@ import {
   isUpdateDownloading,
   getUpdateAvailableVersion,
   setUpdateAvailableVersion,
-  setUpdateDownloaded,
-  setUpdateDownloading,
+  setUpdateState,
   setInstallingUpdate,
 } from './main';
 import { apiService } from './services/api.service';
@@ -583,13 +582,11 @@ if (session) {
       return { ok: true, downloading: true };
     }
     try {
-      setUpdateDownloaded(false);
-      setUpdateDownloading(true);
+      setUpdateState(true, false);
       await autoUpdater.downloadUpdate();
       return { ok: true };
     } catch (e: any) {
-      setUpdateDownloaded(false);
-      setUpdateDownloading(false);
+      setUpdateState(false, false);
       return { ok: false, error: e?.message || 'Download failed' };
     }
   });
