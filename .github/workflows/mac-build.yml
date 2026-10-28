@@ -1,0 +1,486 @@
+name: Build & Release All Platforms
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Bitbucket branch or tag to build
+        required: false
+        default: Latest_version
+        type: string
+      test_only:
+        description: Build all platforms without uploading release assets
+        required: false
+        default: false
+        type: boolean
+
+env:
+  SOURCE_REF: ${{ github.event.inputs.source_ref || github.ref_name }}
+  TEST_ONLY: ${{ github.event.inputs.test_only || 'false' }}
+
+jobs:
+
+  build-mac:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Clone Bitbucket source
+        shell: bash
+        env:
+          BITBUCKET_REPO_READ_TOKEN: ${{ secrets.BITBUCKET_REPO_READ_TOKEN }}
+        run: |
+          cat > "$RUNNER_TEMP/bitbucket-askpass" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' 'x-bitbucket-api-token-auth' ;;
+            *Password*) printf '%s\n' "$BITBUCKET_REPO_READ_TOKEN" ;;
+          esac
+          EOF
+          chmod 700 "$RUNNER_TEMP/bitbucket-askpass"
+          GIT_ASKPASS="$RUNNER_TEMP/bitbucket-askpass" GIT_TERMINAL_PROMPT=0 \
+            git clone --branch "$SOURCE_REF" --depth 1 \
+            https://bitbucket.org/avdevs/collabv2.git source
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+
+      - run: brew install jq
+
+      - run: npm install
+        working-directory: source/Desktop_App_electron
+
+      - run: npm run build
+        working-directory: source/Desktop_App_electron
+
+      - name: Verify release tag matches source version
+        if: ${{ github.event_name == 'push' }}
+        working-directory: source/Desktop_App_electron
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "Release tag $GITHUB_REF_NAME does not match Bitbucket source version $VERSION"
+            exit 1
+          fi
+      - name: Generate icon.icns from icon.png
+        working-directory: source/Desktop_App_electron
+        run: |
+          mkdir -p assets/icon.iconset
+          for sz in 16 32 64 128 256 512; do
+            sips -z $sz $sz assets/icon.png --out assets/icon.iconset/icon_${sz}x${sz}.png
+            sips -z $((sz*2)) $((sz*2)) assets/icon.png --out assets/icon.iconset/icon_${sz}x${sz}@2x.png
+          done
+          iconutil -c icns assets/icon.iconset -o assets/icon.icns
+          echo "✅ icon.icns generated"
+      - name: Build Mac DMG
+        working-directory: source/Desktop_App_electron
+        run: |
+          npx electron-builder --mac dmg --x64 --publish never || true
+          ls release/*.dmg || (echo "❌ DMG not found in release/" && exit 1)
+          echo "✅ DMG build confirmed"
+
+      - name: Create Release + Upload Mac
+        if: ${{ env.TEST_ONLY != 'true' }}
+        working-directory: source/Desktop_App_electron
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          set +e
+
+          REPO_SLUG="CaptainArmandoSalazar/employee-monitor"
+          if [ -z "$GH_TOKEN" ]; then
+            echo "❌ GH_TOKEN is empty. Set the repository secret before running this workflow."
+            exit 1
+          fi
+
+          delete_and_upload() {
+            local RELEASE_ID=$1
+            local file=$2
+            local FILENAME=$(basename "$file")
+            local ENCODED_NAME=$(python3 -c "import urllib.parse; print(urllib.parse.quote('''$FILENAME'''))")
+
+            echo "---"
+            echo "📁 Processing: $FILENAME"
+
+            ASSETS_JSON=$(curl -sS \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO_SLUG/releases/$RELEASE_ID/assets?per_page=100")
+
+            echo "Assets on release: $(echo "$ASSETS_JSON" | jq -r '.[].name' 2>/dev/null)"
+
+            for ASSET_ID in $(echo "$ASSETS_JSON" | jq -r ".[] | select(.name == \"$FILENAME\") | .id" 2>/dev/null); do
+              echo "🗑️ Deleting asset ID: $ASSET_ID"
+              curl -sS -o /dev/null -X DELETE \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/$REPO_SLUG/assets/$ASSET_ID"
+            done
+
+            ASSETS_JSON_AFTER=$(curl -sS \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO_SLUG/releases/$RELEASE_ID/assets?per_page=100")
+
+            if echo "$ASSETS_JSON_AFTER" | jq -e ".[] | select(.name == \"$FILENAME\")" >/dev/null 2>&1; then
+              echo "⚠️ Asset $FILENAME still exists after delete; skipping duplicate upload to avoid GitHub 422."
+              return 0
+            fi
+
+            sleep 4
+
+            echo "⬆️ Uploading $FILENAME..."
+            HTTP_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "Content-Type: application/octet-stream" \
+              "https://uploads.github.com/repos/$REPO_SLUG/releases/$RELEASE_ID/assets?name=$ENCODED_NAME" \
+              --data-binary @"$file")
+
+            echo "Upload HTTP status: $HTTP_STATUS"
+
+            if [ "$HTTP_STATUS" = "201" ]; then
+              echo "✅ Uploaded $FILENAME"
+            else
+              echo "❌ Upload failed for $FILENAME with status $HTTP_STATUS"
+              set -e; exit 1
+            fi
+          }
+
+          VERSION=$(node -p "require('./package.json').version")
+          echo "📦 Version: $VERSION"
+
+          RELEASE_RESPONSE=$(curl -sS \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO_SLUG/releases/tags/v$VERSION")
+
+          RELEASE_ID=$(echo "$RELEASE_RESPONSE" | jq -r '.id // empty')
+
+          if [ -z "$RELEASE_ID" ]; then
+            echo "Creating new release v$VERSION..."
+            CREATE_RESPONSE=$(curl -sS -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "Content-Type: application/json" \
+              "https://api.github.com/repos/$REPO_SLUG/releases" \
+              -d "{\"tag_name\":\"v$VERSION\",\"name\":\"v$VERSION\",\"draft\":false,\"prerelease\":false}")
+            RELEASE_ID=$(echo "$CREATE_RESPONSE" | jq -r '.id // empty')
+            echo "✅ Created release: $RELEASE_ID"
+          else
+            echo "✅ Release already exists: $RELEASE_ID"
+          fi
+
+          if [ -z "$RELEASE_ID" ]; then
+            echo "❌ Failed to get or create release ID."
+            echo "$CREATE_RESPONSE"
+            exit 1
+          fi
+
+          # Mac uploads: .dmg, .dmg.blockmap, builder-debug.yml, latest-mac.yml
+          for file in release/*; do
+            if [ -f "$file" ]; then
+              FILENAME=$(basename "$file")
+              case "$FILENAME" in
+                *.dmg|*.dmg.blockmap|builder-debug.yml|latest-mac.yml)
+                  delete_and_upload "$RELEASE_ID" "$file"
+                  ;;
+                *)
+                  echo "⏭️ Skipping non-Mac file: $FILENAME"
+                  ;;
+              esac
+            fi
+          done
+
+          echo "🎉 All Mac files uploaded successfully!"
+
+
+  build-linux:
+    runs-on: ubuntu-latest
+    needs: build-mac
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Clone Bitbucket source
+        shell: bash
+        env:
+          BITBUCKET_REPO_READ_TOKEN: ${{ secrets.BITBUCKET_REPO_READ_TOKEN }}
+        run: |
+          cat > "$RUNNER_TEMP/bitbucket-askpass" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' 'x-bitbucket-api-token-auth' ;;
+            *Password*) printf '%s\n' "$BITBUCKET_REPO_READ_TOKEN" ;;
+          esac
+          EOF
+          chmod 700 "$RUNNER_TEMP/bitbucket-askpass"
+          GIT_ASKPASS="$RUNNER_TEMP/bitbucket-askpass" GIT_TERMINAL_PROMPT=0 \
+            git clone --branch "$SOURCE_REF" --depth 1 \
+            https://bitbucket.org/avdevs/collabv2.git source
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+
+      - run: sudo apt-get update && sudo apt-get install -y jq
+
+      - run: npm install
+        working-directory: source/Desktop_App_electron
+
+      - run: npm run build
+        working-directory: source/Desktop_App_electron
+
+      - run: cp src/main/services/inputWorker.js dist/main/services/inputWorker.js
+        working-directory: source/Desktop_App_electron
+
+      - run: npx electron-builder --linux AppImage deb --publish never
+        working-directory: source/Desktop_App_electron
+
+      - name: Upload Linux files
+        if: ${{ env.TEST_ONLY != 'true' }}
+        working-directory: source/Desktop_App_electron
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          set +e
+
+          REPO_SLUG="CaptainArmandoSalazar/employee-monitor"
+          if [ -z "$GH_TOKEN" ]; then
+            echo "❌ GH_TOKEN is empty. Set the repository secret before running this workflow."
+            exit 1
+          fi
+
+          delete_and_upload() {
+            local RELEASE_ID=$1
+            local file=$2
+            local FILENAME=$(basename "$file")
+            local ENCODED_NAME=$(python3 -c "import urllib.parse; print(urllib.parse.quote('''$FILENAME'''))")
+
+            echo "---"
+            echo "📁 Processing: $FILENAME"
+
+            ASSETS_JSON=$(curl -sS \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO_SLUG/releases/$RELEASE_ID/assets?per_page=100")
+
+            echo "Assets on release: $(echo "$ASSETS_JSON" | jq -r '.[].name' 2>/dev/null)"
+
+            for ASSET_ID in $(echo "$ASSETS_JSON" | jq -r ".[] | select(.name == \"$FILENAME\") | .id" 2>/dev/null); do
+              echo "🗑️ Deleting asset ID: $ASSET_ID"
+              curl -sS -o /dev/null -X DELETE \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/$REPO_SLUG/assets/$ASSET_ID"
+            done
+
+            ASSETS_JSON_AFTER=$(curl -sS \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO_SLUG/releases/$RELEASE_ID/assets?per_page=100")
+
+            if echo "$ASSETS_JSON_AFTER" | jq -e ".[] | select(.name == \"$FILENAME\")" >/dev/null 2>&1; then
+              echo "⚠️ Asset $FILENAME still exists after delete; skipping duplicate upload to avoid GitHub 422."
+              return 0
+            fi
+
+            sleep 4
+
+            echo "⬆️ Uploading $FILENAME..."
+            HTTP_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "Content-Type: application/octet-stream" \
+              "https://uploads.github.com/repos/$REPO_SLUG/releases/$RELEASE_ID/assets?name=$ENCODED_NAME" \
+              --data-binary @"$file")
+
+            echo "Upload HTTP status: $HTTP_STATUS"
+
+            if [ "$HTTP_STATUS" = "201" ]; then
+              echo "✅ Uploaded $FILENAME"
+            else
+              echo "❌ Upload failed for $FILENAME with status $HTTP_STATUS"
+              set -e; exit 1
+            fi
+          }
+
+          VERSION=$(node -p "require('./package.json').version")
+          echo "📦 Version: $VERSION"
+
+          RELEASE_ID=$(curl -sS \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO_SLUG/releases/tags/v$VERSION" \
+            | jq -r '.id // empty')
+
+          if [ -z "$RELEASE_ID" ]; then
+            echo "❌ Release not found for v$VERSION"
+            exit 1
+          fi
+
+          echo "✅ Found release: $RELEASE_ID"
+
+          # Linux uploads only: .AppImage and .deb files
+          for file in release/*; do
+            if [ -f "$file" ]; then
+              FILENAME=$(basename "$file")
+              case "$FILENAME" in
+                *.AppImage|*.deb|latest-linux.yml)
+                  delete_and_upload "$RELEASE_ID" "$file"
+                  ;;
+                *)
+                  echo "⏭️ Skipping non-Linux file: $FILENAME"
+                  ;;
+              esac
+            fi
+          done
+
+          echo "🎉 All Linux files uploaded successfully!"
+
+
+  build-windows:
+    runs-on: windows-latest
+    needs: build-mac
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Clone Bitbucket source
+        shell: bash
+        env:
+          BITBUCKET_REPO_READ_TOKEN: ${{ secrets.BITBUCKET_REPO_READ_TOKEN }}
+        run: |
+          cat > "$RUNNER_TEMP/bitbucket-askpass" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' 'x-bitbucket-api-token-auth' ;;
+            *Password*) printf '%s\n' "$BITBUCKET_REPO_READ_TOKEN" ;;
+          esac
+          EOF
+          chmod 700 "$RUNNER_TEMP/bitbucket-askpass"
+          GIT_ASKPASS="$RUNNER_TEMP/bitbucket-askpass" GIT_TERMINAL_PROMPT=0 \
+            git clone --branch "$SOURCE_REF" --depth 1 \
+            https://bitbucket.org/avdevs/collabv2.git source
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+
+      - run: choco install jq
+
+      - run: npm install
+        working-directory: source/Desktop_App_electron
+
+      - run: npm run build
+        working-directory: source/Desktop_App_electron
+
+      - run: npx electron-builder --win nsis --x64 --publish never
+        working-directory: source/Desktop_App_electron
+
+      - name: Upload Windows files
+        if: ${{ env.TEST_ONLY != 'true' }}
+        working-directory: source/Desktop_App_electron
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          set +e
+
+          REPO_SLUG="CaptainArmandoSalazar/employee-monitor"
+          if [ -z "$GH_TOKEN" ]; then
+            echo "❌ GH_TOKEN is empty. Set the repository secret before running this workflow."
+            exit 1
+          fi
+
+          delete_and_upload() {
+            local RELEASE_ID=$1
+            local file=$2
+            local FILENAME=$(basename "$file")
+            local ENCODED_NAME=$(python3 -c "import urllib.parse; print(urllib.parse.quote('''$FILENAME'''))")
+
+            echo "---"
+            echo "📁 Processing: $FILENAME"
+
+            ASSETS_JSON=$(curl -sS \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO_SLUG/releases/$RELEASE_ID/assets?per_page=100")
+
+            echo "Assets on release: $(echo "$ASSETS_JSON" | jq -r '.[].name' 2>/dev/null)"
+
+            for ASSET_ID in $(echo "$ASSETS_JSON" | jq -r ".[] | select(.name == \"$FILENAME\") | .id" 2>/dev/null); do
+              echo "🗑️ Deleting asset ID: $ASSET_ID"
+              curl -sS -o /dev/null -X DELETE \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/$REPO_SLUG/assets/$ASSET_ID"
+            done
+
+            ASSETS_JSON_AFTER=$(curl -sS \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO_SLUG/releases/$RELEASE_ID/assets?per_page=100")
+
+            if echo "$ASSETS_JSON_AFTER" | jq -e ".[] | select(.name == \"$FILENAME\")" >/dev/null 2>&1; then
+              echo "⚠️ Asset $FILENAME still exists after delete; skipping duplicate upload to avoid GitHub 422."
+              return 0
+            fi
+
+            sleep 4
+
+            echo "⬆️ Uploading $FILENAME..."
+            HTTP_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "Content-Type: application/octet-stream" \
+              "https://uploads.github.com/repos/$REPO_SLUG/releases/$RELEASE_ID/assets?name=$ENCODED_NAME" \
+              --data-binary @"$file")
+
+            echo "Upload HTTP status: $HTTP_STATUS"
+
+            if [ "$HTTP_STATUS" = "201" ]; then
+              echo "✅ Uploaded $FILENAME"
+            else
+              echo "❌ Upload failed for $FILENAME with status $HTTP_STATUS"
+              set -e; exit 1
+            fi
+          }
+
+          VERSION=$(node -p "require('./package.json').version")
+          echo "📦 Version: $VERSION"
+
+          RELEASE_ID=$(curl -sS \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO_SLUG/releases/tags/v$VERSION" \
+            | jq -r '.id // empty')
+
+          if [ -z "$RELEASE_ID" ]; then
+            echo "❌ Release not found for v$VERSION"
+            exit 1
+          fi
+
+          echo "✅ Found release: $RELEASE_ID"
+
+          # Windows uploads only: .exe and .exe.blockmap files
+          for file in release/*; do
+            if [ -f "$file" ]; then
+              FILENAME=$(basename "$file")
+              case "$FILENAME" in
+                *.exe|*.exe.blockmap|latest.yml)
+                  delete_and_upload "$RELEASE_ID" "$file"
+                  ;;
+                *)
+                  echo "⏭️ Skipping non-Windows file: $FILENAME"
+                  ;;
+              esac
+            fi
+          done
+
+          echo "🎉 All Windows files uploaded successfully!"
